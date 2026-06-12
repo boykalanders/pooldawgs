@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-mahogany-deep text-amber-50 antialiased;
+  background-image: radial-gradient(
+      ellipse at 50% -20%,
+      rgba(201, 162, 39, 0.08),
+      transparent 60%
+    ),
+    linear-gradient(160deg, #1c0d09 0%, #170a07 50%, #120805 100%);
+  min-height: 100vh;
+}
+
+.panel {
+  @apply rounded-xl border border-gold-dim/40 bg-gunmetal-dark/80 shadow-lg;
+}
+
+.gold-frame {
+  @apply border border-gold/60 shadow-gold-glow;
+}
+
+.btn-gold {
+  @apply rounded-lg bg-gold-sheen px-4 py-2 font-semibold text-mahogany-deep
+    transition hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100;
+}
+
+.btn-outline {
+  @apply rounded-lg border border-gold-dim/60 px-4 py-2 text-gold
+    transition hover:border-gold hover:shadow-gold-glow disabled:opacity-40;
+}
+
+.heading-display {
+  @apply font-display tracking-wide text-gold-bright;
+  text-shadow: 0 2px 12px rgba(201, 162, 39, 0.35);
+}
+
+/* Winner-popup confetti */
+.confetti {
+  position: absolute;
+  top: -14px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0.9;
+  pointer-events: none;
+  animation: confetti-fall linear infinite;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) translateX(0) rotate(0deg);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translateY(220px) translateX(16px) rotate(220deg);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(480px) translateX(-12px) rotate(420deg);
+    opacity: 0;
+  }
+}

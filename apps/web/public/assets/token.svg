@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="coin" cx="0.4" cy="0.32" r="0.9">
+      <stop offset="0" stop-color="#f0d77b"/>
+      <stop offset="0.55" stop-color="#c9a227"/>
+      <stop offset="1" stop-color="#8a6d1d"/>
+    </radialGradient>
+    <radialGradient id="inner" cx="0.42" cy="0.36" r="0.95">
+      <stop offset="0" stop-color="#d9b54a"/>
+      <stop offset="1" stop-color="#a07f22"/>
+    </radialGradient>
+  </defs>
+  <circle cx="50" cy="50" r="48" fill="url(#coin)"/>
+  <circle cx="50" cy="50" r="40" fill="url(#inner)" stroke="#7a611a" stroke-width="1.5"/>
+  <circle cx="94.0" cy="50.0" r="1.8" fill="#7a611a"/>
+  <circle cx="92.5" cy="61.4" r="1.8" fill="#7a611a"/>
+  <circle cx="88.1" cy="72.0" r="1.8" fill="#7a611a"/>
+  <circle cx="81.1" cy="81.1" r="1.8" fill="#7a611a"/>
+  <circle cx="72.0" cy="88.1" r="1.8" fill="#7a611a"/>
+  <circle cx="61.4" cy="92.5" r="1.8" fill="#7a611a"/>
+  <circle cx="50.0" cy="94.0" r="1.8" fill="#7a611a"/>
+  <circle cx="38.6" cy="92.5" r="1.8" fill="#7a611a"/>
+  <circle cx="28.0" cy="88.1" r="1.8" fill="#7a611a"/>
+  <circle cx="18.9" cy="81.1" r="1.8" fill="#7a611a"/>
+  <circle cx="11.9" cy="72.0" r="1.8" fill="#7a611a"/>
+  <circle cx="7.5" cy="61.4" r="1.8" fill="#7a611a"/>
+  <circle cx="6.0" cy="50.0" r="1.8" fill="#7a611a"/>
+  <circle cx="7.5" cy="38.6" r="1.8" fill="#7a611a"/>
+  <circle cx="11.9" cy="28.0" r="1.8" fill="#7a611a"/>
+  <circle cx="18.9" cy="18.9" r="1.8" fill="#7a611a"/>
+  <circle cx="28.0" cy="11.9" r="1.8" fill="#7a611a"/>
+  <circle cx="38.6" cy="7.5" r="1.8" fill="#7a611a"/>
+  <circle cx="50.0" cy="6.0" r="1.8" fill="#7a611a"/>
+  <circle cx="61.4" cy="7.5" r="1.8" fill="#7a611a"/>
+  <circle cx="72.0" cy="11.9" r="1.8" fill="#7a611a"/>
+  <circle cx="81.1" cy="18.9" r="1.8" fill="#7a611a"/>
+  <circle cx="88.1" cy="28.0" r="1.8" fill="#7a611a"/>
+  <circle cx="92.5" cy="38.6" r="1.8" fill="#7a611a"/>
+  <g fill="#2a1c0d">
+    <ellipse cx="50" cy="60" rx="15" ry="12"/>
+    <circle cx="35" cy="44" r="6"/>
+    <circle cx="45" cy="38" r="6"/>
+    <circle cx="55" cy="38" r="6"/>
+    <circle cx="65" cy="44" r="6"/>
+  </g>
+  <ellipse cx="38" cy="26" rx="14" ry="6" transform="rotate(-28 38 26)" fill="rgba(255,244,200,0.5)"/>
+</svg>
