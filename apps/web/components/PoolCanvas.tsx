@@ -415,6 +415,9 @@ function drawScene(
 
   for (const ball of state.balls) {
     if (ball.inHole) continue;
+    // Ball in hand: the cue ball is lifted off the table — only the
+    // placement ghost (drawn in the overlay) is visible.
+    if (ball.id === CUE_BALL_ID && state.ballInHand) continue;
     drawBall(ctx, ball.x, ball.y, ball.id);
   }
 

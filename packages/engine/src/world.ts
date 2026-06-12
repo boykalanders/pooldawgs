@@ -102,8 +102,10 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
       return { ok: false, reason: "spin must be within [-1, 1]" };
     }
   }
-  if (cueBall(state).inHole) {
-    return { ok: false, reason: "cue ball must be placed first" };
+  // After ANY foul the cue ball is in hand (off the table) — it must be
+  // placed before the next shot, as in the fork.
+  if (state.ballInHand || cueBall(state).inHole) {
+    return { ok: false, reason: "ball in hand — place the cue ball first" };
   }
   return { ok: true };
 }

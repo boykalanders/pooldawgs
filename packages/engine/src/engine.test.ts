@@ -212,6 +212,51 @@ describe("ball in hand placement", () => {
   });
 });
 
+describe("pocket capture matches the visual mouth", () => {
+  /** Lone cue ball hugging a cushion (centre clamped to the rail line). */
+  function railState(y: number): TableState {
+    const state = createInitialState();
+    for (const ball of state.balls) {
+      if (ball.id === CUE_BALL_ID) continue;
+      ball.inHole = true;
+      ball.x = 0;
+      ball.y = 900;
+    }
+    const cue = cueBall(state);
+    cue.x = 600;
+    cue.y = y;
+    return state;
+  }
+
+  it("a ball rolling along the TOP rail drops into the top-centre pocket", () => {
+    // Top cushion rest line: centre y = BORDER + ball origin = 82.
+    const result = simulateShot(railState(82), { angle: 0, power: 20 });
+    expect(
+      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
+    ).toBe(true);
+    expect(result.endState.balls[CUE_BALL_ID].inHole).toBe(true);
+  });
+
+  it("a ball rolling along the BOTTOM rail drops into the bottom-centre pocket", () => {
+    // Bottom cushion rest line: centre y = 825 - 57 - 25 = 743.
+    const result = simulateShot(railState(743), { angle: 0, power: 20 });
+    expect(
+      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
+    ).toBe(true);
+    expect(result.endState.balls[CUE_BALL_ID].inHole).toBe(true);
+  });
+
+  it("a ball rolling along the rail into a corner drops", () => {
+    const state = railState(82);
+    const cue = cueBall(state);
+    cue.x = 300;
+    const result = simulateShot(state, { angle: Math.PI, power: 20 }); // roll left
+    expect(
+      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
+    ).toBe(true);
+  });
+});
+
 describe("spin / english (PoolDawgs extension)", () => {
   /** Cue at head spot firing straight +x into a single object ball. */
   function straightShotState(): TableState {

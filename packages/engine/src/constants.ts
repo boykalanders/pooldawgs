@@ -1,6 +1,7 @@
-// Constants ported verbatim from the forked Classic-Pool-Game
-// (Global.js, GamePolicy.js, GameWorld.js). Changing any of these breaks
-// replay-compatibility between server and client simulations.
+// Simulation constants — mostly from the forked Classic-Pool-Game
+// (Global.js, GamePolicy.js, GameWorld.js), with deliberate upgrades noted
+// inline (elastic collisions, centre-pocket capture). Changing ANY of these
+// breaks replay-compatibility: server and client must run the same values.
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
@@ -17,9 +18,13 @@ export const DELTA = 1 / 100;
 
 export const FRICTION_PER_STEP = 0.98;
 export const CUSHION_DAMPING = 0.95;
-export const BALL_COLLISION_DAMPING = 0.97;
-export const COLLISION_POWER_FACTOR = 0.00482;
-export const COLLISION_IMPULSE = 90;
+/**
+ * Ball-ball restitution for the elastic collision model. This replaces the
+ * fork's non-physical symmetric shove (total-speed × 0.00482 × 90 applied to
+ * both balls) with real momentum exchange along the contact normal — head-on
+ * shots stop the cue ball, cut shots split correctly.
+ */
+export const BALL_RESTITUTION = 0.94;
 export const SHOT_VELOCITY_FACTOR = 100;
 export const STOP_THRESHOLD = 1;
 
@@ -47,14 +52,21 @@ export interface Hole {
   radius: number;
 }
 
-/** Pocket centres from GamePolicy.js; centre pockets get +6 radius as in the fork. */
+/**
+ * Pocket capture zones. Corners keep the fork's GamePolicy.js values (they
+ * play fine). The fork's CENTRE pockets sat so deep under the rail — (750,32)
+ * and (750,794), radius 52 — that a cushion-hugging ball (centre clamped to
+ * y 82/743) had a capture window of only ~29px / ~20px: visually a hole,
+ * functionally a wall. They are deliberately retuned so the physics honours
+ * the drawn mouth (~70px capture window along the rail).
+ */
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS }, // top left
   { x: 1435, y: 62, radius: HOLE_RADIUS }, // top right
   { x: 62, y: 762, radius: HOLE_RADIUS }, // bottom left
   { x: 1435, y: 762, radius: HOLE_RADIUS }, // bottom right
-  { x: 750, y: 32, radius: HOLE_RADIUS + 6 }, // top centre
-  { x: 750, y: 794, radius: HOLE_RADIUS + 6 }, // bottom centre
+  { x: 750, y: 40, radius: 56 }, // top centre
+  { x: 750, y: 785, radius: 56 }, // bottom centre
 ];
 
 export const CUE_BALL_START = { x: 413, y: 413 };

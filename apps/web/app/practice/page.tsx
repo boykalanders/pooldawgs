@@ -29,6 +29,8 @@ export default function PracticePage() {
   const [state, setState] = useState<TableState>(() => createInitialState());
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Frames won across re-racks — the fork's totalScore.
+  const [frames, setFrames] = useState<[number, number]>([0, 0]);
   const pendingEndState = useRef<TableState | null>(null);
 
   const reRack = useCallback(() => {
@@ -60,6 +62,10 @@ export default function PracticePage() {
         });
         if (result.outcome.gameOver) {
           setMessage(null);
+          if (result.outcome.winner !== null) {
+            const winner = result.outcome.winner;
+            setFrames((f) => (winner === 0 ? [f[0] + 1, f[1]] : [f[0], f[1] + 1]));
+          }
         } else if (result.outcome.foul) {
           setMessage(`Foul! Player ${result.outcome.nextTurn + 1} has ball in hand`);
         } else {
@@ -99,8 +105,8 @@ export default function PracticePage() {
     <GameShell
       state={state}
       players={[
-        { ...PLAYERS[0], detail: "2,450.00 $DDAWGS", badge: "42" },
-        { ...PLAYERS[1], detail: "1,980.50 $DDAWGS", badge: "38" },
+        { ...PLAYERS[0], detail: `2,450.00 $DDAWGS · 🏆 ${frames[0]}`, badge: "42" },
+        { ...PLAYERS[1], detail: `1,980.50 $DDAWGS · 🏆 ${frames[1]}`, badge: "38" },
       ]}
       interactive={!state.gameOver}
       potLabel="250.00 $DDAWGS"
@@ -126,7 +132,7 @@ export default function PracticePage() {
           <WinnerPopup
             winnerName={PLAYERS[state.winner].name}
             avatarSrc={PLAYERS[state.winner].avatarSrc}
-            message="wins the frame"
+            message={`wins the frame (${frames[0]}–${frames[1]})`}
             amountLabel="+200.00 $DDAWGS"
             actions={
               <>

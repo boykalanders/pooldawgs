@@ -1,16 +1,17 @@
-// Deterministic port of the fork's physics: GameWorld.handleCollision,
-// Ball.update / Ball.updatePosition / Ball.handleCollision. The math, the
-// constants and crucially the ORDER of operations (pairwise ball collisions
-// first, then per-ball integration, ascending index) are preserved so that
-// server and client simulations of the same shot produce identical results.
+// Deterministic physics, originally ported from the fork (GameWorld /
+// Ball.update / Ball.handleCollision) and then deliberately upgraded:
+//   • ball-ball contacts use REAL elastic collisions (normal-component
+//     exchange with restitution) instead of the fork's symmetric shove;
+//   • centre-pocket capture zones are retuned to match the visual mouths.
+// Friction, cushion handling, the fixed timestep and the ORDER of operations
+// (pairwise collisions first, then per-ball integration, ascending index)
+// are preserved so server and client simulations stay bit-identical.
 
 import {
-  BALL_COLLISION_DAMPING,
   BALL_ORIGIN,
+  BALL_RESTITUTION,
   BALL_SIZE,
   BOTTOM_BORDER_Y,
-  COLLISION_IMPULSE,
-  COLLISION_POWER_FACTOR,
   CUSHION_DAMPING,
   DELTA,
   FRICTION_PER_STEP,
@@ -82,6 +83,13 @@ export function stepWorld(
   return anyMoving;
 }
 
+/**
+ * Elastic equal-mass collision (real pool physics): the velocity components
+ * along the contact normal are exchanged (scaled by restitution), tangential
+ * components are kept. Detection looks one step ahead like the fork did, and
+ * the approach test (relative normal velocity < 0) prevents the same contact
+ * from firing twice while balls overlap.
+ */
 function collideBalls(
   b1: BallState,
   b2: BallState,
@@ -101,29 +109,39 @@ function collideBalls(
   const dy = n1y - n2y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  if (dist >= BALL_SIZE) return;
+  if (dist >= BALL_SIZE || dist < 1e-9) return;
+
+  const nx = dx / dist;
+  const ny = dy / dist;
+
+  // Only resolve approaching contacts.
+  const rel = (b1.vx - b2.vx) * nx + (b1.vy - b2.vy) * ny;
+  if (rel >= 0) return;
 
   hooks.onBallsCollide?.(b1, b2);
   events.push({ type: "ballsCollide", a: b1.id, b: b2.id, step });
 
-  let power =
-    Math.abs(b1.vx) + Math.abs(b1.vy) + Math.abs(b2.vx) + Math.abs(b2.vy);
-  power = power * COLLISION_POWER_FACTOR;
+  // Equal masses: each ball receives half the normal impulse.
+  const impulse = (-(1 + BALL_RESTITUTION) * rel) / 2;
+  b1.vx += impulse * nx;
+  b1.vy += impulse * ny;
+  b2.vx -= impulse * nx;
+  b2.vy -= impulse * ny;
 
-  const rotation = Math.atan2(b1.y - b2.y, b1.x - b2.x);
+  // Separate actual interpenetration so balls never sink into each other.
+  const cdx = b1.x - b2.x;
+  const cdy = b1.y - b2.y;
+  const cdist = Math.sqrt(cdx * cdx + cdy * cdy);
+  if (cdist > 1e-9 && cdist < BALL_SIZE) {
+    const push = (BALL_SIZE - cdist) / 2;
+    b1.x += (cdx / cdist) * push;
+    b1.y += (cdy / cdist) * push;
+    b2.x -= (cdx / cdist) * push;
+    b2.y -= (cdy / cdist) * push;
+  }
 
   b1.moving = true;
   b2.moving = true;
-
-  b2.vx += COLLISION_IMPULSE * Math.cos(rotation + Math.PI) * power;
-  b2.vy += COLLISION_IMPULSE * Math.sin(rotation + Math.PI) * power;
-  b2.vx *= BALL_COLLISION_DAMPING;
-  b2.vy *= BALL_COLLISION_DAMPING;
-
-  b1.vx += COLLISION_IMPULSE * Math.cos(rotation) * power;
-  b1.vy += COLLISION_IMPULSE * Math.sin(rotation) * power;
-  b1.vx *= BALL_COLLISION_DAMPING;
-  b1.vy *= BALL_COLLISION_DAMPING;
 }
 
 function updateBall(

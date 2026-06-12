@@ -7,7 +7,10 @@ burned**. NFT-gated — Deputy Dawgs holders only.
 The physics and rules are forked from
 [henshmi/Classic-Pool-Game](https://github.com/henshmi/Classic-Pool-Game)
 (vendored under `reference/`), rebuilt as a deterministic engine that runs on
-**both** the server (authoritative) and the client (rendering/animation).
+**both** the server (authoritative) and the client (rendering/animation),
+then upgraded beyond the fork: real elastic ball-ball collisions, cue-ball
+spin/english, centre pockets that capture what they visually promise, and
+ball-in-hand that lifts the cue ball off the table until placed.
 
 ## Why server-authoritative
 
