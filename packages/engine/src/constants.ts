@@ -28,6 +28,15 @@ export const BALL_RESTITUTION = 0.94;
 export const SHOT_VELOCITY_FACTOR = 100;
 export const STOP_THRESHOLD = 1;
 
+/**
+ * Anti-tunneling substeps. A full-power shot moves 75px per 1/100s step —
+ * twice the 38px collision diameter — so each step is subdivided until no
+ * ball travels more than SUBSTEP_TRAVEL px between collision checks.
+ * Friction stays per OUTER step, so slow shots behave exactly as before.
+ */
+export const SUBSTEP_TRAVEL = 12;
+export const MAX_SUBSTEPS = 12;
+
 export const MAX_POWER = 75;
 
 // Spin model (PoolDawgs extension; the fork had no spin).

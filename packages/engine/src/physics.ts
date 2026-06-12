@@ -17,10 +17,12 @@ import {
   FRICTION_PER_STEP,
   HOLES,
   LEFT_BORDER_X,
+  MAX_SUBSTEPS,
   POCKETED_PARK,
   RIGHT_BORDER_X,
   SHOT_VELOCITY_FACTOR,
   STOP_THRESHOLD,
+  SUBSTEP_TRAVEL,
   TOP_BORDER_Y,
 } from "./constants.js";
 import type { BallState, ShotEvent } from "./types.js";
@@ -59,6 +61,13 @@ export interface StepHooks {
 
 /**
  * Advance the world by one fixed DELTA step.
+ *
+ * Anti-tunneling: the step is internally subdivided so that the fastest
+ * ball never travels more than SUBSTEP_TRAVEL px between collision checks
+ * (a full-power break moves 75px per step — twice the collision diameter —
+ * which would otherwise pass straight through balls). Friction and the
+ * stop threshold apply once per OUTER step, preserving the fork's feel.
+ *
  * Returns true if any ball is still moving afterwards.
  */
 export function stepWorld(
@@ -67,17 +76,36 @@ export function stepWorld(
   events: ShotEvent[],
   hooks: StepHooks = {}
 ): boolean {
-  // Phase 1: pairwise ball-ball collisions (fork: GameWorld.update loop order).
-  for (let i = 0; i < balls.length; i++) {
-    for (let j = i + 1; j < balls.length; j++) {
-      collideBalls(balls[i], balls[j], step, events, hooks);
+  // Substep count from the fastest ball — deterministic by construction.
+  let maxSpeed = 0;
+  for (const ball of balls) {
+    if (ball.inHole || !ball.moving) continue;
+    const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+    if (speed > maxSpeed) maxSpeed = speed;
+  }
+  const substeps = Math.min(
+    MAX_SUBSTEPS,
+    Math.max(1, Math.ceil((maxSpeed * DELTA) / SUBSTEP_TRAVEL))
+  );
+  const dt = DELTA / substeps;
+
+  for (let sub = 0; sub < substeps; sub++) {
+    // Phase 1: pairwise ball-ball collisions (fork's loop order).
+    for (let i = 0; i < balls.length; i++) {
+      for (let j = i + 1; j < balls.length; j++) {
+        collideBalls(balls[i], balls[j], dt, step, events, hooks);
+      }
+    }
+    // Phase 2: move each ball (pockets + cushions).
+    for (const ball of balls) {
+      integrateBall(ball, dt, step, events, hooks);
     }
   }
 
-  // Phase 2: integrate each ball (fork: Ball.update).
+  // Phase 3: friction + stop threshold, once per outer step.
   let anyMoving = false;
   for (const ball of balls) {
-    updateBall(ball, step, events, hooks);
+    applyFriction(ball);
     if (ball.moving) anyMoving = true;
   }
   return anyMoving;
@@ -93,6 +121,7 @@ export function stepWorld(
 function collideBalls(
   b1: BallState,
   b2: BallState,
+  dt: number,
   step: number,
   events: ShotEvent[],
   hooks: StepHooks
@@ -100,10 +129,10 @@ function collideBalls(
   if (b1.inHole || b2.inHole) return;
   if (!b1.moving && !b2.moving) return;
 
-  const n1x = b1.x + b1.vx * DELTA;
-  const n1y = b1.y + b1.vy * DELTA;
-  const n2x = b2.x + b2.vx * DELTA;
-  const n2y = b2.y + b2.vy * DELTA;
+  const n1x = b1.x + b1.vx * dt;
+  const n1y = b1.y + b1.vy * dt;
+  const n2x = b2.x + b2.vx * dt;
+  const n2y = b2.y + b2.vy * dt;
 
   const dx = n1x - n2x;
   const dy = n1y - n2y;
@@ -144,15 +173,16 @@ function collideBalls(
   b2.moving = true;
 }
 
-function updateBall(
+function integrateBall(
   ball: BallState,
+  dt: number,
   step: number,
   events: ShotEvent[],
   hooks: StepHooks
 ): void {
   if (ball.moving && !ball.inHole) {
-    const newX = ball.x + ball.vx * DELTA;
-    const newY = ball.y + ball.vy * DELTA;
+    const newX = ball.x + ball.vx * dt;
+    const newY = ball.y + ball.vy * dt;
 
     if (isInsideHole(newX, newY)) {
       // The fork parks the ball off-table after a 100ms timeout; we do it
@@ -197,7 +227,10 @@ function updateBall(
       ball.y = newY;
     }
   }
+}
 
+/** Rolling friction + stop threshold — once per outer DELTA step. */
+function applyFriction(ball: BallState): void {
   ball.vx *= FRICTION_PER_STEP;
   ball.vy *= FRICTION_PER_STEP;
 

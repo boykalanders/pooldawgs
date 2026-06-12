@@ -9,7 +9,7 @@ import {
   stateHash,
   validateShot,
 } from "./world.js";
-import { HOLES, MAX_POWER } from "./constants.js";
+import { BALL_SIZE, HOLES, MAX_POWER } from "./constants.js";
 import type { TableState } from "./types.js";
 
 /** A state with only cue + black + one red/one yellow left, for endgame tests. */
@@ -209,6 +209,59 @@ describe("ball in hand placement", () => {
 
   it("rejects placement when there is no ball in hand", () => {
     expect(placeCueBall(createInitialState(), 400, 400).ok).toBe(false);
+  });
+});
+
+describe("full-power physics (anti-tunneling)", () => {
+  it("a full-power head-on shot transfers momentum instead of passing through", () => {
+    const state = createInitialState();
+    for (const ball of state.balls) {
+      if (ball.id === CUE_BALL_ID) continue;
+      ball.inHole = true;
+      ball.x = 0;
+      ball.y = 900;
+    }
+    const object = state.balls.find((b) => b.color === "red")!;
+    object.inHole = false;
+    object.x = 800;
+    object.y = 413;
+    const cue = cueBall(state);
+    cue.x = 400;
+    cue.y = 413;
+    state.playerColors = ["red", "yellow"];
+
+    const result = simulateShot(state, { angle: 0, power: MAX_POWER });
+    // Contact must be detected — before substepping, a 75px/step cue ball
+    // tunnelled straight through and this produced ZERO collision events.
+    expect(result.events.some((e) => e.type === "ballsCollide")).toBe(true);
+    // …and the momentum must actually transfer to the object ball.
+    const endObject = result.endState.balls[object.id];
+    const moved =
+      endObject.inHole ||
+      Math.abs(endObject.x - 800) + Math.abs(endObject.y - 413) > 200;
+    expect(moved).toBe(true);
+  });
+
+  it("a full-power break never leaves balls overlapping at rest", () => {
+    const result = simulateShot(createInitialState(), { angle: 0, power: MAX_POWER });
+    const onTable = result.endState.balls.filter((b) => !b.inHole);
+    for (let i = 0; i < onTable.length; i++) {
+      for (let j = i + 1; j < onTable.length; j++) {
+        const dx = onTable[i].x - onTable[j].x;
+        const dy = onTable[i].y - onTable[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        expect(dist).toBeGreaterThan(BALL_SIZE - 2);
+      }
+    }
+    // The cue must actually strike the rack on a straight break.
+    expect(result.events.some((e) => e.type === "ballsCollide")).toBe(true);
+  });
+
+  it("full-power shots stay deterministic", () => {
+    const a = simulateShot(createInitialState(), { angle: 0.05, power: MAX_POWER });
+    const b = simulateShot(createInitialState(), { angle: 0.05, power: MAX_POWER });
+    expect(stateHash(a.endState)).toEqual(stateHash(b.endState));
+    expect(a.steps).toEqual(b.steps);
   });
 });
 
