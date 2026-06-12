@@ -66,16 +66,17 @@ export interface Hole {
  * play fine). The fork's CENTRE pockets sat so deep under the rail — (750,32)
  * and (750,794), radius 52 — that a cushion-hugging ball (centre clamped to
  * y 82/743) had a capture window of only ~29px / ~20px: visually a hole,
- * functionally a wall. They are deliberately retuned so the physics honours
- * the drawn mouth (~70px capture window along the rail).
+ * functionally a wall. They are deliberately retuned — recessed into the
+ * rail but still honouring the drawn mouth (~48px capture window along the
+ * rail, ≈1.3 ball diameters).
  */
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS }, // top left
   { x: 1435, y: 62, radius: HOLE_RADIUS }, // top right
   { x: 62, y: 762, radius: HOLE_RADIUS }, // bottom left
   { x: 1435, y: 762, radius: HOLE_RADIUS }, // bottom right
-  { x: 750, y: 40, radius: 56 }, // top centre
-  { x: 750, y: 785, radius: 56 }, // bottom centre
+  { x: 750, y: 36, radius: 52 }, // top centre
+  { x: 750, y: 789, radius: 52 }, // bottom centre
 ];
 
 export const CUE_BALL_START = { x: 413, y: 413 };
