@@ -7,6 +7,7 @@ import {
   type ServerToClientEvents,
 } from "@pooldawgs/shared";
 import { verifyAuth } from "./auth.js";
+import { createChainReader, ZeroAddress, type ChainReader } from "./chain.js";
 import { startChainListener } from "./chain-events.js";
 import type { ServerConfig } from "./config.js";
 import { LeaderboardStore } from "./leaderboard.js";
@@ -32,7 +33,8 @@ const roomChannel = (gameId: string) => `game:${gameId}`;
 
 export function createPoolDawgsServer(
   config: ServerConfig,
-  relayer: Relayer = createRelayer(config)
+  relayer: Relayer = createRelayer(config),
+  chainReader: ChainReader = createChainReader(config)
 ): PoolDawgsServer {
   const leaderboard = new LeaderboardStore();
 
@@ -91,17 +93,26 @@ export function createPoolDawgsServer(
   }
 
   /**
-   * Resolve the two seats for a game. With the chain enabled, seats come from
-   * the on-chain lobby mirror. In dev mode the first two distinct
-   * authenticated wallets to join an unknown gameId become the players.
+   * Resolve the two seats (and stake) for a game. With the chain enabled,
+   * seats are read straight from the contract — authoritative and immune to
+   * event-listener lag. In dev mode the first two distinct authenticated
+   * wallets to join an unknown gameId become the players.
    */
   const devSeats = new Map<string, Address[]>();
-  function resolveSeats(gameId: string, joiner: Address): [Address, Address] | null {
+  async function resolveSeats(
+    gameId: string,
+    joiner: Address
+  ): Promise<{ seats: [Address, Address]; stake: string | null } | null> {
     if (config.chainEnabled) {
-      const game = lobby.get(gameId);
-      if (!game || game.status !== "active" || !game.playerTwo) return null;
-      const seats: [Address, Address] = [game.playerOne, game.playerTwo];
-      return seats.includes(joiner) ? seats : null;
+      const game = await chainReader.getGame(gameId);
+      if (!game || game.isCompleted) return null;
+      if (game.playerTwo === ZeroAddress) return null; // no opponent yet
+      const seats: [Address, Address] = [
+        game.playerOne.toLowerCase() as Address,
+        game.playerTwo.toLowerCase() as Address,
+      ];
+      if (!seats.includes(joiner)) return null;
+      return { seats, stake: game.stake.toString() };
     }
     const pending = devSeats.get(gameId) ?? [];
     if (!pending.includes(joiner)) {
@@ -109,7 +120,7 @@ export function createPoolDawgsServer(
       pending.push(joiner);
       devSeats.set(gameId, pending);
     }
-    return pending.length === 2 ? [pending[0], pending[1]] : null;
+    return pending.length === 2 ? { seats: [pending[0], pending[1]], stake: null } : null;
   }
 
   io.on("connection", (socket) => {
@@ -122,7 +133,7 @@ export function createPoolDawgsServer(
       void socket.leave("lobby");
     });
 
-    socket.on("room:join", ({ gameId, auth }) => {
+    socket.on("room:join", async ({ gameId, auth }) => {
       const address = verifyAuth(auth);
       if (!address) {
         socket.emit("server:error", { code: "unauthorized", message: "bad signature" });
@@ -132,8 +143,8 @@ export function createPoolDawgsServer(
 
       let room = rooms.get(gameId);
       if (!room) {
-        const seats = resolveSeats(gameId, address);
-        if (!seats) {
+        const resolved = await resolveSeats(gameId, address);
+        if (!resolved) {
           // Dev mode: first player waits for an opponent before a room exists.
           if (!config.chainEnabled && devSeats.get(gameId)?.includes(address)) {
             void socket.join(roomChannel(gameId));
@@ -145,14 +156,17 @@ export function createPoolDawgsServer(
           });
           return;
         }
-        room = new GameRoom(
-          gameId,
-          seats,
-          makeEmitter(gameId),
-          relayer,
-          config.shotClockMs,
-          lobby.get(gameId)?.stake ?? null
-        );
+        // Another join may have created the room while we awaited the chain.
+        room =
+          rooms.get(gameId) ??
+          new GameRoom(
+            gameId,
+            resolved.seats,
+            makeEmitter(gameId),
+            relayer,
+            config.shotClockMs,
+            resolved.stake
+          );
         rooms.set(gameId, room);
       }
 

@@ -61,3 +61,6 @@ export const CHESS_NFT_ADDRESS = envAddr("NEXT_PUBLIC_CHESS_NFT_ADDRESS", active
 
 /** True when the game proxy + token are known for the active network. */
 export const CONTRACTS_CONFIGURED = Boolean(POOLDAWGS_ADDRESS && DDAWGS_TOKEN_ADDRESS);
+
+/** Testnet (anything but Ethereum mainnet) — enables the public $DDawgs faucet. */
+export const IS_TESTNET = CHAIN_ID !== 1;

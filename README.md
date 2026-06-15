@@ -158,9 +158,25 @@ The web address book lives in `apps/web/lib/env.ts`; deploy with
 `pnpm --filter @pooldawgs/contracts deploy:sepolia` (or `deploy:mainnet`), then
 update the registry. The deployer key is the contract **owner = relayer**.
 
+## Lobby & matchmaking
+
+Matching is the ChessDawgs **create-with-an-ID / join-by-ID** model, plus a
+public browse list on top:
+
+- **Create** generates a short, shareable game code (e.g. `POOL-7F3K2`) — that
+  code *is* the on-chain `gameId`. The creator waits on a "share this code"
+  card and is dropped into the table automatically when an opponent joins.
+- **Join by code / invite link** — paste a code (or a `…/lobby?join=CODE`
+  link) to challenge someone directly, exactly like ChessDawgs.
+- **Public lobby** — every open table is also listed live (mirrored from chain
+  events by the server), with a one-tap **Quick match** for the first open one.
+
+There is no on-chain queue or skill-based pairing — matching is open tables +
+shared codes, which is the correct shape for an escrow contract.
+
 ## How a wagered game flows
 
-1. Player A: `approve` → `createGame(stake)` (escrows stake, NFT-gated).
+1. Player A: `approve` → `createGame(stake, code)` (escrows stake, NFT-gated).
 2. Player B: `approve` → `joinGame(id)` (escrows stake → game Active).
 3. Both connect to the server room (wallet-signature login) and play.
    Clients send `{angle, power}`; the server simulates with the shared

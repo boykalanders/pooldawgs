@@ -3,12 +3,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseEther, zeroAddress } from "viem";
-import { useAccount, usePublicClient, useWriteContract } from "wagmi";
-import { ERC20_ABI, POOL_DAWGS_ABI, type LobbyGame } from "@pooldawgs/shared";
+import {
+  useAccount,
+  usePublicClient,
+  useReadContract,
+  useWriteContract,
+} from "wagmi";
+import {
+  ERC20_ABI,
+  FAUCET_TOKEN_ABI,
+  POOL_DAWGS_ABI,
+  type LobbyGame,
+} from "@pooldawgs/shared";
 import WalletGate from "@/components/WalletGate";
 import {
   CONTRACTS_CONFIGURED,
   DDAWGS_TOKEN_ADDRESS,
+  IS_TESTNET,
   POOLDAWGS_ADDRESS,
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
@@ -43,6 +54,15 @@ function Lobby() {
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Test-token balance for the faucet panel (testnet only).
+  const { data: tokenBalance, refetch: refetchBalance } = useReadContract({
+    address: DDAWGS_TOKEN_ADDRESS ?? undefined,
+    abi: FAUCET_TOKEN_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: Boolean(IS_TESTNET && CONTRACTS_CONFIGURED && address) },
+  });
 
   // Live open-tables list.
   useEffect(() => {
@@ -216,6 +236,26 @@ function Lobby() {
     }
   }
 
+  async function faucet() {
+    if (!DDAWGS_TOKEN_ADDRESS || !publicClient || !address) return;
+    setError(null);
+    setBusy("faucet");
+    try {
+      const tx = await writeContractAsync({
+        address: DDAWGS_TOKEN_ADDRESS,
+        abi: FAUCET_TOKEN_ABI,
+        functionName: "mint",
+        args: [address, parseEther("1000")],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: tx });
+      await refetchBalance();
+    } catch (e) {
+      setError(e instanceof Error ? e.message.split("\n")[0] : "Faucet failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function copy(kind: "code" | "link", text: string) {
     void navigator.clipboard?.writeText(text);
     setCopied(kind);
@@ -376,6 +416,25 @@ function Lobby() {
                 {busy === "joincode" ? "…" : "Join"}
               </button>
             </div>
+          </div>
+        )}
+
+        {IS_TESTNET && CONTRACTS_CONFIGURED && (
+          <div className="panel p-6">
+            <h2 className="heading-display mb-1 text-xl">Test faucet</h2>
+            <p className="mb-3 text-xs text-amber-100/60">
+              Sepolia testnet — grab free $DDawgs to wager with.
+            </p>
+            <div className="mb-3 flex items-center gap-2 text-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/assets/token.svg" alt="" className="h-5 w-5" draggable={false} />
+              <span className="font-mono text-gold-bright">
+                {tokenBalance !== undefined ? formatStake(tokenBalance) : "—"}
+              </span>
+            </div>
+            <button className="btn-gold w-full" disabled={busy !== null} onClick={faucet}>
+              {busy === "faucet" ? "Minting…" : "Get 1,000 test $DDawgs"}
+            </button>
           </div>
         )}
 

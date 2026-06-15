@@ -223,6 +223,27 @@ export const ERC721_ABI = [
   },
 ] as const;
 
+/** Testnet faucet token (MockDDawgsToken) — `mint` is public on testnet only. */
+export const FAUCET_TOKEN_ABI = [
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
 /** PoolDawgsNFT — the mintable membership pass (the play gate). */
 export const POOL_DAWGS_NFT_ABI = [
   {
