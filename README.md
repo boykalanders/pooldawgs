@@ -148,10 +148,33 @@ because those use the wallet's RPC, not the game server.
 **Live multiplayer needs the game server hosted separately.** It's a long-lived
 Socket.IO + ethers process, so it can't run on Vercel's serverless functions —
 host `apps/server` on a Node host (Railway / Render / Fly / a VPS) with a
-public HTTPS endpoint, set its `.env` (RPC_URL, CONTRACT_ADDRESS,
+public HTTPS endpoint, set its env (RPC_URL, CONTRACT_ADDRESS,
 OWNER_PRIVATE_KEY), and point `NEXT_PUBLIC_SERVER_URL` at it. A browser on
 `https://` cannot talk to `ws://localhost`, so the default localhost URL only
 works for local dev.
+
+### Deploy the game server to Railway
+
+The repo root has a `Dockerfile` (+ `railway.json` that forces it — otherwise
+Railway's Nixpacks tries to build the whole monorepo and fails). Steps:
+
+1. New Railway project → **Deploy from GitHub repo**, point it at this repo.
+   Leave the **root directory empty** (the Dockerfile builds from the repo
+   root — do NOT set it to `apps/server`, that breaks the workspace build).
+2. `railway.json` makes Railway use the Dockerfile and health-check `/health`.
+3. Set service **Variables**:
+   ```
+   RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+   CONTRACT_ADDRESS=0xcbc5287F4BE6656614a479257E74af0c9bd28db4
+   OWNER_PRIVATE_KEY=0x…           # the relayer/owner key
+   CORS_ORIGINS=https://pooldawgs-web.vercel.app
+   ```
+   (Railway injects `PORT` automatically; the server reads it.)
+4. Generate a public domain (Settings → Networking) and set the web's
+   `NEXT_PUBLIC_SERVER_URL` to that `https://…` URL, then redeploy the web.
+
+The Dockerfile installs only `@pooldawgs/server...` (engine + shared + server)
+— no Next/Hardhat — so it's small and has no native-build steps.
 
 ## Play gate (NFT auth)
 
