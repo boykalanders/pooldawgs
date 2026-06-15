@@ -6,7 +6,7 @@ import { formatUnits } from "viem";
 import { useAccount, useReadContract, useSignMessage, useWriteContract } from "wagmi";
 import {
   cloneState,
-  CUE_BALL_ID,
+  cueBallId,
   type PlayerIndex,
   type ShotInput,
   type TableState,
@@ -134,7 +134,7 @@ function GameRoom() {
       setState((current) => {
         if (!current) return current;
         const next = cloneState(current);
-        const cue = next.balls[CUE_BALL_ID];
+        const cue = next.balls[cueBallId(next)];
         cue.x = p.x;
         cue.y = p.y;
         cue.inHole = false;

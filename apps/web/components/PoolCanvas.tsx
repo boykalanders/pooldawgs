@@ -9,20 +9,21 @@ import {
 import {
   BALL_SIZE,
   BORDER_SIZE,
-  CUE_BALL_ID,
   HOLES,
   MAX_POWER,
   TABLE_HEIGHT,
   TABLE_WIDTH,
   cloneState,
+  cueBallId,
   isInsideHole,
   isOutsideBorder,
   simulateShot,
+  type BallState,
   type Frame,
   type ShotInput,
   type TableState,
 } from "@pooldawgs/engine";
-import { ballAssetPath, ballStyle } from "@/lib/balls";
+import { ballAssetPath, ballStyle, type BallLike } from "@/lib/balls";
 
 // Sounds from the forked game's assets, cloned per play like the fork does.
 const audioCache = new Map<string, HTMLAudioElement>();
@@ -164,7 +165,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     } = propsRef.current;
     if (!canAct || playing.current || !shoot) return false;
     if (s.gameOver || s.ballInHand) return false;
-    const cue = s.balls[CUE_BALL_ID];
+    const cue = s.balls[cueBallId(s)];
     if (cue.inHole || shotPower <= 1) return false;
     const angle = Math.atan2(mouse.current.y - cue.y, mouse.current.x - cue.x);
     charging.current = false;
@@ -292,7 +293,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
       }
       return;
     }
-    if (s.balls[CUE_BALL_ID].inHole || s.gameOver) return;
+    if (s.balls[cueBallId(s)].inHole || s.gameOver) return;
 
     if (current > 1) {
       // Power already set (W/S or slider): a left click fires, like the fork.
@@ -346,8 +347,9 @@ export default PoolCanvas;
 // ───────────────────────────── helpers ─────────────────────────────
 
 function overlapsBall(state: TableState, x: number, y: number): boolean {
+  const cue = cueBallId(state);
   for (const ball of state.balls) {
-    if (ball.id === CUE_BALL_ID || ball.inHole) continue;
+    if (ball.id === cue || ball.inHole) continue;
     const dx = x - ball.x;
     const dy = y - ball.y;
     if (Math.sqrt(dx * dx + dy * dy) < BALL_SIZE) return true;
@@ -403,7 +405,7 @@ function drawScene(
     if (frame) {
       for (const fb of frame.balls) {
         if (!fb.visible) continue;
-        drawBall(ctx, fb.x, fb.y, fb.id);
+        drawBall(ctx, fb.x, fb.y, state.balls[fb.id]);
       }
     }
     if (anim.index >= anim.frames.length - 1) {
@@ -413,12 +415,13 @@ function drawScene(
     return;
   }
 
+  const cueIdx = cueBallId(state);
   for (const ball of state.balls) {
     if (ball.inHole) continue;
     // Ball in hand: the cue ball is lifted off the table — only the
     // placement ghost (drawn in the overlay) is visible.
-    if (ball.id === CUE_BALL_ID && state.ballInHand) continue;
-    drawBall(ctx, ball.x, ball.y, ball.id);
+    if (ball.id === cueIdx && state.ballInHand) continue;
+    drawBall(ctx, ball.x, ball.y, ball);
   }
 
   drawOverlay(ctx, props, mouse);
@@ -431,13 +434,15 @@ function drawOverlay(
 ) {
   if (!interactive || state.gameOver) return;
 
+  const cue = state.balls[cueBallId(state)];
+
   if (state.ballInHand) {
     const { x, y } = mouse;
     const legal =
       !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(state, x, y);
     ctx.save();
     ctx.globalAlpha = 0.65;
-    drawBall(ctx, x, y, CUE_BALL_ID);
+    drawBall(ctx, x, y, cue);
     ctx.globalAlpha = 1;
     ctx.beginPath();
     ctx.arc(x, y, BALL_RADIUS + 6, 0, Math.PI * 2);
@@ -448,7 +453,6 @@ function drawOverlay(
     return;
   }
 
-  const cue = state.balls[CUE_BALL_ID];
   if (cue.inHole) return;
   const angle = Math.atan2(mouse.y - cue.y, mouse.x - cue.x);
 
@@ -468,10 +472,11 @@ function drawAimGuide(
   const dy = Math.sin(angle);
 
   // Sweep the cue ball along the aim ray; first t where it kisses a ball.
+  const cueIdx = cueBallId(state);
   let bestT = Infinity;
   let hitBall: { x: number; y: number } | null = null;
   for (const ball of state.balls) {
-    if (ball.id === CUE_BALL_ID || ball.inHole) continue;
+    if (ball.id === cueIdx || ball.inHole) continue;
     const ox = ball.x - cx;
     const oy = ball.y - cy;
     const proj = ox * dx + oy * dy;
@@ -845,8 +850,13 @@ function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number) {
 
 // ───────────────────────────── balls ─────────────────────────────
 
-function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, id: number) {
-  const style = ballStyle(id);
+function drawBall(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  ball: BallLike | BallState
+) {
+  const style = ballStyle(ball);
   const r = BALL_RADIUS;
 
   ctx.save();
@@ -857,8 +867,10 @@ function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, id: numbe
   ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
   ctx.fill();
 
-  // Prefer the generated SVG ball art; vector fallback below while loading.
-  const img = getImage(ballAssetPath(id));
+  // Prefer the generated SVG ball art; snooker balls (no SVG) fall through
+  // to the vector path below, as do pool balls while their SVG loads.
+  const path = ballAssetPath(ball);
+  const img = path ? getImage(path) : null;
   if (img) {
     ctx.drawImage(img, x - r, y - r, r * 2, r * 2);
     ctx.restore();

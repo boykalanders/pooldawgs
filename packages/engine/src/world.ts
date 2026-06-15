@@ -1,6 +1,5 @@
 import {
   BALL_SIZE,
-  CUE_BALL_START,
   MAX_POWER,
   MAX_STEPS,
   SPIN_FOLLOW_FACTOR,
@@ -8,74 +7,50 @@ import {
   SPIN_SIDE_FACTOR,
 } from "./constants.js";
 import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.js";
-import { createTurnRules, onBallsCollide, onPocket, resolveTurn } from "./rules.js";
+import { getRules } from "./variants/index.js";
 import type {
   BallColor,
   BallState,
   Frame,
+  GameRules,
+  GameType,
   ShotEvent,
   ShotInput,
   ShotResult,
   TableState,
 } from "./types.js";
 
-// Rack layout copied verbatim from GameWorld.js. The ARRAY ORDER matters:
-// pairwise collision checks iterate it in order, so changing it would change
-// simulation results.
-const RACK: ReadonlyArray<{ x: number; y: number; color: BallColor }> = [
-  { x: 1022, y: 413, color: "yellow" },
-  { x: 1056, y: 393, color: "yellow" },
-  { x: 1056, y: 433, color: "red" },
-  { x: 1090, y: 374, color: "red" },
-  { x: 1090, y: 413, color: "black" },
-  { x: 1090, y: 452, color: "yellow" },
-  { x: 1126, y: 354, color: "yellow" },
-  { x: 1126, y: 393, color: "red" },
-  { x: 1126, y: 433, color: "yellow" },
-  { x: 1126, y: 472, color: "red" },
-  { x: 1162, y: 335, color: "red" },
-  { x: 1162, y: 374, color: "red" },
-  { x: 1162, y: 413, color: "yellow" },
-  { x: 1162, y: 452, color: "red" },
-  { x: 1162, y: 491, color: "yellow" },
-  { x: CUE_BALL_START.x, y: CUE_BALL_START.y, color: "white" },
-];
+/**
+ * The cue ball is always the LAST ball in the rack, across every variant.
+ * Use cueBallId(state) rather than a fixed constant.
+ */
+export function cueBallId(state: TableState): number {
+  return state.balls.length - 1;
+}
 
+/** Back-compat: the 8-ball cue id. Prefer cueBallId(state). */
 export const CUE_BALL_ID = 15;
 
-export function createInitialState(): TableState {
-  return {
-    balls: RACK.map((b, id) => ({
-      id,
-      color: b.color,
-      x: b.x,
-      y: b.y,
-      vx: 0,
-      vy: 0,
-      moving: false,
-      inHole: false,
-    })),
-    turn: 0,
-    playerColors: [null, null],
-    ballInHand: false,
-    gameOver: false,
-    winner: null,
-  };
+export function createInitialState(gameType: GameType = "8ball"): TableState {
+  return getRules(gameType).createInitialState();
 }
 
 export function cloneState(state: TableState): TableState {
   return {
+    gameType: state.gameType,
     balls: state.balls.map((b) => ({ ...b })),
     turn: state.turn,
-    playerColors: [state.playerColors[0], state.playerColors[1]],
     ballInHand: state.ballInHand,
     gameOver: state.gameOver,
     winner: state.winner,
+    playerColors: [state.playerColors[0], state.playerColors[1]],
+    scores: [state.scores[0], state.scores[1]],
+    onColor: state.onColor,
   };
 }
 
 export function cueBall(state: TableState): BallState {
-  return state.balls[CUE_BALL_ID];
+  return state.balls[cueBallId(state)];
 }
 
 export interface SimulateOptions {
@@ -103,7 +78,7 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
     }
   }
   // After ANY foul the cue ball is in hand (off the table) — it must be
-  // placed before the next shot, as in the fork.
+  // placed before the next shot.
   if (state.ballInHand || cueBall(state).inHole) {
     return { ok: false, reason: "ball in hand — place the cue ball first" };
   }
@@ -124,10 +99,12 @@ export function simulateShot(
   if (!valid.ok) throw new Error(`illegal shot: ${valid.reason}`);
 
   const next = cloneState(state);
-  const rules = createTurnRules();
+  const rules: GameRules<unknown> = getRules(next.gameType);
+  const turnAcc = rules.createTurn();
   const events: ShotEvent[] = [];
   const frames: Frame[] | undefined = opts.recordFrames ? [] : undefined;
   const frameStride = opts.frameStride ?? 2;
+  const cueIdx = cueBallId(next);
 
   // Spin context (deterministic; runs identically on server and client).
   const spinCtx: {
@@ -144,17 +121,17 @@ export function simulateShot(
 
   const hooks = {
     onBallsCollide: (a: BallState, b: BallState) => {
-      if (!spinCtx.firstContactDone && (a.id === CUE_BALL_ID || b.id === CUE_BALL_ID)) {
+      if (!spinCtx.firstContactDone && (a.id === cueIdx || b.id === cueIdx)) {
         spinCtx.firstContactDone = true;
-        const cue = a.id === CUE_BALL_ID ? a : b;
+        const cue = a.id === cueIdx ? a : b;
         const speed = Math.sqrt(cue.vx * cue.vx + cue.vy * cue.vy);
         if (spinCtx.followSpin !== 0 && speed > 1e-9) {
           spinCtx.pendingFollow = { dx: cue.vx / speed, dy: cue.vy / speed, speed };
         }
       }
-      onBallsCollide(next, rules, a, b);
+      rules.onBallsCollide(next, turnAcc, a, b);
     },
-    onPocket: (ball: BallState) => onPocket(next, rules, ball),
+    onPocket: (ball: BallState) => rules.onPocket(next, turnAcc, ball),
   };
 
   shootBall(cueBall(next), shot.power, shot.angle);
@@ -187,7 +164,7 @@ export function simulateShot(
     if (spinCtx.sideSpin !== 0 && !cue.inHole) {
       for (let i = eventsBefore; i < events.length; i++) {
         const event = events[i];
-        if (event.type !== "cushion" || event.ballId !== CUE_BALL_ID) continue;
+        if (event.type !== "cushion" || event.ballId !== cueIdx) continue;
         const flippedX = preVx !== 0 && Math.sign(cue.vx) !== Math.sign(preVx);
         const flippedY = preVy !== 0 && Math.sign(cue.vy) !== Math.sign(preVy);
         if (flippedX) cue.vy += spinCtx.sideSpin * SPIN_SIDE_FACTOR * Math.abs(preVx);
@@ -204,31 +181,18 @@ export function simulateShot(
   }
   if (frames) frames.push(snapshotFrame(next, steps));
 
-  const resolution = resolveTurn(next, rules);
+  const resolution = rules.resolve(next, turnAcc);
 
   next.gameOver = resolution.gameOver;
   next.winner = resolution.winner;
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
 
-  return {
-    endState: next,
-    events,
-    outcome: {
-      gameOver: resolution.gameOver,
-      winner: resolution.winner,
-      foul: resolution.foul,
-      nextTurn: resolution.nextTurn,
-      ballInHand: resolution.ballInHand,
-    },
-    frames,
-    steps,
-  };
+  return { endState: next, events, outcome: resolution, frames, steps };
 }
 
 /**
- * Ball-in-hand placement (fork: GameWorld.ballInHand mouse flow, validated
- * server-side here). Mutates and returns a clone.
+ * Ball-in-hand placement, validated server-side. Mutates and returns a clone.
  */
 export function placeCueBall(
   state: TableState,
@@ -243,8 +207,9 @@ export function placeCueBall(
   if (isOutsideBorder(x, y)) return { ok: false, reason: "outside borders" };
   if (isInsideHole(x, y)) return { ok: false, reason: "inside a pocket" };
 
+  const cueIdx = cueBallId(state);
   for (const ball of state.balls) {
-    if (ball.id === CUE_BALL_ID || ball.inHole) continue;
+    if (ball.id === cueIdx || ball.inHole) continue;
     const dx = x - ball.x;
     const dy = y - ball.y;
     if (Math.sqrt(dx * dx + dy * dy) < BALL_SIZE) {
@@ -298,6 +263,9 @@ export function stateHash(state: TableState): string {
   mix(state.ballInHand ? 1 : 0);
   mix(state.gameOver ? 1 : 0);
   mix(state.winner === null ? 2 : state.winner);
+  mix(state.scores[0]);
+  mix(state.scores[1]);
+  mix(state.onColor ? 1 : 0);
   const colorCode = (c: BallColor | null) => (c === null ? 0 : c === "red" ? 1 : 2);
   mix(colorCode(state.playerColors[0]) * 4 + colorCode(state.playerColors[1]));
   return (h >>> 0).toString(16).padStart(8, "0");

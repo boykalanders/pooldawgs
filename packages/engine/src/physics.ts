@@ -14,16 +14,17 @@ import {
   BOTTOM_BORDER_Y,
   CUSHION_DAMPING,
   DELTA,
-  FRICTION_PER_STEP,
   HOLES,
   LEFT_BORDER_X,
   MAX_SUBSTEPS,
   POCKETED_PARK,
   RIGHT_BORDER_X,
+  ROLL_DECEL,
   SHOT_VELOCITY_FACTOR,
   STOP_THRESHOLD,
   SUBSTEP_TRAVEL,
   TOP_BORDER_Y,
+  VISCOUS_DRAG,
 } from "./constants.js";
 import type { BallState, ShotEvent } from "./types.js";
 
@@ -229,18 +230,23 @@ function integrateBall(
   }
 }
 
-/** Rolling friction + stop threshold — once per outer DELTA step. */
+/**
+ * Cloth friction — once per outer DELTA step. Constant-deceleration rolling
+ * model (real pool) rather than the fork's exponential decay: the speed loses
+ * a fixed amount per second plus a slight viscous term, so balls roll a long
+ * way and then settle rather than gliding indefinitely.
+ */
 function applyFriction(ball: BallState): void {
-  ball.vx *= FRICTION_PER_STEP;
-  ball.vy *= FRICTION_PER_STEP;
-
-  if (
-    ball.moving &&
-    Math.abs(ball.vx) < STOP_THRESHOLD &&
-    Math.abs(ball.vy) < STOP_THRESHOLD
-  ) {
+  if (!ball.moving) return;
+  const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+  const next = speed * VISCOUS_DRAG - ROLL_DECEL * DELTA;
+  if (next <= STOP_THRESHOLD) {
     ball.moving = false;
     ball.vx = 0;
     ball.vy = 0;
+    return;
   }
+  const scale = next / speed;
+  ball.vx *= scale;
+  ball.vy *= scale;
 }

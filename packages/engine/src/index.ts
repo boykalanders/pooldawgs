@@ -7,16 +7,10 @@ export {
   stepWorld,
   type StepHooks,
 } from "./physics.js";
-export {
-  createTurnRules,
-  onBallsCollide,
-  onPocket,
-  resolveTurn,
-  type TurnRules,
-  type TurnResolution,
-} from "./rules.js";
+export { getRules } from "./variants/index.js";
 export {
   CUE_BALL_ID,
+  cueBallId,
   createInitialState,
   cloneState,
   cueBall,

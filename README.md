@@ -8,9 +8,26 @@ The physics and rules are forked from
 [henshmi/Classic-Pool-Game](https://github.com/henshmi/Classic-Pool-Game)
 (vendored under `reference/`), rebuilt as a deterministic engine that runs on
 **both** the server (authoritative) and the client (rendering/animation),
-then upgraded beyond the fork: real elastic ball-ball collisions, cue-ball
-spin/english, centre pockets that capture what they visually promise, and
-ball-in-hand that lifts the cue ball off the table until placed.
+then upgraded well beyond the fork: real **constant-deceleration cloth
+friction** (rolling balls slow and settle naturally instead of the fork's
+floaty exponential glide), real elastic ball-ball collisions with
+anti-tunneling substeps, cue-ball spin/english, centre pockets that capture
+what they visually promise, and ball-in-hand that lifts the cue ball off the
+table until placed.
+
+## Game modes
+
+Three variants share one deterministic engine (`packages/engine`), each a
+`GameRules` plug-in selected by the bottom-bar mode chips:
+
+- **8-Ball** — UK red/yellow groups, rendered as solids/stripes. First pot
+  assigns groups; clear yours then legally pot the black to win.
+- **9-Ball** — rotation: hit the **lowest** ball first; pot the **9** (incl.
+  combinations) to win; the 9 potted on a foul is respotted.
+- **Snooker** — 15 reds + 6 colours, points-based. Alternate red→colour
+  (colours respot while reds remain), then clear the colours in order; higher
+  score wins. Fouls award the opponent points. (Nomination / free balls are
+  out of scope.)
 
 ## Why server-authoritative
 
@@ -28,7 +45,8 @@ apps/web/           Next.js frontend — wallet gate, lobby, game view, chat,
                     practice table (local engine), leaderboard
 apps/server/        Authoritative game server — Socket.IO rooms, shot clock,
                     chain event listener, relayer (finishGame)
-packages/engine/    Deterministic physics + UK-style 8-ball rules (shared)
+packages/engine/    Deterministic physics + per-variant rules (8-ball /
+                    9-ball / snooker) under src/variants/ (shared)
 packages/contracts/ PoolDawgs.sol (UUPS proxy) + Hardhat tests + deploy
 packages/shared/    Types, socket event contracts, curated ABI
 reference/          Vendored fork source (read-only reference)

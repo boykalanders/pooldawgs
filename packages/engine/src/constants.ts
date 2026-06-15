@@ -16,17 +16,28 @@ export const HOLE_RADIUS = 46;
 /** Fixed simulation timestep (100 Hz). */
 export const DELTA = 1 / 100;
 
-export const FRICTION_PER_STEP = 0.98;
-export const CUSHION_DAMPING = 0.95;
+/**
+ * Cloth friction model. The fork used exponential decay (v *= 0.98/step),
+ * which makes fast balls bleed speed instantly then crawl forever — the
+ * "floaty" feel. Real billiard balls roll under near-constant deceleration
+ * (Coulomb rolling resistance), so we subtract a fixed speed per second plus
+ * a small viscous term. Tuned (scripts/measure-physics.mjs) so a full-power
+ * shot rolls ≈2.2 table lengths and slows naturally rather than gliding.
+ */
+export const ROLL_DECEL = 1500; // px/s² constant deceleration
+export const VISCOUS_DRAG = 0.992; // per-step multiplicative drag
+/** Cushion restitution: real rails return ~0.75–0.85 of perpendicular speed. */
+export const CUSHION_DAMPING = 0.8;
 /**
  * Ball-ball restitution for the elastic collision model. This replaces the
  * fork's non-physical symmetric shove (total-speed × 0.00482 × 90 applied to
  * both balls) with real momentum exchange along the contact normal — head-on
  * shots stop the cue ball, cut shots split correctly.
  */
-export const BALL_RESTITUTION = 0.94;
+export const BALL_RESTITUTION = 0.95;
 export const SHOT_VELOCITY_FACTOR = 100;
-export const STOP_THRESHOLD = 1;
+/** Below this speed (px/s) a ball is considered stopped. */
+export const STOP_THRESHOLD = 6;
 
 /**
  * Anti-tunneling substeps. A full-power shot moves 75px per 1/100s step —

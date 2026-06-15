@@ -4,7 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
-import type { BallColor, ShotInput, TableState } from "@pooldawgs/engine";
+import {
+  cueBallId,
+  type BallColor,
+  type GameType,
+  type ShotInput,
+  type TableState,
+} from "@pooldawgs/engine";
 import type { ChatMessage } from "@pooldawgs/shared";
 import Chat from "@/components/Chat";
 import PlayerCard from "@/components/PlayerCard";
@@ -41,6 +47,8 @@ interface GameShellProps {
   banner?: string | null;
   centerAction?: { label: string; onClick: () => void } | null;
   menuItems: ShellMenuItem[];
+  /** Switch game variant (8-ball / 9-ball / snooker) from the mode chips. */
+  onSelectGameType?: (type: GameType) => void;
   animation?: ShotAnimation | null;
   onShoot: (shot: ShotInput) => void;
   onPlaceCueBall: (x: number, y: number) => void;
@@ -66,6 +74,7 @@ export default function GameShell({
   banner,
   centerAction,
   menuItems,
+  onSelectGameType,
   animation,
   onShoot,
   onPlaceCueBall,
@@ -109,7 +118,7 @@ export default function GameShell({
   }
 
   const canShoot =
-    interactive && !state.gameOver && !state.ballInHand && !state.balls[15].inHole;
+    interactive && !state.gameOver && !state.ballInHand && !state.balls[cueBallId(state)].inHole;
 
   return (
     <div className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-black/70 p-3 shadow-2xl touch:h-[calc(100dvh-2rem)] touch:min-h-0">
@@ -160,7 +169,9 @@ export default function GameShell({
           detail={players[0].detail}
           badge={players[0].badge}
           avatarSrc={players[0].avatarSrc}
+          gameType={state.gameType}
           group={state.playerColors[0] as BallColor | null}
+          score={state.scores[0]}
           state={state}
           isTurn={!state.gameOver && state.turn === 0}
           connected={players[0].connected ?? true}
@@ -174,7 +185,9 @@ export default function GameShell({
           detail={players[1].detail}
           badge={players[1].badge}
           avatarSrc={players[1].avatarSrc}
+          gameType={state.gameType}
           group={state.playerColors[1] as BallColor | null}
+          score={state.scores[1]}
           state={state}
           isTurn={!state.gameOver && state.turn === 1}
           connected={players[1].connected ?? true}
@@ -292,7 +305,12 @@ export default function GameShell({
       {/* ── bottom bar ── */}
       <div className="mt-2 flex items-center gap-3">
         <MoneyPanel title="$DDAWGS balance" value={balanceLabel ?? "—"} icon={<TokenIcon />} plus />
-        <ModeChip label="8 BALL" ballSrc="/assets/balls/ball-8.svg" active />
+        <ModeChip
+          label="8 BALL"
+          ballSrc="/assets/balls/ball-8.svg"
+          active={state.gameType === "8ball"}
+          onSelect={onSelectGameType ? () => onSelectGameType("8ball") : undefined}
+        />
         <div className="flex min-w-0 flex-1 items-center justify-center overflow-hidden">
           {/* Centre plaque (the design's PLAY button frame). */}
           {centerAction ? (
@@ -304,7 +322,7 @@ export default function GameShell({
                 {centerAction.label}
               </span>
               <span className="block text-[9px] uppercase tracking-[0.25em] text-gold/80">
-                Pool Dawgs 8-ball
+                {GAME_LABEL[state.gameType]}
               </span>
             </button>
           ) : (
@@ -315,8 +333,18 @@ export default function GameShell({
             </div>
           )}
         </div>
-        <ModeChip label="9 BALL" ballSrc="/assets/balls/ball-9.svg" />
-        <ModeChip label="SNOOKER" ballSrc="/assets/balls/ball-3.svg" />
+        <ModeChip
+          label="9 BALL"
+          ballSrc="/assets/balls/ball-9.svg"
+          active={state.gameType === "9ball"}
+          onSelect={onSelectGameType ? () => onSelectGameType("9ball") : undefined}
+        />
+        <ModeChip
+          label="SNOOKER"
+          ballSrc="/assets/balls/ball-3.svg"
+          active={state.gameType === "snooker"}
+          onSelect={onSelectGameType ? () => onSelectGameType("snooker") : undefined}
+        />
         <MoneyPanel title="Current pot" value={potLabel ?? "—"} icon={<TokenIcon />} />
       </div>
 
@@ -441,28 +469,42 @@ function ModeChip({
   label,
   ballSrc,
   active,
+  onSelect,
 }: {
   label: string;
   ballSrc: string;
   active?: boolean;
+  onSelect?: () => void;
 }) {
+  const selectable = Boolean(onSelect);
   return (
-    <span
-      className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-4 py-2 font-display text-sm font-bold tracking-wider touch:hidden ${
+    <button
+      type="button"
+      disabled={!selectable}
+      onClick={onSelect}
+      className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-4 py-2 font-display text-sm font-bold tracking-wider transition touch:hidden ${
         active
           ? "gold-frame bg-black/80 text-amber-50"
-          : "cursor-not-allowed border-gold-dim/30 bg-black/50 text-amber-100/40"
+          : selectable
+            ? "border-gold-dim/40 bg-black/50 text-amber-100/70 hover:border-gold hover:text-gold-bright"
+            : "cursor-not-allowed border-gold-dim/30 bg-black/50 text-amber-100/40"
       }`}
-      title={active ? undefined : `${label} — coming soon`}
+      title={selectable ? `Switch to ${label}` : `${label} — coming soon`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={ballSrc}
         alt=""
-        className={`h-5 w-5 ${active ? "" : "opacity-50 grayscale"}`}
+        className={`h-5 w-5 ${active ? "" : "opacity-60"}`}
         draggable={false}
       />
       {label}
-    </span>
+    </button>
   );
 }
+
+const GAME_LABEL: Record<GameType, string> = {
+  "8ball": "Pool Dawgs 8-ball",
+  "9ball": "Pool Dawgs 9-ball",
+  snooker: "Pool Dawgs snooker",
+};

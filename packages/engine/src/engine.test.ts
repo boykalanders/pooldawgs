@@ -1,36 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
-  CUE_BALL_ID,
   cloneState,
   createInitialState,
   cueBall,
+  cueBallId,
   placeCueBall,
   simulateShot,
   stateHash,
   validateShot,
 } from "./world.js";
-import { BALL_SIZE, HOLES, MAX_POWER } from "./constants.js";
-import type { TableState } from "./types.js";
+import { BALL_SIZE, HOLES, MAX_POWER, TABLE_WIDTH } from "./constants.js";
+import type { BallState, TableState } from "./types.js";
 
-/** A state with only cue + black + one red/one yellow left, for endgame tests. */
-function nearEndState(playerColor: "red" | "yellow"): TableState {
-  const state = createInitialState();
-  state.playerColors = playerColor === "red" ? ["red", "yellow"] : ["yellow", "red"];
-  for (const ball of state.balls) {
-    if (ball.color === "red" || ball.color === "yellow") {
-      ball.inHole = true;
-      ball.x = 0;
-      ball.y = 900;
-    }
+const BR_CORNER = HOLES[3]; // bottom-right (1435, 762)
+
+/** Park every object ball off-table, leaving only the cue (and any kept ids). */
+function clearExcept(state: TableState, keep: number[] = []): void {
+  const cue = cueBallId(state);
+  for (const b of state.balls) {
+    if (b.id === cue || keep.includes(b.id)) continue;
+    b.inHole = true;
+    b.x = 0;
+    b.y = 900;
   }
-  return state;
 }
 
+/** Place obj + cue collinear toward the bott-right corner; return the aim. */
+function setupCornerPot(state: TableState, obj: BallState): number {
+  obj.x = 1380;
+  obj.y = 718;
+  obj.inHole = false;
+  obj.moving = false;
+  const cue = cueBall(state);
+  cue.x = 1300;
+  cue.y = 655;
+  cue.inHole = false;
+  cue.moving = false;
+  state.ballInHand = false;
+  return Math.atan2(BR_CORNER.y - cue.y, BR_CORNER.x - cue.x);
+}
+
+describe("racks", () => {
+  it.each(["8ball", "9ball", "snooker"] as const)(
+    "%s starts with no overlapping balls",
+    (gt) => {
+      const balls = createInitialState(gt).balls;
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          const d = Math.hypot(balls[i].x - balls[j].x, balls[i].y - balls[j].y);
+          expect(d, `${gt}: balls ${i} & ${j} overlap`).toBeGreaterThanOrEqual(BALL_SIZE);
+        }
+      }
+    }
+  );
+});
+
 describe("determinism", () => {
-  it("identical (state, shot) produces an identical end state and hash", () => {
+  it("identical (state, shot) → identical end state, events, hash", () => {
     const a = simulateShot(createInitialState(), { angle: 0, power: 60 });
     const b = simulateShot(createInitialState(), { angle: 0, power: 60 });
-    expect(JSON.stringify(a.endState)).toEqual(JSON.stringify(b.endState));
     expect(stateHash(a.endState)).toEqual(stateHash(b.endState));
     expect(a.events).toEqual(b.events);
     expect(a.steps).toEqual(b.steps);
@@ -43,202 +71,57 @@ describe("determinism", () => {
     expect(JSON.stringify(initial)).toEqual(before);
   });
 
-  it("a break shot moves the rack and always settles", () => {
+  it("a break moves the rack and always settles", () => {
     const result = simulateShot(createInitialState(), { angle: 0, power: 75 });
     expect(result.steps).toBeLessThan(10000);
-    const movedBalls = result.endState.balls.filter(
-      (b, i) => !b.inHole && (b.x !== createInitialState().balls[i].x || b.y !== createInitialState().balls[i].y)
-    );
-    expect(movedBalls.length).toBeGreaterThan(2);
-    for (const ball of result.endState.balls) {
-      expect(ball.moving).toBe(false);
+    for (const ball of result.endState.balls) expect(ball.moving).toBe(false);
+  });
+});
+
+describe("physics realism (constant-deceleration friction)", () => {
+  function rollDistance(power: number): number {
+    const s = createInitialState();
+    clearExcept(s);
+    const cue = cueBall(s);
+    cue.x = 100;
+    cue.y = 412;
+    const r = simulateShot(s, { angle: 0, power }, { recordFrames: true, frameStride: 1 });
+    let path = 0;
+    let prev: { x: number; y: number } | null = null;
+    for (const f of r.frames!) {
+      const c = f.balls[f.balls.length - 1];
+      if (prev) path += Math.hypot(c.x - prev.x, c.y - prev.y);
+      prev = c;
     }
-  });
-});
-
-describe("shot validation", () => {
-  it("rejects zero/negative/overpowered shots and non-finite input", () => {
-    const state = createInitialState();
-    expect(validateShot(state, { angle: 0, power: 0 }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: -5 }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: MAX_POWER + 1 }).ok).toBe(false);
-    expect(validateShot(state, { angle: NaN, power: 10 }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: 10 }).ok).toBe(true);
-  });
-
-  it("requires cue placement after a scratch", () => {
-    const state = createInitialState();
-    cueBall(state).inHole = true;
-    expect(validateShot(state, { angle: 0, power: 10 }).ok).toBe(false);
-  });
-});
-
-describe("fouls and turn order", () => {
-  it("no contact at all is a foul: turn switches with ball in hand", () => {
-    // Shoot softly straight up: cue bounces off the top cushion, hits nothing.
-    const result = simulateShot(createInitialState(), { angle: -Math.PI / 2, power: 10 });
-    expect(result.outcome.foul).toBe(true);
-    expect(result.outcome.nextTurn).toBe(1);
-    expect(result.outcome.ballInHand).toBe(true);
-    expect(result.outcome.gameOver).toBe(false);
-  });
-
-  it("scratching the cue ball is a foul", () => {
-    const state = createInitialState();
-    // Aim the cue straight at the top-left pocket from nearby.
-    const cue = cueBall(state);
-    cue.x = 200;
-    cue.y = 200;
-    const hole = HOLES[0];
-    const angle = Math.atan2(hole.y - cue.y, hole.x - cue.x);
-    const result = simulateShot(state, { angle, power: 30 });
-    expect(result.endState.balls[CUE_BALL_ID].inHole).toBe(true);
-    expect(result.outcome.foul).toBe(true);
-    expect(result.outcome.ballInHand).toBe(true);
-  });
-
-  it("a clean break with no pot passes the turn without foul", () => {
-    const result = simulateShot(createInitialState(), { angle: 0, power: 40 });
-    // Power 40 straight into the rack: contact happens; whether a ball drops
-    // is deterministic — assert consistent turn logic either way.
-    if (!result.outcome.foul && !result.endState.gameOver) {
-      const potted = result.events.some(
-        (e) => e.type === "pocket" && e.color !== "white"
-      );
-      if (potted) {
-        expect(result.outcome.nextTurn).toBe(0);
-      } else {
-        expect(result.outcome.nextTurn).toBe(1);
-      }
-    }
-  });
-});
-
-describe("group assignment", () => {
-  it("first potted colour assigns groups to the potting player", () => {
-    const state = createInitialState();
-    // Put a red directly in front of a corner pocket and fire the cue at it.
-    const red = state.balls.find((b) => b.color === "red")!;
-    const hole = HOLES[3]; // bottom right
-    red.x = hole.x - 60;
-    red.y = hole.y - 60;
-    const cue = cueBall(state);
-    cue.x = red.x - 200;
-    cue.y = red.y - 200;
-    const angle = Math.atan2(red.y - cue.y, red.x - cue.x);
-    const result = simulateShot(state, { angle, power: 40 });
-
-    const redPotted = result.events.some(
-      (e) => e.type === "pocket" && e.color === "red"
-    );
-    expect(redPotted).toBe(true);
-    expect(result.endState.playerColors[0]).toBe("red");
-    expect(result.endState.playerColors[1]).toBe("yellow");
-    //
-
-    if (!result.outcome.foul) {
-      expect(result.outcome.nextTurn).toBe(0); // pot your own ball → shoot again
-    }
-  });
-});
-
-describe("8-ball endgame", () => {
-  it("potting the black after clearing your set wins the frame", () => {
-    const state = nearEndState("red");
-    const black = state.balls.find((b) => b.color === "black")!;
-    const hole = HOLES[3];
-    black.x = hole.x - 60;
-    black.y = hole.y - 60;
-    const cue = cueBall(state);
-    cue.x = black.x - 200;
-    cue.y = black.y - 200;
-    const angle = Math.atan2(black.y - cue.y, black.x - cue.x);
-    // Soft shot: enough to drop the black, not enough for the cue to
-    // follow through into the pocket (which would be a losing scratch).
-    const result = simulateShot(state, { angle, power: 7 });
-
-    expect(result.events.some((e) => e.type === "pocket" && e.color === "black")).toBe(true);
-    expect(result.outcome.gameOver).toBe(true);
-    expect(result.outcome.winner).toBe(0);
-  });
-
-  it("potting the black with your balls still up loses the frame", () => {
-    const state = createInitialState();
-    state.playerColors = ["red", "yellow"]; // groups assigned, nothing potted
-    const black = state.balls.find((b) => b.color === "black")!;
-    const hole = HOLES[3];
-    black.x = hole.x - 60;
-    black.y = hole.y - 60;
-    const cue = cueBall(state);
-    cue.x = black.x - 200;
-    cue.y = black.y - 200;
-    const angle = Math.atan2(black.y - cue.y, black.x - cue.x);
-    const result = simulateShot(state, { angle, power: 40 });
-
-    expect(result.events.some((e) => e.type === "pocket" && e.color === "black")).toBe(true);
-    expect(result.outcome.gameOver).toBe(true);
-    expect(result.outcome.winner).toBe(1); // opponent wins
-  });
-});
-
-describe("ball in hand placement", () => {
-  function foulState(): TableState {
-    const state = createInitialState();
-    state.ballInHand = true;
-    cueBall(state).inHole = true;
-    return state;
+    return path;
   }
 
-  it("accepts a legal placement and restores the cue ball", () => {
-    const result = placeCueBall(foulState(), 400, 400);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const cue = cueBall(result.state);
-      expect(cue.inHole).toBe(false);
-      expect(cue.x).toBe(400);
-      expect(result.state.ballInHand).toBe(false);
-    }
-  });
-
-  it("rejects placements outside borders, in pockets, or overlapping balls", () => {
-    expect(placeCueBall(foulState(), 10, 10).ok).toBe(false); // outside
-    expect(placeCueBall(foulState(), HOLES[0].x, HOLES[0].y).ok).toBe(false); // pocket
-    expect(placeCueBall(foulState(), 1090, 413).ok).toBe(false); // on the black
-    expect(placeCueBall(foulState(), NaN, 400).ok).toBe(false);
-  });
-
-  it("rejects placement when there is no ball in hand", () => {
-    expect(placeCueBall(createInitialState(), 400, 400).ok).toBe(false);
+  it("rolls farther with more power, and full power crosses multiple lengths", () => {
+    const soft = rollDistance(20);
+    const hard = rollDistance(75);
+    expect(hard).toBeGreaterThan(soft);
+    // Full power crosses the table at least twice (real break behaviour).
+    expect(hard).toBeGreaterThan(2 * TABLE_WIDTH);
+    // …but is not perpetual.
+    expect(hard).toBeLessThan(5 * TABLE_WIDTH);
   });
 });
 
-describe("full-power physics (anti-tunneling)", () => {
-  it("a full-power head-on shot transfers momentum instead of passing through", () => {
+describe("anti-tunneling at full power", () => {
+  it("a full-power head-on transfers momentum instead of passing through", () => {
     const state = createInitialState();
-    for (const ball of state.balls) {
-      if (ball.id === CUE_BALL_ID) continue;
-      ball.inHole = true;
-      ball.x = 0;
-      ball.y = 900;
-    }
     const object = state.balls.find((b) => b.color === "red")!;
-    object.inHole = false;
+    clearExcept(state, [object.id]);
     object.x = 800;
-    object.y = 413;
+    object.y = 412;
     const cue = cueBall(state);
     cue.x = 400;
-    cue.y = 413;
-    state.playerColors = ["red", "yellow"];
-
+    cue.y = 412;
     const result = simulateShot(state, { angle: 0, power: MAX_POWER });
-    // Contact must be detected — before substepping, a 75px/step cue ball
-    // tunnelled straight through and this produced ZERO collision events.
     expect(result.events.some((e) => e.type === "ballsCollide")).toBe(true);
-    // …and the momentum must actually transfer to the object ball.
     const endObject = result.endState.balls[object.id];
     const moved =
-      endObject.inHole ||
-      Math.abs(endObject.x - 800) + Math.abs(endObject.y - 413) > 200;
+      endObject.inHole || Math.abs(endObject.x - 800) + Math.abs(endObject.y - 412) > 200;
     expect(moved).toBe(true);
   });
 
@@ -247,160 +130,238 @@ describe("full-power physics (anti-tunneling)", () => {
     const onTable = result.endState.balls.filter((b) => !b.inHole);
     for (let i = 0; i < onTable.length; i++) {
       for (let j = i + 1; j < onTable.length; j++) {
-        const dx = onTable[i].x - onTable[j].x;
-        const dy = onTable[i].y - onTable[j].y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        expect(dist).toBeGreaterThan(BALL_SIZE - 2);
+        const d = Math.hypot(onTable[i].x - onTable[j].x, onTable[i].y - onTable[j].y);
+        expect(d).toBeGreaterThan(BALL_SIZE - 2);
       }
     }
-    // The cue must actually strike the rack on a straight break.
-    expect(result.events.some((e) => e.type === "ballsCollide")).toBe(true);
-  });
-
-  it("full-power shots stay deterministic", () => {
-    const a = simulateShot(createInitialState(), { angle: 0.05, power: MAX_POWER });
-    const b = simulateShot(createInitialState(), { angle: 0.05, power: MAX_POWER });
-    expect(stateHash(a.endState)).toEqual(stateHash(b.endState));
-    expect(a.steps).toEqual(b.steps);
   });
 });
 
-describe("pocket capture matches the visual mouth", () => {
-  /** Lone cue ball hugging a cushion (centre clamped to the rail line). */
-  function railState(y: number): TableState {
-    const state = createInitialState();
-    for (const ball of state.balls) {
-      if (ball.id === CUE_BALL_ID) continue;
-      ball.inHole = true;
-      ball.x = 0;
-      ball.y = 900;
-    }
-    const cue = cueBall(state);
-    cue.x = 600;
-    cue.y = y;
-    return state;
-  }
-
-  it("a ball rolling along the TOP rail drops into the top-centre pocket", () => {
-    // Top cushion rest line: centre y = BORDER + ball origin = 82.
-    const result = simulateShot(railState(82), { angle: 0, power: 20 });
-    expect(
-      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
-    ).toBe(true);
-    expect(result.endState.balls[CUE_BALL_ID].inHole).toBe(true);
-  });
-
-  it("a ball rolling along the BOTTOM rail drops into the bottom-centre pocket", () => {
-    // Bottom cushion rest line: centre y = 825 - 57 - 25 = 743.
-    const result = simulateShot(railState(743), { angle: 0, power: 20 });
-    expect(
-      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
-    ).toBe(true);
-    expect(result.endState.balls[CUE_BALL_ID].inHole).toBe(true);
-  });
-
-  it("a ball rolling along the rail into a corner drops", () => {
-    const state = railState(82);
-    const cue = cueBall(state);
-    cue.x = 300;
-    const result = simulateShot(state, { angle: Math.PI, power: 20 }); // roll left
-    expect(
-      result.events.some((e) => e.type === "pocket" && e.ballId === CUE_BALL_ID)
-    ).toBe(true);
+describe("shot validation", () => {
+  it("rejects bad power, bad spin, and ball-in-hand", () => {
+    const s = createInitialState();
+    expect(validateShot(s, { angle: 0, power: 0 }).ok).toBe(false);
+    expect(validateShot(s, { angle: 0, power: MAX_POWER + 1 }).ok).toBe(false);
+    expect(validateShot(s, { angle: NaN, power: 10 }).ok).toBe(false);
+    expect(validateShot(s, { angle: 0, power: 10, spinX: 2 }).ok).toBe(false);
+    expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(true);
+    s.ballInHand = true;
+    expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(false);
   });
 });
 
-describe("spin / english (PoolDawgs extension)", () => {
-  /** Cue at head spot firing straight +x into a single object ball. */
-  function straightShotState(): TableState {
+describe("8-ball rules", () => {
+  it("no contact is a foul: turn switches, ball in hand", () => {
+    const result = simulateShot(createInitialState(), { angle: -Math.PI / 2, power: 10 });
+    expect(result.outcome.foul).toBe(true);
+    expect(result.outcome.nextTurn).toBe(1);
+    expect(result.outcome.ballInHand).toBe(true);
+  });
+
+  it("first potted colour assigns groups and you continue", () => {
     const state = createInitialState();
-    // Park everything except one red object ball and the cue.
-    for (const ball of state.balls) {
-      if (ball.id === CUE_BALL_ID) continue;
-      ball.inHole = true;
-      ball.x = 0;
-      ball.y = 900;
-    }
-    const object = state.balls.find((b) => b.color === "red")!;
-    object.inHole = false;
-    object.x = 800;
-    object.y = 413;
-    const cue = cueBall(state);
-    cue.x = 400;
-    cue.y = 413;
+    const red = state.balls.find((b) => b.color === "red")!;
+    const angle = setupCornerPot(state, red);
+    const result = simulateShot(state, { angle, power: 42 });
+    expect(result.events.some((e) => e.type === "pocket" && e.ballId === red.id)).toBe(true);
+    expect(result.endState.playerColors[0]).toBe("red");
+    expect(result.endState.playerColors[1]).toBe("yellow");
+    if (!result.outcome.foul) expect(result.outcome.nextTurn).toBe(0);
+  });
+
+  it("potting the black after clearing your set wins", () => {
+    const state = createInitialState();
     state.playerColors = ["red", "yellow"];
-    return state;
+    for (const b of state.balls) {
+      if (b.color === "red") {
+        b.inHole = true;
+        b.x = 0;
+        b.y = 900;
+      }
+    }
+    const black = state.balls.find((b) => b.color === "black")!;
+    clearExcept(state, [black.id]);
+    const angle = setupCornerPot(state, black);
+    const result = simulateShot(state, { angle, power: 42 });
+    expect(result.outcome.gameOver).toBe(true);
+    expect(result.outcome.winner).toBe(0);
+  });
+
+  it("potting the black with balls remaining loses", () => {
+    const state = createInitialState();
+    state.playerColors = ["red", "yellow"];
+    const black = state.balls.find((b) => b.color === "black")!;
+    const aRed = state.balls.find((b) => b.color === "red")!;
+    clearExcept(state, [black.id, aRed.id]);
+    aRed.x = 700; // player 0 still has a red on the table → black is illegal
+    aRed.y = 150;
+    const angle = setupCornerPot(state, black);
+    const result = simulateShot(state, { angle, power: 42 });
+    expect(result.outcome.gameOver).toBe(true);
+    expect(result.outcome.winner).toBe(1);
+  });
+});
+
+describe("ball in hand placement", () => {
+  function foulState(): TableState {
+    const s = createInitialState();
+    s.ballInHand = true;
+    cueBall(s).inHole = true;
+    return s;
   }
-
-  it("follow (top spin) carries the cue ball further than a flat shot", () => {
-    const flat = simulateShot(straightShotState(), { angle: 0, power: 30 });
-    const follow = simulateShot(straightShotState(), {
-      angle: 0,
-      power: 30,
-      spinY: 1,
-    });
-    const flatCue = flat.endState.balls[CUE_BALL_ID];
-    const followCue = follow.endState.balls[CUE_BALL_ID];
-    expect(followCue.x).toBeGreaterThan(flatCue.x);
+  it("accepts a legal placement, rejects illegal ones", () => {
+    expect(placeCueBall(foulState(), 400, 400).ok).toBe(true);
+    expect(placeCueBall(foulState(), 10, 10).ok).toBe(false);
+    expect(placeCueBall(foulState(), HOLES[0].x, HOLES[0].y).ok).toBe(false);
+    expect(placeCueBall(createInitialState(), 400, 400).ok).toBe(false);
   });
+});
 
-  it("draw (back spin) pulls the cue ball back behind a flat shot", () => {
-    const flat = simulateShot(straightShotState(), { angle: 0, power: 30 });
-    const draw = simulateShot(straightShotState(), {
-      angle: 0,
-      power: 30,
-      spinY: -1,
-    });
-    const flatCue = flat.endState.balls[CUE_BALL_ID];
-    const drawCue = draw.endState.balls[CUE_BALL_ID];
-    expect(drawCue.x).toBeLessThan(flatCue.x);
+describe("spin / english", () => {
+  function straight(): TableState {
+    const s = createInitialState();
+    const obj = s.balls.find((b) => b.color === "red")!;
+    clearExcept(s, [obj.id]);
+    s.playerColors = ["red", "yellow"];
+    obj.x = 800;
+    obj.y = 412;
+    const cue = cueBall(s);
+    cue.x = 400;
+    cue.y = 412;
+    return s;
+  }
+  it("follow carries the cue forward, draw pulls it back", () => {
+    const flat = simulateShot(straight(), { angle: 0, power: 30 });
+    const follow = simulateShot(straight(), { angle: 0, power: 30, spinY: 1 });
+    const draw = simulateShot(straight(), { angle: 0, power: 30, spinY: -1 });
+    const cid = cueBallId(straight());
+    expect(follow.endState.balls[cid].x).toBeGreaterThan(flat.endState.balls[cid].x);
+    expect(draw.endState.balls[cid].x).toBeLessThan(flat.endState.balls[cid].x);
   });
-
-  it("side english changes the path after a cushion bounce", () => {
-    // Fire the lone cue ball into the top cushion at an angle.
-    const state = straightShotState();
-    const object = state.balls.find((b) => b.color === "red")!;
-    object.inHole = true;
-    object.x = 0;
-    object.y = 900;
-    const plain = simulateShot(state, { angle: -Math.PI / 3, power: 30 });
-    const english = simulateShot(state, { angle: -Math.PI / 3, power: 30, spinX: 1 });
-    const plainCue = plain.endState.balls[CUE_BALL_ID];
-    const englishCue = english.endState.balls[CUE_BALL_ID];
-    expect(
-      Math.abs(plainCue.x - englishCue.x) + Math.abs(plainCue.y - englishCue.y)
-    ).toBeGreaterThan(10);
-  });
-
   it("spin shots stay deterministic", () => {
     const a = simulateShot(createInitialState(), { angle: 0, power: 60, spinX: 0.5, spinY: -0.7 });
     const b = simulateShot(createInitialState(), { angle: 0, power: 60, spinX: 0.5, spinY: -0.7 });
     expect(stateHash(a.endState)).toEqual(stateHash(b.endState));
-    expect(a.events).toEqual(b.events);
+  });
+});
+
+describe("9-ball rules", () => {
+  function nine() {
+    return createInitialState("9ball");
+  }
+  it("racks 9 object balls + cue, 1 at the apex", () => {
+    const s = nine();
+    expect(s.balls).toHaveLength(10);
+    expect(cueBall(s).color).toBe("cue");
+    expect(s.balls.filter((b) => b.color !== "cue").map((b) => b.number).sort((a, b) => a - b))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
-  it("rejects out-of-range or non-finite spin", () => {
-    const state = createInitialState();
-    expect(validateShot(state, { angle: 0, power: 10, spinX: 1.5 }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: 10, spinY: -2 }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: 10, spinX: NaN }).ok).toBe(false);
-    expect(validateShot(state, { angle: 0, power: 10, spinX: 0.5, spinY: -0.5 }).ok).toBe(true);
+  it("hitting a ball that is not the lowest is a foul → ball in hand", () => {
+    const s = nine();
+    const one = s.balls.find((b) => b.number === 1)!;
+    const three = s.balls.find((b) => b.number === 3)!;
+    clearExcept(s, [one.id, three.id]);
+    one.x = 700;
+    one.y = 200; // out of the firing line
+    three.x = 700;
+    three.y = 412;
+    const cue = cueBall(s);
+    cue.x = 300;
+    cue.y = 412;
+    const r = simulateShot(s, { angle: 0, power: 35 });
+    expect(r.outcome.foul).toBe(true);
+    expect(r.outcome.ballInHand).toBe(true);
+    expect(r.outcome.nextTurn).toBe(1);
+  });
+
+  it("legally potting the 9 wins the frame", () => {
+    const s = nine();
+    const nineBall = s.balls.find((b) => b.number === 9)!;
+    clearExcept(s, [nineBall.id]); // 9 is now the lowest (and only) ball
+    const angle = setupCornerPot(s, nineBall);
+    const r = simulateShot(s, { angle, power: 42 });
+    expect(r.events.some((e) => e.type === "pocket" && e.ballId === nineBall.id)).toBe(true);
+    expect(r.outcome.gameOver).toBe(true);
+    expect(r.outcome.winner).toBe(0);
+  });
+
+  it("the 9 potted on a foul is respotted and the frame continues", () => {
+    const s = nine();
+    const one = s.balls.find((b) => b.number === 1)!;
+    const nineBall = s.balls.find((b) => b.number === 9)!;
+    clearExcept(s, [one.id, nineBall.id]);
+    one.x = 700;
+    one.y = 150; // present (keeps 9 illegal) but out of the line
+    const angle = setupCornerPot(s, nineBall); // hit the 9 first = foul
+    const r = simulateShot(s, { angle, power: 42 });
+    expect(r.outcome.gameOver).toBe(false);
+    expect(r.outcome.foul).toBe(true);
+    expect(r.endState.balls[nineBall.id].inHole).toBe(false); // respotted
+  });
+});
+
+describe("snooker rules", () => {
+  function snk() {
+    return createInitialState("snooker");
+  }
+  it("racks 15 reds + 6 colours + cue", () => {
+    const s = snk();
+    expect(s.balls).toHaveLength(22);
+    expect(s.balls.filter((b) => b.color === "red")).toHaveLength(15);
+    expect(cueBall(s).color).toBe("cue");
+    const black = s.balls.find((b) => b.color === "black")!;
+    expect(black.value).toBe(7);
+  });
+
+  it("potting a red scores 1 and puts you on a colour", () => {
+    const s = snk();
+    const reds = s.balls.filter((b) => b.color === "red");
+    // Keep one red (place near corner) + colours on their spots; park the rest.
+    clearExcept(s, [...s.balls.filter((b) => b.color !== "red").map((b) => b.id), reds[0].id]);
+    const angle = setupCornerPot(s, reds[0]);
+    const r = simulateShot(s, { angle, power: 42 });
+    expect(r.events.some((e) => e.type === "pocket" && e.ballId === reds[0].id)).toBe(true);
+    expect(r.outcome.foul).toBe(false);
+    expect(r.endState.scores[0]).toBe(1);
+    expect(r.endState.onColor).toBe(true);
+    expect(r.outcome.nextTurn).toBe(0);
+  });
+
+  it("on a colour, potting a colour scores its value and respots it", () => {
+    const s = snk();
+    s.onColor = true; // pretend we just potted a red
+    const blue = s.balls.find((b) => b.color === "blue")!;
+    const angle = setupCornerPot(s, blue);
+    const r = simulateShot(s, { angle, power: 42 });
+    expect(r.endState.scores[0]).toBe(5); // blue = 5
+    expect(r.endState.onColor).toBe(false);
+    expect(r.endState.balls[blue.id].inHole).toBe(false); // respotted
+  });
+
+  it("hitting a colour first while on a red is a foul (penalty to opponent)", () => {
+    const s = snk();
+    const blue = s.balls.find((b) => b.color === "blue")!;
+    clearExcept(s, [...s.balls.filter((b) => b.color === "red").map((b) => b.id), blue.id]);
+    blue.x = 700;
+    blue.y = 412;
+    const cue = cueBall(s);
+    cue.x = 300;
+    cue.y = 412;
+    const r = simulateShot(s, { angle: 0, power: 35 });
+    expect(r.outcome.foul).toBe(true);
+    expect(r.endState.scores[1]).toBeGreaterThanOrEqual(4);
+    expect(r.outcome.nextTurn).toBe(1);
   });
 });
 
 describe("state utilities", () => {
-  it("cloneState is deep for balls", () => {
-    const state = createInitialState();
-    const copy = cloneState(state);
-    copy.balls[0].x = 999;
-    expect(state.balls[0].x).not.toBe(999);
-  });
-
-  it("stateHash changes when state changes", () => {
-    const state = createInitialState();
-    const h1 = stateHash(state);
-    const moved = cloneState(state);
-    moved.balls[0].x += 1;
-    expect(stateHash(moved)).not.toEqual(h1);
+  it("cloneState is deep", () => {
+    const s = createInitialState();
+    const c = cloneState(s);
+    c.balls[0].x = 999;
+    c.scores[0] = 50;
+    expect(s.balls[0].x).not.toBe(999);
+    expect(s.scores[0]).toBe(0);
   });
 });

@@ -7,6 +7,7 @@ import {
   simulateShot,
   placeCueBall as enginePlaceCueBall,
   stateHash,
+  type GameType,
   type ShotInput,
   type TableState,
 } from "@pooldawgs/engine";
@@ -19,31 +20,51 @@ const PLAYERS = [
   { name: "Outlaw Dawg", avatarSrc: "/assets/avatar-outlaw.png" },
 ] as const;
 
+const GAME_NAME: Record<GameType, string> = {
+  "8ball": "8-Ball",
+  "9ball": "9-Ball",
+  snooker: "Snooker",
+};
+
 /**
  * Hot-seat practice table — runs the full deterministic engine locally with
- * no wallet, server, or chain. This is the look-and-feel review slice, so it
- * mirrors the client design with demo balances and pot.
+ * no wallet, server, or chain. Supports all three variants (the mode chips
+ * switch them) and mirrors the client design with demo balances and pot.
  */
 export default function PracticePage() {
   const router = useRouter();
-  const [state, setState] = useState<TableState>(() => createInitialState());
+  const [gameType, setGameType] = useState<GameType>("8ball");
+  const [state, setState] = useState<TableState>(() => createInitialState("8ball"));
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  // Frames won across re-racks — the fork's totalScore.
+  // Frames won across re-racks.
   const [frames, setFrames] = useState<[number, number]>([0, 0]);
   const pendingEndState = useRef<TableState | null>(null);
 
-  const reRack = useCallback(() => {
-    setState(createInitialState());
-    setAnimation(null);
-    pendingEndState.current = null;
-    setMessage(null);
-  }, []);
+  const reRack = useCallback(
+    (type: GameType = gameType) => {
+      setState(createInitialState(type));
+      setAnimation(null);
+      pendingEndState.current = null;
+      setMessage(null);
+    },
+    [gameType]
+  );
+
+  const selectGameType = useCallback(
+    (type: GameType) => {
+      if (type === gameType) return;
+      setGameType(type);
+      setFrames([0, 0]);
+      reRack(type);
+    },
+    [gameType, reRack]
+  );
 
   // Dev/design preview: /practice?preview=win shows the winner popup.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("preview") === "win") {
-      const won = createInitialState();
+      const won = createInitialState("8ball");
       won.gameOver = true;
       won.winner = 0;
       setState(won);
@@ -66,10 +87,8 @@ export default function PracticePage() {
             const winner = result.outcome.winner;
             setFrames((f) => (winner === 0 ? [f[0] + 1, f[1]] : [f[0], f[1] + 1]));
           }
-        } else if (result.outcome.foul) {
-          setMessage(`Foul! Player ${result.outcome.nextTurn + 1} has ball in hand`);
         } else {
-          setMessage(null);
+          setMessage(result.outcome.note ?? null);
         }
       } catch (e) {
         setMessage(e instanceof Error ? e.message : "Illegal shot");
@@ -97,9 +116,19 @@ export default function PracticePage() {
     setAnimation(null);
   }, []);
 
-  const statusText = state.gameOver
-    ? `🏆 Player ${state.winner! + 1} wins the frame!`
-    : `Player ${state.turn + 1} to shoot`;
+  const turnLabel = (() => {
+    if (state.gameOver) return `🏆 Player ${state.winner! + 1} wins!`;
+    if (state.gameType === "snooker") {
+      return `Player ${state.turn + 1} to shoot — on a ${state.onColor ? "colour" : "red"}`;
+    }
+    if (state.gameType === "9ball") return `Player ${state.turn + 1} — lowest ball first`;
+    return `Player ${state.turn + 1} to shoot`;
+  })();
+
+  const winMessage =
+    state.gameType === "snooker"
+      ? `wins ${state.scores[0]}–${state.scores[1]}`
+      : `wins the frame (${frames[0]}–${frames[1]})`;
 
   return (
     <GameShell
@@ -112,15 +141,16 @@ export default function PracticePage() {
       potLabel="250.00 $DDAWGS"
       balanceLabel="10,250.75"
       clockExpiresAt={null}
-      statusText={statusText}
+      statusText={turnLabel}
       banner={
         state.ballInHand && !state.gameOver
           ? "Ball in hand — tap the cloth to place the cue ball"
           : message
       }
-      centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: reRack } : null}
+      centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}
+      onSelectGameType={selectGameType}
       menuItems={[
-        { label: "Re-rack", onClick: reRack },
+        { label: `Re-rack (${GAME_NAME[gameType]})`, onClick: () => reRack() },
         { label: "Exit to lobby", onClick: () => router.push("/lobby") },
       ]}
       animation={animation}
@@ -132,11 +162,11 @@ export default function PracticePage() {
           <WinnerPopup
             winnerName={PLAYERS[state.winner].name}
             avatarSrc={PLAYERS[state.winner].avatarSrc}
-            message={`wins the frame (${frames[0]}–${frames[1]})`}
+            message={winMessage}
             amountLabel="+200.00 $DDAWGS"
             actions={
               <>
-                <button className="btn-gold" onClick={reRack}>
+                <button className="btn-gold" onClick={() => reRack()}>
                   Play again
                 </button>
                 <button className="btn-outline" onClick={() => router.push("/lobby")}>
