@@ -5,6 +5,7 @@ import { createConfig, http } from "wagmi";
 import { base, baseSepolia, hardhat, mainnet, polygon, sepolia } from "wagmi/chains";
 import { coinbaseWallet, injected } from "wagmi/connectors";
 import { CHAIN_ID, WALLETCONNECT_PROJECT_ID } from "./env";
+import { log } from "./log";
 
 const SUPPORTED = [sepolia, mainnet, polygon, base, baseSepolia, hardhat] as const;
 
@@ -40,8 +41,9 @@ export const wagmiConfig = hasWalletConnect
       ssr: true,
     });
 
-if (typeof window !== "undefined" && !hasWalletConnect) {
-  console.warn(
-    "[PoolDawgs] No valid NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID — using injected/Coinbase wallets only. Set a 32-char id from cloud.reown.com to enable WalletConnect."
+if (typeof window !== "undefined") {
+  log.info(
+    `wagmi: chain ${activeChain.name} (${activeChain.id}),`,
+    hasWalletConnect ? "WalletConnect enabled" : "injected/Coinbase only (no WalletConnect id)"
   );
 }

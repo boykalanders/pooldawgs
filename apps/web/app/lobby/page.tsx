@@ -24,6 +24,7 @@ import {
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
 import { newGameCode, normalizeCode } from "@/lib/gamecode";
+import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
 export default function LobbyPage() {
@@ -58,7 +59,10 @@ function Lobby() {
   useEffect(() => {
     const socket = getSocket();
     socket.emit("lobby:subscribe");
-    const onState = ({ games }: { games: LobbyGame[] }) => setGames(games);
+    const onState = ({ games }: { games: LobbyGame[] }) => {
+      log.info("lobby: state —", games.length, "games");
+      setGames(games);
+    };
     socket.on("lobby:state", onState);
     return () => {
       socket.off("lobby:state", onState);
@@ -110,6 +114,7 @@ function Lobby() {
         });
         await publicClient.waitForTransactionReceipt({ hash: a });
       }
+      log.info("lobby: createGame", gameId, "stake", stakeInput);
       const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
@@ -117,9 +122,11 @@ function Lobby() {
         args: [stake, gameId],
       });
       await publicClient.waitForTransactionReceipt({ hash: tx });
+      log.info("lobby: created", gameId, "→ /game/" + gameId);
       // The game page shows the "waiting / share this code" screen.
       router.push(`/game/${gameId}`);
     } catch (e) {
+      log.error("lobby: create failed —", e);
       setError(e instanceof Error ? e.message.split("\n")[0] : "Transaction failed");
       setBusy(null);
     }
@@ -128,10 +135,12 @@ function Lobby() {
   // Joining is handled entirely on the game page (it validates the code,
   // offers to join, or alerts if it's full / not yours).
   function go(gameId: string) {
+    log.info("lobby: → /game/" + gameId);
     router.push(`/game/${gameId}`);
   }
   function joinByCode() {
     const code = normalizeCode(joinCode);
+    log.info("lobby: join by code", JSON.stringify(joinCode), "→", code);
     if (code) go(code);
   }
 

@@ -130,6 +130,29 @@ in a KMS/secret manager in production.
 - Sound on/off lives in the ☰ menu (fork's strike/collide/pocket/cushion
   sounds play during shot replays)
 
+## Deploying the web (Vercel)
+
+The Next.js app deploys to Vercel as-is. Set these env vars in the Vercel
+project (Settings → Environment Variables), then redeploy:
+
+| Var | Value |
+|---|---|
+| `NEXT_PUBLIC_CHAIN_ID` | `11155111` (Sepolia) or `1` (mainnet) |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | a real **32-hex-char** id from [cloud.reown.com](https://cloud.reown.com) (free). Blank ⇒ injected/Coinbase wallets only — a short/placeholder value throws *"projectId must be 32 characters long"*. |
+| `NEXT_PUBLIC_SERVER_URL` | public **`https://`/`wss://`** URL of the hosted game server (see below) |
+
+**What works without the game server:** the practice table (fully local) and
+all on-chain flows — wallet connect, NFT gate/mint, lobby **create/join** —
+because those use the wallet's RPC, not the game server.
+
+**Live multiplayer needs the game server hosted separately.** It's a long-lived
+Socket.IO + ethers process, so it can't run on Vercel's serverless functions —
+host `apps/server` on a Node host (Railway / Render / Fly / a VPS) with a
+public HTTPS endpoint, set its `.env` (RPC_URL, CONTRACT_ADDRESS,
+OWNER_PRIVATE_KEY), and point `NEXT_PUBLIC_SERVER_URL` at it. A browser on
+`https://` cannot talk to `ws://localhost`, so the default localhost URL only
+works for local dev.
+
 ## Play gate (NFT auth)
 
 A wallet may create/join games only if it holds an NFT — enforced **on-chain**

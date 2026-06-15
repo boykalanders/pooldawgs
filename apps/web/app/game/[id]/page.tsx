@@ -34,6 +34,7 @@ import {
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
 import { inviteLink } from "@/lib/gamecode";
+import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
 export default function GamePage() {
@@ -130,6 +131,11 @@ function GameRoom() {
     return m ? m.seat : null;
   })();
 
+  // Log phase transitions for diagnosis.
+  useEffect(() => {
+    log.info("game:", gameId, "phase →", effectivePhase);
+  }, [gameId, effectivePhase]);
+
   // Connect to the socket room only once the game is playable for us.
   useEffect(() => {
     if (!address || joined || effectivePhase !== "play") return;
@@ -140,9 +146,11 @@ function GameRoom() {
         const ts = Date.now();
         const signature = await signMessageAsync({ message: loginMessage(address as Address, ts) });
         if (cancelled) return;
+        log.info("game: emitting room:join", gameId, "as", address);
         socket.emit("room:join", { gameId, auth: { address: address as Address, ts, signature } });
         setJoined(true);
-      } catch {
+      } catch (e) {
+        log.error("game: login signature rejected —", e);
         setServerError("Signature rejected — sign in to take your seat.");
       }
     })();
@@ -156,6 +164,13 @@ function GameRoom() {
     const socket = getSocket();
     const onRoomState = (snap: RoomSnapshot) => {
       if (snap.gameId !== gameId) return;
+      log.info(
+        "game: room:state —",
+        snap.players.length,
+        "players, turn",
+        snap.state.turn,
+        snap.over ? "(over)" : ""
+      );
       setSnapshot(snap);
       if (!pendingEndState.current) setState(snap.state);
     };
@@ -195,7 +210,10 @@ function GameRoom() {
     const onChat = (m: ChatMessage) => {
       if (m.gameId === gameId) setMessages((prev) => [...prev, m]);
     };
-    const onError = (e: ServerError) => setServerError(e.message);
+    const onError = (e: ServerError) => {
+      log.error("game: server:error —", e.code, e.message);
+      setServerError(e.message);
+    };
 
     socket.on("room:state", onRoomState);
     socket.on("game:shot", onShot);

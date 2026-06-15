@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
   useAccount,
@@ -17,6 +17,7 @@ import {
   POOLDAWGS_ADDRESS,
   POOLDAWGS_NFT_ADDRESS,
 } from "@/lib/env";
+import { log } from "@/lib/log";
 
 /**
  * Play gate. A wallet may enter if the PoolDawgs contract's `ownsNFT` is true —
@@ -45,19 +46,33 @@ export default function WalletGate({ children }: { children: ReactNode }) {
     query: { enabled: Boolean(CONTRACTS_CONFIGURED && address) },
   });
 
+  useEffect(() => {
+    log.info("gate:", { connected: isConnected, address, walletChain: chainId, expectedChain: CHAIN_ID });
+  }, [isConnected, address, chainId]);
+
+  useEffect(() => {
+    if (CONTRACTS_CONFIGURED && address && !isLoading) {
+      log.info("gate: ownsNFT =", owns, "(pool pass or ChessDawgs NFT)");
+    }
+  }, [owns, isLoading, address]);
+
   async function mint() {
     if (!POOLDAWGS_NFT_ADDRESS || !publicClient) return;
     setError(null);
     setMinting(true);
+    log.info("gate: minting pass at", POOLDAWGS_NFT_ADDRESS);
     try {
       const hash = await writeContractAsync({
         address: POOLDAWGS_NFT_ADDRESS,
         abi: POOL_DAWGS_NFT_ABI,
         functionName: "mint",
       });
+      log.info("gate: mint tx", hash, "— waiting…");
       await publicClient.waitForTransactionReceipt({ hash });
       await refetch();
+      log.info("gate: mint confirmed");
     } catch (e) {
+      log.error("gate: mint failed —", e);
       setError(e instanceof Error ? e.message.split("\n")[0] : "Mint failed");
     } finally {
       setMinting(false);
