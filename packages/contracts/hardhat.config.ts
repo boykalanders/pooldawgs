@@ -14,11 +14,20 @@ const config: HardhatUserConfig = {
     },
   },
   networks: {
-    // Point at the same testnet as Chess Dawgs once chain is confirmed.
-    testnet: {
-      url: process.env.TESTNET_RPC_URL ?? "",
+    sepolia: {
+      url: process.env.SEPOLIA_RPC_URL ?? "https://ethereum-sepolia-rpc.publicnode.com",
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },
+    mainnet: {
+      url: process.env.MAINNET_RPC_URL ?? "https://ethereum-rpc.publicnode.com",
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    },
+  },
+  // Public source verification. Sourcify is keyless; Etherscan is used when an
+  // ETHERSCAN_API_KEY is provided.
+  sourcify: { enabled: true },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY ?? "",
   },
 };
 

@@ -52,6 +52,21 @@ export const POOL_DAWGS_ABI = [
   },
   {
     type: "function",
+    name: "chessDawgsNFT",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
+    // The play gate: holds the PoolDawgs pass OR the grandfathered ChessDawgs NFT.
+    type: "function",
+    name: "ownsNFT",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
     name: "poolAddress",
     stateMutability: "view",
     inputs: [],
@@ -199,6 +214,31 @@ export const ERC20_ABI = [
 ] as const;
 
 export const ERC721_ABI = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
+/** PoolDawgsNFT — the mintable membership pass (the play gate). */
+export const POOL_DAWGS_NFT_ABI = [
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "owns",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
   {
     type: "function",
     name: "balanceOf",

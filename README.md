@@ -130,6 +130,34 @@ in a KMS/secret manager in production.
 - Sound on/off lives in the ☰ menu (fork's strike/collide/pocket/cushion
   sounds play during shot replays)
 
+## Play gate (NFT auth)
+
+A wallet may create/join games only if it holds an NFT — enforced **on-chain**
+(`PoolDawgs.ownsNFT`) and surfaced in the web `WalletGate`:
+
+1. Holds the **PoolDawgs membership pass** (`PoolDawgsNFT`, free public mint,
+   one per wallet) — or
+2. Holds a **ChessDawgs NFT** (`0xf82E…` on mainnet) — the grandfather
+   exception: existing ChessDawgs holders are in automatically, no mint needed.
+
+If neither, the gate offers a one-tap mint of a pass. The gate is a single
+`ownsNFT(address)` view that ORs both NFTs, so web, server, and contract agree.
+
+## Networks
+
+Dual-network by `NEXT_PUBLIC_CHAIN_ID` (web) / Hardhat network (contracts):
+
+| | Sepolia (live) | Ethereum mainnet |
+|---|---|---|
+| PoolDawgs proxy | `0xcbc5287F4BE6656614a479257E74af0c9bd28db4` | _pending deploy_ |
+| $DDawgs token | `0xe60F1A83C0A08FF104b3c1F74D932f0C9D629C4E` (faucet) | `0x19f78a898f3e3c2f40c6E0CD2EE5545F549d5E99` |
+| PoolDawgsNFT (pass) | `0x42e5ed18Ec067b1Ce5421F2f584b9Ebb683fd52C` | _pending deploy_ |
+| ChessDawgs NFT (grandfather) | `0x276252194f9313D9B0747210cacD259107f4e1A5` (mock) | `0xf82E0cF5605101efE12689461c2bC9392BfDedEF` |
+
+The web address book lives in `apps/web/lib/env.ts`; deploy with
+`pnpm --filter @pooldawgs/contracts deploy:sepolia` (or `deploy:mainnet`), then
+update the registry. The deployer key is the contract **owner = relayer**.
+
 ## How a wagered game flows
 
 1. Player A: `approve` → `createGame(stake)` (escrows stake, NFT-gated).

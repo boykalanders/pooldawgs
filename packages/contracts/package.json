@@ -7,7 +7,8 @@
     "test": "hardhat test",
     "node:local": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy-local.ts --network localhost",
-    "deploy:testnet": "hardhat run scripts/deploy.ts --network testnet"
+    "deploy:sepolia": "hardhat run scripts/deploy-sepolia.ts --network sepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

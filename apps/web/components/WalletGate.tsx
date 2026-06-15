@@ -1,33 +1,68 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, useReadContract } from "wagmi";
-import { ERC721_ABI } from "@pooldawgs/shared";
-import { CONTRACTS_CONFIGURED, DDAWGS_NFT_ADDRESS } from "@/lib/env";
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
+import { POOL_DAWGS_ABI, POOL_DAWGS_NFT_ABI } from "@pooldawgs/shared";
+import {
+  CONTRACTS_CONFIGURED,
+  NETWORK_NAME,
+  POOLDAWGS_ADDRESS,
+  POOLDAWGS_NFT_ADDRESS,
+} from "@/lib/env";
 
 /**
- * Gate: wallet connected + holds a Deputy Dawgs NFT. When contracts aren't
- * configured (look-and-feel review build) it only requires a connected wallet.
+ * Play gate. A wallet may enter if the PoolDawgs contract's `ownsNFT` is true —
+ * i.e. it holds the PoolDawgs membership pass OR (grandfather) a ChessDawgs
+ * NFT. Otherwise we offer a one-tap mint of a pass. When contracts aren't
+ * configured for the active network (e.g. mainnet pre-deploy) it only requires
+ * a connected wallet (look-and-feel build).
  */
 export default function WalletGate({ children }: { children: ReactNode }) {
   const { address, isConnected } = useAccount();
+  const publicClient = usePublicClient();
+  const { writeContractAsync } = useWriteContract();
+  const [minting, setMinting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: nftBalance, isLoading } = useReadContract({
-    address: DDAWGS_NFT_ADDRESS ?? undefined,
-    abi: ERC721_ABI,
-    functionName: "balanceOf",
+  const {
+    data: owns,
+    isLoading,
+    refetch,
+  } = useReadContract({
+    address: POOLDAWGS_ADDRESS ?? undefined,
+    abi: POOL_DAWGS_ABI,
+    functionName: "ownsNFT",
     args: address ? [address] : undefined,
     query: { enabled: Boolean(CONTRACTS_CONFIGURED && address) },
   });
-  const hasNFT = (nftBalance ?? 0n) > 0n;
+
+  async function mint() {
+    if (!POOLDAWGS_NFT_ADDRESS || !publicClient) return;
+    setError(null);
+    setMinting(true);
+    try {
+      const hash = await writeContractAsync({
+        address: POOLDAWGS_NFT_ADDRESS,
+        abi: POOL_DAWGS_NFT_ABI,
+        functionName: "mint",
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message.split("\n")[0] : "Mint failed");
+    } finally {
+      setMinting(false);
+    }
+  }
 
   if (!isConnected) {
     return (
       <div className="panel mx-auto flex max-w-md flex-col items-center gap-4 p-10 text-center">
         <h2 className="heading-display text-2xl">Wallet required</h2>
         <p className="text-sm text-amber-100/60">
-          Connect the wallet holding your Deputy Dawgs NFT to take a seat.
+          Connect your wallet to play PoolDawgs on{" "}
+          <span className="text-gold">{NETWORK_NAME}</span>.
         </p>
         <ConnectButton />
       </div>
@@ -36,15 +71,24 @@ export default function WalletGate({ children }: { children: ReactNode }) {
 
   if (CONTRACTS_CONFIGURED) {
     if (isLoading) {
-      return <p className="py-10 text-center text-amber-100/60">Checking your Dawg…</p>;
+      return <p className="py-10 text-center text-amber-100/60">Checking your pass…</p>;
     }
-    if (!hasNFT) {
+    if (!owns) {
       return (
-        <div className="panel mx-auto max-w-md p-10 text-center">
-          <h2 className="heading-display mb-2 text-2xl">No Dawg, no table</h2>
+        <div className="panel mx-auto max-w-md space-y-4 p-10 text-center">
+          <div className="text-4xl">🎟️</div>
+          <h2 className="heading-display text-2xl">Mint your Pool Dawgs pass</h2>
           <p className="text-sm text-amber-100/60">
-            This wallet doesn&rsquo;t hold a Deputy Dawgs NFT. Grab one to play
-            for $DDawgs.
+            A Pool Dawgs NFT is your seat at the table. Mint one (free) to start
+            staking $DDawgs.
+          </p>
+          <button className="btn-gold w-full" disabled={minting} onClick={mint}>
+            {minting ? "Minting…" : "Mint pass"}
+          </button>
+          {error && <p className="text-sm text-red-300">{error}</p>}
+          <p className="text-xs text-amber-100/40">
+            Already hold a <span className="text-gold">ChessDawgs</span> NFT?
+            You&rsquo;re in automatically — no mint needed.
           </p>
         </div>
       );

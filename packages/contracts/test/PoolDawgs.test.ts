@@ -1,7 +1,12 @@
 import { expect } from "chai";
 import { ethers, upgrades } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { PoolDawgs, MockDDawgsToken, MockDDawgsNFT } from "../typechain-types";
+import {
+  PoolDawgs,
+  PoolDawgsNFT,
+  MockDDawgsToken,
+  MockDDawgsNFT,
+} from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 const STAKE = ethers.parseEther("100");
@@ -15,19 +20,22 @@ const ABANDONMENT_TIMEOUT = 3600;
 describe("PoolDawgs", () => {
   let pool: PoolDawgs;
   let token: MockDDawgsToken;
-  let nft: MockDDawgsNFT;
+  let nft: PoolDawgsNFT; // PoolDawgs membership pass (gate)
+  let chessNft: MockDDawgsNFT; // grandfathered ChessDawgs NFT
   let owner: HardhatEthersSigner; // backend relayer / deployer
   let p1: HardhatEthersSigner;
   let p2: HardhatEthersSigner;
-  let outsider: HardhatEthersSigner;
+  let outsider: HardhatEthersSigner; // no NFT at all
+  let chessHolder: HardhatEthersSigner; // only the ChessDawgs NFT
   let company: HardhatEthersSigner;
   let burnPool: HardhatEthersSigner;
 
   beforeEach(async () => {
-    [owner, p1, p2, outsider, company, burnPool] = await ethers.getSigners();
+    [owner, p1, p2, outsider, chessHolder, company, burnPool] = await ethers.getSigners();
 
     token = await (await ethers.getContractFactory("MockDDawgsToken")).deploy();
-    nft = await (await ethers.getContractFactory("MockDDawgsNFT")).deploy();
+    nft = await (await ethers.getContractFactory("PoolDawgsNFT")).deploy("");
+    chessNft = await (await ethers.getContractFactory("MockDDawgsNFT")).deploy();
 
     const PoolDawgsFactory = await ethers.getContractFactory("PoolDawgs");
     pool = (await upgrades.deployProxy(
@@ -35,6 +43,7 @@ describe("PoolDawgs", () => {
       [
         await token.getAddress(),
         await nft.getAddress(),
+        await chessNft.getAddress(),
         burnPool.address,
         company.address,
       ],
@@ -44,11 +53,15 @@ describe("PoolDawgs", () => {
     for (const player of [p1, p2]) {
       await token.mint(player.address, STAKE * 10n);
       await token.connect(player).approve(await pool.getAddress(), ethers.MaxUint256);
-      await nft.mint(player.address);
+      await nft.connect(player).mint(); // mint a PoolDawgs pass
     }
-    // outsider has tokens but no NFT
+    // outsider has tokens but no NFT of either kind
     await token.mint(outsider.address, STAKE * 10n);
     await token.connect(outsider).approve(await pool.getAddress(), ethers.MaxUint256);
+    // chessHolder has tokens + only a ChessDawgs NFT (the exception)
+    await token.mint(chessHolder.address, STAKE * 10n);
+    await token.connect(chessHolder).approve(await pool.getAddress(), ethers.MaxUint256);
+    await chessNft.mint(chessHolder.address);
   });
 
   async function createAndJoin(gameId = GAME_ID): Promise<string> {
@@ -122,15 +135,49 @@ describe("PoolDawgs", () => {
   });
 
   describe("gating and creation rules", () => {
-    it("rejects create/join without the Deputy Dawgs NFT", async () => {
+    it("rejects create/join without any Dawgs NFT", async () => {
       await expect(
         pool.connect(outsider).createGame(STAKE, GAME_ID)
-      ).to.be.revertedWith("must own DDawgs NFT");
+      ).to.be.revertedWith("must own a Dawgs NFT");
 
       await pool.connect(p1).createGame(STAKE, GAME_ID);
       await expect(pool.connect(outsider).joinGame(GAME_ID)).to.be.revertedWith(
-        "must own DDawgs NFT"
+        "must own a Dawgs NFT"
       );
+    });
+
+    it("ownsNFT reflects pool pass, chess grandfather, and neither", async () => {
+      expect(await pool.ownsNFT(p1.address)).to.equal(true); // pool pass
+      expect(await pool.ownsNFT(chessHolder.address)).to.equal(true); // grandfathered
+      expect(await pool.ownsNFT(outsider.address)).to.equal(false); // neither
+    });
+
+    it("a ChessDawgs-NFT holder may play without a PoolDawgs pass", async () => {
+      // chessHolder has no PoolDawgs pass, only the ChessDawgs NFT.
+      expect(await nft.balanceOf(chessHolder.address)).to.equal(0n);
+      await expect(pool.connect(chessHolder).createGame(STAKE, GAME_ID)).to.emit(
+        pool,
+        "GameCreated"
+      );
+      await expect(pool.connect(p1).joinGame(GAME_ID)).to.emit(pool, "GameJoined");
+    });
+
+    it("minting a PoolDawgs pass unlocks play; the pass mints one per wallet", async () => {
+      await expect(pool.connect(outsider).createGame(STAKE, GAME_ID)).to.be.revertedWith(
+        "must own a Dawgs NFT"
+      );
+      await nft.connect(outsider).mint();
+      expect(await pool.ownsNFT(outsider.address)).to.equal(true);
+      await expect(pool.connect(outsider).createGame(STAKE, GAME_ID)).to.emit(
+        pool,
+        "GameCreated"
+      );
+      await expect(nft.connect(outsider).mint()).to.be.revertedWith("already minted");
+    });
+
+    it("owner can clear the grandfather exception", async () => {
+      await pool.connect(owner).setChessDawgsNFT(ethers.ZeroAddress);
+      expect(await pool.ownsNFT(chessHolder.address)).to.equal(false);
     });
 
     it("rejects zero stake, empty/duplicate gameId, and self-join", async () => {

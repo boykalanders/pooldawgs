@@ -58,7 +58,13 @@ contract PoolDawgs is
     uint256 private constant BURN_PERCENT = 10;
 
     IERC20 public rewardToken;
+    /// @notice Primary gate NFT — the PoolDawgs membership pass (PoolDawgsNFT).
     IERC721 public DDawgsNFT;
+    /// @notice Grandfather exception — holders of the existing ChessDawgs NFT
+    ///         (0xf82E0cF5605101efE12689461c2bC9392BfDedEF on mainnet) may play
+    ///         without minting a PoolDawgs pass. Optional (may be the zero
+    ///         address); set/updated via setChessDawgsNFT.
+    IERC721 public chessDawgsNFT;
     /// @notice Burn destination — receives the 10% burn cut, as in ChessDawgs.
     address public poolAddress;
     address public companyWallet;
@@ -77,6 +83,7 @@ contract PoolDawgs is
     event GameExited(string gameId, uint256 totalCompanyRevenue, uint256 totalBurnedAmount);
     event DrawRewardClaimed(string gameId, address indexed player, uint256 amount);
     event OwnerWithdrawal(string gameId, address indexed player, uint256 amount);
+    event ChessDawgsNFTUpdated(address indexed nft);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -86,6 +93,7 @@ contract PoolDawgs is
     function initialize(
         address _rewardToken,
         address _dDawgsNFT,
+        address _chessDawgsNFT,
         address _poolAddress,
         address _companyWallet
     ) external initializer {
@@ -99,8 +107,19 @@ contract PoolDawgs is
 
         rewardToken = IERC20(_rewardToken);
         DDawgsNFT = IERC721(_dDawgsNFT);
+        chessDawgsNFT = IERC721(_chessDawgsNFT); // may be zero
         poolAddress = _poolAddress;
         companyWallet = _companyWallet;
+    }
+
+    /// @notice The play gate: a wallet may play if it holds the PoolDawgs
+    ///         membership NFT OR (grandfather) a ChessDawgs NFT.
+    function ownsNFT(address account) public view returns (bool) {
+        if (DDawgsNFT.balanceOf(account) > 0) return true;
+        if (address(chessDawgsNFT) != address(0) && chessDawgsNFT.balanceOf(account) > 0) {
+            return true;
+        }
+        return false;
     }
 
     // ─────────────────────────── game lifecycle ───────────────────────────
@@ -114,7 +133,7 @@ contract PoolDawgs is
         require(bytes(_gameId).length > 0, "empty gameId");
         require(games[_gameId].playerOne == address(0), "gameId taken");
         require(stake > 0, "zero stake");
-        require(DDawgsNFT.balanceOf(msg.sender) > 0, "must own DDawgs NFT");
+        require(ownsNFT(msg.sender), "must own a Dawgs NFT");
 
         Game storage g = games[_gameId];
         g.playerOne = msg.sender;
@@ -131,7 +150,7 @@ contract PoolDawgs is
         require(g.playerTwo == address(0), "game full");
         require(!g.isCompleted, "game completed");
         require(msg.sender != g.playerOne, "cannot play yourself");
-        require(DDawgsNFT.balanceOf(msg.sender) > 0, "must own DDawgs NFT");
+        require(ownsNFT(msg.sender), "must own a Dawgs NFT");
 
         g.playerTwo = msg.sender;
 
@@ -320,6 +339,12 @@ contract PoolDawgs is
         companyWallet = _companyWallet;
     }
 
+    /// @notice Update (or clear) the grandfathered ChessDawgs NFT.
+    function setChessDawgsNFT(address _chessDawgsNFT) external onlyOwner {
+        chessDawgsNFT = IERC721(_chessDawgsNFT);
+        emit ChessDawgsNFTUpdated(_chessDawgsNFT);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -349,5 +374,6 @@ contract PoolDawgs is
         return (stake * 2 * WINNER_PERCENT) / 100 / 2;
     }
 
-    uint256[40] private __gap;
+    // Reduced from 40 → 39 when chessDawgsNFT was added (one new slot).
+    uint256[39] private __gap;
 }
