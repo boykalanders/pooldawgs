@@ -10,6 +10,8 @@ export interface ServerConfig {
   shotClockMs: number;
   /** True when RPC + contract are configured; otherwise chain-less dev mode. */
   chainEnabled: boolean;
+  /** Directory for best-effort JSON persistence (usernames). */
+  dataDir: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -26,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ownerPrivateKey: env.OWNER_PRIVATE_KEY || null,
     shotClockMs: Number(env.SHOT_CLOCK_MS) || SHOT_CLOCK_MS,
     chainEnabled: Boolean(rpcUrl && contractAddress),
+    dataDir: env.DATA_DIR || process.cwd(),
   };
 }

@@ -2,8 +2,10 @@ import { createServer as createHttpServer, type Server as HttpServer } from "nod
 import { Server } from "socket.io";
 import {
   MAX_CHAT_LENGTH,
+  gameTypeFromId,
   type Address,
   type ClientToServerEvents,
+  type LobbyGame,
   type ServerToClientEvents,
 } from "@pooldawgs/shared";
 import { verifyAuth } from "./auth.js";
@@ -12,6 +14,7 @@ import { startChainListener } from "./chain-events.js";
 import type { ServerConfig } from "./config.js";
 import { LeaderboardStore } from "./leaderboard.js";
 import { LobbyStore } from "./lobby.js";
+import { ProfileStore } from "./profile.js";
 import { createRelayer, type Relayer } from "./relayer.js";
 import { GameRoom, type RoomEmitter } from "./room.js";
 
@@ -37,6 +40,7 @@ export function createPoolDawgsServer(
   chainReader: ChainReader = createChainReader(config)
 ): PoolDawgsServer {
   const leaderboard = new LeaderboardStore();
+  const profiles = new ProfileStore(config.dataDir);
 
   // Accept the configured origins PLUS any localhost / 127.0.0.1 origin (any
   // port). This avoids the common local-testing trap where the page is opened
@@ -73,10 +77,15 @@ export function createPoolDawgsServer(
 
   const lobby = new LobbyStore();
   const rooms = new Map<string, GameRoom>();
-  const stopChainListener = startChainListener(config, lobby);
+  const stopChainListener = startChainListener(config, lobby, leaderboard);
+
+  // Decorate lobby rows with playerOne's display name so the browse list and
+  // join screens can show who's hosting.
+  const withNames = (games: LobbyGame[]): LobbyGame[] =>
+    games.map((g) => ({ ...g, playerOneName: profiles.getName(g.playerOne) }));
 
   lobby.onChange(() => {
-    io.to("lobby").emit("lobby:state", { games: lobby.list() });
+    io.to("lobby").emit("lobby:state", { games: withNames(lobby.list()) });
   });
 
   function makeEmitter(gameId: string): RoomEmitter {
@@ -92,12 +101,13 @@ export function createPoolDawgsServer(
         if (room && !p.txHash) {
           // Record once, on the first (pre-settlement) game:over emit.
           const loser = room.seats.find((s) => s !== p.winner);
-          if (loser) {
-            // Winner takes 80% of the 2-stake pot.
-            const stake = lobby.get(gameId)?.stake ?? "0";
-            const winnings = ((BigInt(stake) * 2n * 8000n) / 10000n).toString();
-            leaderboard.record(p.winner, loser, winnings);
-          }
+          // Winner takes 80% of the 2-stake pot.
+          const stake = lobby.get(gameId)?.stake ?? room.stakeWei() ?? "0";
+          const winnings = ((BigInt(stake) * 2n * 8000n) / 10000n).toString();
+          if (loser) leaderboard.record(p.winner, loser, winnings);
+          // Surface as a claimable win immediately (idempotent with the chain
+          // backfill, which also records it once finishGame mines).
+          leaderboard.recordWonGame(p.winner, gameId, winnings);
         }
       },
     };
@@ -137,7 +147,7 @@ export function createPoolDawgsServer(
   io.on("connection", (socket) => {
     socket.on("lobby:subscribe", () => {
       void socket.join("lobby");
-      socket.emit("lobby:state", { games: lobby.list() });
+      socket.emit("lobby:state", { games: withNames(lobby.list()) });
     });
 
     socket.on("lobby:unsubscribe", () => {
@@ -179,7 +189,9 @@ export function createPoolDawgsServer(
             makeEmitter(gameId),
             relayer,
             config.shotClockMs,
-            resolved.stake
+            resolved.stake,
+            gameTypeFromId(gameId), // variant is encoded in the code's prefix
+            (addr) => profiles.getName(addr)
           );
         rooms.set(gameId, room);
       }
@@ -255,6 +267,39 @@ export function createPoolDawgsServer(
           ts: Date.now(),
         });
       });
+    });
+
+    const emitProfile = (address: Address): void => {
+      const key = address.toLowerCase() as Address;
+      const stats = leaderboard.entry(key);
+      socket.emit("profile:state", {
+        address: key,
+        username: profiles.getName(key),
+        wins: stats.wins,
+        losses: stats.losses,
+        wonAmount: stats.wonAmount,
+        wonGames: leaderboard.wonGames(key),
+      });
+    };
+
+    socket.on("profile:get", ({ address }) => {
+      if (typeof address === "string" && address) emitProfile(address as Address);
+    });
+
+    socket.on("profile:set", ({ auth, username }) => {
+      const address = verifyAuth(auth);
+      if (!address) {
+        socket.emit("server:error", { code: "unauthorized", message: "bad signature" });
+        return;
+      }
+      const stored = profiles.setName(address, String(username ?? ""));
+      console.log(`[profile] ${address} → ${stored ? JSON.stringify(stored) : "(cleared)"}`);
+      emitProfile(address);
+      // Reflect the new name in any open rooms + the lobby browse list.
+      for (const room of rooms.values()) {
+        if (room.seatOf(address) !== null) io.to(roomChannel(room.gameId)).emit("room:state", room.snapshot());
+      }
+      io.to("lobby").emit("lobby:state", { games: withNames(lobby.list()) });
     });
 
     socket.on("disconnect", () => {

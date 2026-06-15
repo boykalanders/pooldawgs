@@ -24,7 +24,11 @@ async function main() {
 
   const token = await (await ethers.getContractFactory("MockDDawgsToken")).deploy();
   await token.waitForDeployment();
-  const nft = await (await ethers.getContractFactory("PoolDawgsNFT")).deploy("");
+  // NFT_BASE_URI (trailing slash) seeds metadata at deploy so passes have
+  // images from token #1 — e.g. "https://backend.example.io/v1/nft/pooldawgs/".
+  const nft = await (await ethers.getContractFactory("PoolDawgsNFT")).deploy(
+    process.env.NFT_BASE_URI ?? ""
+  );
   await nft.waitForDeployment();
   const chessNft = await (await ethers.getContractFactory("MockDDawgsNFT")).deploy();
   await chessNft.waitForDeployment();

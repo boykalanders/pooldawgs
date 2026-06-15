@@ -84,6 +84,7 @@ contract PoolDawgs is
     event DrawRewardClaimed(string gameId, address indexed player, uint256 amount);
     event OwnerWithdrawal(string gameId, address indexed player, uint256 amount);
     event ChessDawgsNFTUpdated(address indexed nft);
+    event DDawgsNFTUpdated(address indexed nft);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -343,6 +344,15 @@ contract PoolDawgs is
     function setChessDawgsNFT(address _chessDawgsNFT) external onlyOwner {
         chessDawgsNFT = IERC721(_chessDawgsNFT);
         emit ChessDawgsNFTUpdated(_chessDawgsNFT);
+    }
+
+    /// @notice Re-point the primary membership-pass NFT (the play gate). Lets a
+    ///         redeployed PoolDawgsNFT (e.g. one with real metadata) be wired in
+    ///         without redeploying the escrow.
+    function setDDawgsNFT(address _dDawgsNFT) external onlyOwner {
+        require(_dDawgsNFT != address(0), "zero nft");
+        DDawgsNFT = IERC721(_dDawgsNFT);
+        emit DDawgsNFTUpdated(_dDawgsNFT);
     }
 
     function pause() external onlyOwner {

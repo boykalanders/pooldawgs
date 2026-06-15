@@ -13,6 +13,8 @@ export interface LobbyGame {
   stake: string;
   status: LobbyGameStatus;
   createdAt: number;
+  /** Display name of playerOne, if they've set one (decorated at emit time). */
+  playerOneName?: string | null;
 }
 
 export type GameOverReason = "pot" | "resign" | "timeout";
@@ -21,6 +23,8 @@ export interface RoomPlayer {
   address: Address;
   seat: PlayerIndex;
   connected: boolean;
+  /** Display name, if the player has set one. */
+  username?: string | null;
 }
 
 /** Authoritative room snapshot pushed to clients on join and on every turn. */
@@ -67,7 +71,29 @@ export interface LeaderboardEntry {
   wonAmount: string;
 }
 
+/** A game the player won — the client checks each one's on-chain `rewardClaimed`
+ *  flag to surface the still-claimable ones. */
+export interface WonGame {
+  gameId: string;
+  /** Winner's payout in wei (80% of the 2-stake pot), decimal string. */
+  reward: string;
+}
+
+/** Per-wallet profile served on demand: editable name + stats + claimable wins. */
+export interface PlayerProfile {
+  address: Address;
+  username: string | null;
+  wins: number;
+  losses: number;
+  /** Total winnings in wei (decimal string). */
+  wonAmount: string;
+  /** Games this wallet has won (newest first). */
+  wonGames: WonGame[];
+}
+
 /** 4-minute shot clock, enforced off-chain by the server (never on-chain). */
 export const SHOT_CLOCK_MS = 4 * 60 * 1000;
 
 export const MAX_CHAT_LENGTH = 280;
+
+export const MAX_USERNAME_LENGTH = 24;

@@ -5,6 +5,7 @@ import {
   simulateShot,
   stateHash,
   validateShot,
+  type GameType,
   type PlayerIndex,
   type ShotInput,
   type TableState,
@@ -53,11 +54,13 @@ export class GameRoom {
     private readonly emitter: RoomEmitter,
     private readonly relayer: Relayer,
     private readonly shotClockMs: number,
-    private readonly stake: string | null = null
+    private readonly stake: string | null = null,
+    gameType: GameType = "8ball",
+    private readonly nameOf: (address: Address) => string | null = () => null
   ) {
     this.gameId = gameId;
     this.seats = seats;
-    this.state = createInitialState();
+    this.state = createInitialState(gameType);
     this.restartClock();
   }
 
@@ -68,6 +71,11 @@ export class GameRoom {
 
   isOver(): boolean {
     return this.over !== null;
+  }
+
+  /** Per-player stake in wei (decimal string), or null for dev tables. */
+  stakeWei(): string | null {
+    return this.stake;
   }
 
   connect(address: Address): void {
@@ -89,6 +97,7 @@ export class GameRoom {
         address,
         seat: seat as PlayerIndex,
         connected: this.connected.has(address),
+        username: this.nameOf(address),
       })),
       stake: this.stake,
       state: this.state,

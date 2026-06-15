@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   GameOverReason,
   LobbyGame,
+  PlayerProfile,
   RoomSnapshot,
   ShotBroadcast,
 } from "./types.js";
@@ -46,6 +47,10 @@ export interface ClientToServerEvents {
   "game:placeCueBall": (p: { gameId: string; x: number; y: number }) => void;
   "game:resign": (p: { gameId: string }) => void;
   "chat:send": (p: { gameId: string; text: string }) => void;
+  /** Fetch a wallet's profile (name, stats, claimable wins). */
+  "profile:get": (p: { address: Address }) => void;
+  /** Set your own display name (authenticated with a wallet signature). */
+  "profile:set": (p: { auth: AuthPayload; username: string }) => void;
 }
 
 /** Events the server may emit. */
@@ -61,5 +66,6 @@ export interface ServerToClientEvents {
     txHash?: string;
   }) => void;
   "chat:message": (p: ChatMessage) => void;
+  "profile:state": (p: PlayerProfile) => void;
   "server:error": (p: ServerError) => void;
 }

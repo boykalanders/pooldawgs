@@ -121,7 +121,7 @@ export default function GameShell({
     interactive && !state.gameOver && !state.ballInHand && !state.balls[cueBallId(state)].inHole;
 
   return (
-    <div className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-black/70 p-3 shadow-2xl touch:h-[calc(100dvh-2rem)] touch:min-h-0">
+    <div className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-emerald-deep/85 p-3 shadow-2xl shadow-felt-inset touch:h-[calc(100dvh-2rem)] touch:min-h-0">
       {/* Logo floats over the table's top rail, like the design. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img

@@ -32,7 +32,8 @@ const NETWORKS: Record<number, NetworkContracts> = {
     name: "Sepolia",
     poolDawgs: "0xcbc5287F4BE6656614a479257E74af0c9bd28db4",
     ddawgsToken: "0xe60F1A83C0A08FF104b3c1F74D932f0C9D629C4E",
-    poolDawgsNFT: "0x42e5ed18Ec067b1Ce5421F2f584b9Ebb683fd52C",
+    // Redeployed with read-time/retroactive metadata; gate re-pointed here.
+    poolDawgsNFT: "0x6150D0Cd8b2871adB22c81B796E3DdAFF852DA05",
     chessDawgsNFT: "0x276252194f9313D9B0747210cacD259107f4e1A5",
   },
   1: {

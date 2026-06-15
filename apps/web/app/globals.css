@@ -4,21 +4,46 @@
 
 :root {
   color-scheme: dark;
+  /* Luxury type: Cinzel (engraved serif) for display, Inter for body. */
+  --font-display: "Cinzel", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 body {
-  @apply bg-mahogany-deep text-amber-50 antialiased;
+  @apply bg-emerald-deep font-sans text-cream antialiased;
   background-image: radial-gradient(
-      ellipse at 50% -20%,
-      rgba(201, 162, 39, 0.08),
-      transparent 60%
+      ellipse at 50% -15%,
+      rgba(201, 162, 39, 0.1),
+      transparent 55%
     ),
-    linear-gradient(160deg, #1c0d09 0%, #170a07 50%, #120805 100%);
+    radial-gradient(ellipse at 50% 120%, rgba(11, 61, 46, 0.55), transparent 60%),
+    linear-gradient(165deg, #07170f 0%, #061109 55%, #040c08 100%);
+  background-color: #06130d;
   min-height: 100vh;
 }
 
 .panel {
-  @apply rounded-xl border border-gold-dim/40 bg-gunmetal-dark/80 shadow-lg;
+  @apply rounded-xl border border-gold-dim/30 shadow-lg;
+  background-image: linear-gradient(
+    180deg,
+    rgba(18, 58, 44, 0.55) 0%,
+    rgba(12, 36, 27, 0.85) 100%
+  );
+  box-shadow:
+    0 10px 30px -12px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 rgba(232, 197, 71, 0.06);
+}
+
+/* Hairline gold-leaf top accent for premium panels. */
+.panel-gilt {
+  position: relative;
+}
+.panel-gilt::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 197, 71, 0.55), transparent);
 }
 
 .gold-frame {
@@ -26,18 +51,19 @@ body {
 }
 
 .btn-gold {
-  @apply rounded-lg bg-gold-sheen px-4 py-2 font-semibold text-mahogany-deep
+  @apply rounded-lg bg-gold-sheen px-4 py-2 font-semibold text-emerald-deep
     transition hover:brightness-110 disabled:opacity-40 disabled:hover:brightness-100;
+  box-shadow: 0 2px 10px -2px rgba(201, 162, 39, 0.5);
 }
 
 .btn-outline {
   @apply rounded-lg border border-gold-dim/60 px-4 py-2 text-gold
-    transition hover:border-gold hover:shadow-gold-glow disabled:opacity-40;
+    transition hover:border-gold hover:text-gold-bright hover:shadow-gold-glow disabled:opacity-40;
 }
 
 .heading-display {
   @apply font-display tracking-wide text-gold-bright;
-  text-shadow: 0 2px 12px rgba(201, 162, 39, 0.35);
+  text-shadow: 0 2px 14px rgba(201, 162, 39, 0.35);
 }
 
 /* Winner-popup confetti */

@@ -221,6 +221,25 @@ export const ERC721_ABI = [
     inputs: [{ name: "owner", type: "address" }],
     outputs: [{ type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "tokenURI",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ type: "string" }],
+  },
+  {
+    // ERC721Enumerable — used to find a holder's first token id (may revert if
+    // the contract isn't Enumerable; callers fall back to event scanning).
+    type: "function",
+    name: "tokenOfOwnerByIndex",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "index", type: "uint256" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
 ] as const;
 
 /** Testnet faucet token (MockDDawgsToken) — `mint` is public on testnet only. */
@@ -266,5 +285,21 @@ export const POOL_DAWGS_NFT_ABI = [
     stateMutability: "view",
     inputs: [{ name: "owner", type: "address" }],
     outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "tokenURI",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ type: "string" }],
+  },
+  {
+    // Emitted on mint — filter by `to` to find a holder's token id.
+    type: "event",
+    name: "Minted",
+    inputs: [
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
   },
 ] as const;

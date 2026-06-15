@@ -33,7 +33,8 @@ import {
   POOLDAWGS_ADDRESS,
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
-import { inviteLink } from "@/lib/gamecode";
+import { GAME_TYPE_LABEL, gameTypeFromId, inviteLink } from "@/lib/gamecode";
+import { useNftAvatar } from "@/lib/useNftAvatar";
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
@@ -53,6 +54,7 @@ type ChainGame = readonly [string, string, boolean, string, bigint, ...unknown[]
 function GameRoom() {
   const params = useParams<{ id: string }>();
   const gameId = params.id;
+  const variantLabel = GAME_TYPE_LABEL[gameTypeFromId(gameId)];
   const router = useRouter();
   const { address } = useAccount();
   const publicClient = usePublicClient();
@@ -124,6 +126,25 @@ function GameRoom() {
   // Once we're seated in a live room, always render the table (the in-session
   // finish is handled by snapshot.over + the winner popup).
   const effectivePhase: Phase = snapshot ? "play" : phase;
+
+  // On-chain settlement state. claimReward reverts ("no win to claim") until
+  // finishGame has confirmed (g.isCompleted == true). The relayer calls it
+  // ~one block AFTER the room declares a winner, so the popup must not offer
+  // Claim until then. Two signals say it's safe: the server re-emits game:over
+  // with a txHash once finishGame mines, and the polled games() read flips
+  // isCompleted. Either one (or the on-chain rewardClaimed flag) is enough.
+  const cg = CONTRACTS_CONFIGURED && chainGame ? (chainGame as ChainGame) : null;
+  const chainSettled = cg ? Boolean(cg[2]) : false;
+  const chainClaimed = cg ? Boolean(cg[5]) : false;
+  const settledOnChain = Boolean(snapshot?.over?.txHash) || chainSettled;
+  const rewardClaimed = claimed || chainClaimed;
+
+  // Per-seat avatars: each player's NFT artwork (or a wallet-derived identicon),
+  // resolved up here so the hooks run before the pre-game early returns.
+  const seat0Address = snapshot?.players.find((p) => p.seat === 0)?.address;
+  const seat1Address = snapshot?.players.find((p) => p.seat === 1)?.address;
+  const seat0Avatar = useNftAvatar(seat0Address);
+  const seat1Avatar = useNftAvatar(seat1Address);
 
   const mySeat: PlayerIndex | null = (() => {
     if (!snapshot || !address) return null;
@@ -336,16 +357,22 @@ function GameRoom() {
 
   async function claim() {
     if (!POOLDAWGS_ADDRESS) return;
+    setActionError(null);
+    setWorking("claim");
     try {
-      await writeContractAsync({
+      const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
         functionName: "claimReward",
         args: [gameId],
       });
+      if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
       setClaimed(true);
+      await refetchGame(); // flip the on-chain rewardClaimed read
     } catch (e) {
       setActionError(e instanceof Error ? e.message.split("\n")[0] : "Claim failed");
+    } finally {
+      setWorking(null);
     }
   }
 
@@ -399,6 +426,7 @@ function GameRoom() {
       return (
         <Card>
           <h2 className="heading-display text-2xl">Waiting for an opponent…</h2>
+          <p className="text-xs uppercase tracking-widest text-gold-bright/80">{variantLabel}</p>
           <p className="text-xs text-amber-100/60">Share this code (or link) to challenge someone.</p>
           <div className="rounded-lg border border-gold/50 bg-mahogany-deep px-4 py-3 font-mono text-2xl font-bold tracking-widest text-gold-bright">
             {gameId}
@@ -433,6 +461,7 @@ function GameRoom() {
         <Card>
           <div className="text-4xl">🎱</div>
           <h2 className="heading-display text-2xl">You&rsquo;ve been challenged</h2>
+          <p className="text-xs uppercase tracking-widest text-gold-bright/80">{variantLabel}</p>
           <p className="text-sm text-amber-100/60">
             Game <span className="font-mono text-gold-bright">{gameId}</span>
             {onchainStake !== null && (
@@ -461,12 +490,18 @@ function GameRoom() {
               Winner: <span className="font-mono text-gold-bright">{shortAddress(onchainWinner)}</span>
             </p>
           )}
-          {iWon && !claimed && (
-            <button className="btn-gold w-full" onClick={claim}>
-              Claim 80% of the pot
-            </button>
-          )}
-          {claimed && <p className="text-gold-bright">Reward claimed ✓</p>}
+          {iWon &&
+            !rewardClaimed &&
+            (settledOnChain ? (
+              <button className="btn-gold w-full" disabled={working === "claim"} onClick={claim}>
+                {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
+              </button>
+            ) : (
+              <button className="btn-gold w-full" disabled>
+                Settling on-chain…
+              </button>
+            ))}
+          {rewardClaimed && <p className="text-gold-bright">Reward claimed ✓</p>}
           {actionError && <p className="text-sm text-red-300">{actionError}</p>}
           <Back />
         </Card>
@@ -514,14 +549,15 @@ function GameRoom() {
 
   const shellPlayers = snapshot.players.map((p): ShellPlayer => {
     const isMe = address && p.address.toLowerCase() === address.toLowerCase();
+    const baseName = p.username?.trim() || shortAddress(p.address);
     return {
-      name: isMe ? `${shortAddress(p.address)} (you)` : shortAddress(p.address),
+      name: isMe ? `${baseName} (you)` : baseName,
       detail:
         isMe && myBalance !== undefined
           ? `${Number(formatUnits(myBalance, 18)).toLocaleString()} $DDAWGS`
           : undefined,
       badge: `P${p.seat + 1}`,
-      avatarSrc: p.seat === 0 ? "/assets/avatar-deputy.png" : "/assets/avatar-outlaw.png",
+      avatarSrc: p.seat === 0 ? seat0Avatar : seat1Avatar,
       connected: p.connected,
     };
   }) as [ShellPlayer, ShellPlayer];
@@ -571,12 +607,18 @@ function GameRoom() {
       overlay={
         snapshot.over && !animation ? (
           <WinnerPopup
-            winnerName={iWon ? "You" : shortAddress(snapshot.over.winner)}
+            winnerName={
+              iWon
+                ? "You"
+                : snapshot.players.find(
+                    (p) => p.address.toLowerCase() === snapshot.over!.winner.toLowerCase()
+                  )?.username?.trim() || shortAddress(snapshot.over.winner)
+            }
             avatarSrc={
               snapshot.players.find((p) => p.address.toLowerCase() === snapshot.over!.winner.toLowerCase())
                 ?.seat === 1
-                ? "/assets/avatar-outlaw.png"
-                : "/assets/avatar-deputy.png"
+                ? seat1Avatar
+                : seat0Avatar
             }
             message={`wins by ${snapshot.over.reason}${
               snapshot.over.txHash ? ` · settled on-chain ${shortAddress(snapshot.over.txHash)}` : ""
@@ -586,12 +628,20 @@ function GameRoom() {
             }
             actions={
               <>
-                {iWon && CONTRACTS_CONFIGURED && !claimed && (
-                  <button className="btn-gold" onClick={claim}>
-                    Claim 80% of the pot
-                  </button>
-                )}
-                {claimed && <span className="self-center text-gold-bright">Reward claimed ✓</span>}
+                {iWon &&
+                  CONTRACTS_CONFIGURED &&
+                  !rewardClaimed &&
+                  (settledOnChain ? (
+                    <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
+                      {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
+                    </button>
+                  ) : (
+                    <button className="btn-gold" disabled title="Waiting for the payout to settle on-chain">
+                      Settling on-chain…
+                    </button>
+                  ))}
+                {rewardClaimed && <span className="self-center text-gold-bright">Reward claimed ✓</span>}
+                {actionError && <span className="self-center text-sm text-red-300">{actionError}</span>}
                 <button className="btn-outline" onClick={() => router.push("/lobby")}>
                   Back to lobby
                 </button>

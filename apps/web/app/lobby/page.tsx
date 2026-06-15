@@ -9,6 +9,7 @@ import {
   useReadContract,
   useWriteContract,
 } from "wagmi";
+import type { GameType } from "@pooldawgs/engine";
 import {
   ERC20_ABI,
   FAUCET_TOKEN_ABI,
@@ -23,7 +24,13 @@ import {
   POOLDAWGS_ADDRESS,
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
-import { newGameCode, normalizeCode } from "@/lib/gamecode";
+import {
+  GAME_TYPES,
+  GAME_TYPE_LABEL,
+  gameTypeFromId,
+  newGameCode,
+  normalizeCode,
+} from "@/lib/gamecode";
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
@@ -42,6 +49,7 @@ function Lobby() {
   const { writeContractAsync } = useWriteContract();
 
   const [games, setGames] = useState<LobbyGame[]>([]);
+  const [gameType, setGameType] = useState<GameType>("8ball");
   const [stakeInput, setStakeInput] = useState("100");
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -86,8 +94,9 @@ function Lobby() {
       const stake = parseEther(stakeInput || "0");
       if (stake <= 0n) throw new Error("Enter a stake");
 
-      // Pick a code that isn't already taken on-chain.
-      let gameId = newGameCode();
+      // Pick a code that isn't already taken on-chain. The prefix encodes the
+      // chosen variant, so the server builds the right table from the gameId.
+      let gameId = newGameCode(gameType);
       for (let i = 0; i < 5; i++) {
         const g = (await publicClient.readContract({
           address: POOLDAWGS_ADDRESS,
@@ -96,7 +105,7 @@ function Lobby() {
           args: [gameId],
         })) as unknown as readonly [string, ...unknown[]];
         if (g[0] === zeroAddress) break;
-        gameId = newGameCode();
+        gameId = newGameCode(gameType);
       }
 
       const allowance = (await publicClient.readContract({
@@ -114,7 +123,7 @@ function Lobby() {
         });
         await publicClient.waitForTransactionReceipt({ hash: a });
       }
-      log.info("lobby: createGame", gameId, "stake", stakeInput);
+      log.info("lobby: createGame", gameId, GAME_TYPE_LABEL[gameType], "stake", stakeInput);
       const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
@@ -189,6 +198,7 @@ function Lobby() {
                   <div className="min-w-0 flex-1">
                     <p className="font-mono font-semibold text-amber-50">{game.gameId}</p>
                     <p className="text-xs text-amber-100/60">
+                      {GAME_TYPE_LABEL[gameTypeFromId(game.gameId)]} ·{" "}
                       {shortAddress(game.playerOne)}
                       {mine ? " · your table" : " · waiting for an opponent"}
                     </p>
@@ -218,10 +228,30 @@ function Lobby() {
       </section>
 
       <aside className="space-y-6">
-        <div className="panel p-6">
+        <div className="panel panel-gilt p-6">
           <h2 className="heading-display mb-4 text-xl">Create a table</h2>
           {CONTRACTS_CONFIGURED ? (
             <>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-amber-100/60">
+                Game type
+              </label>
+              <div className="mb-4 grid grid-cols-3 gap-2">
+                {GAME_TYPES.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setGameType(t)}
+                    aria-pressed={gameType === t}
+                    className={`rounded-lg border px-2 py-2 text-sm font-semibold transition ${
+                      gameType === t
+                        ? "border-gold bg-gold/15 text-gold-bright"
+                        : "border-gold-dim/40 bg-mahogany-deep text-amber-100/70 hover:border-gold/60"
+                    }`}
+                  >
+                    {GAME_TYPE_LABEL[t]}
+                  </button>
+                ))}
+              </div>
               <label className="mb-1 block text-xs uppercase tracking-widest text-amber-100/60">
                 Stake ($DDawgs)
               </label>
@@ -235,8 +265,9 @@ function Lobby() {
                 {busy === "create" ? "Confirm in wallet…" : "Stake & create"}
               </button>
               <p className="mt-3 text-xs text-amber-100/50">
-                Generates a shareable game code, escrows your stake, and opens a
-                table you can share or cancel any time before someone joins.
+                Opens a {GAME_TYPE_LABEL[gameType]} table — generates a shareable
+                code, escrows your stake, and lets you share or cancel any time
+                before someone joins.
               </p>
             </>
           ) : (
@@ -256,7 +287,7 @@ function Lobby() {
         </div>
 
         {CONTRACTS_CONFIGURED && (
-          <div className="panel p-6">
+          <div className="panel panel-gilt p-6">
             <h2 className="heading-display mb-3 text-xl">Join by code</h2>
             <p className="mb-3 text-xs text-amber-100/60">
               Got a code (or invite link) from a friend? Drop it in.
@@ -266,7 +297,7 @@ function Lobby() {
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && joinByCode()}
-                placeholder="POOL-XXXXX"
+                placeholder="P8-XXXXX"
                 className="min-w-0 flex-1 rounded-lg border border-gold-dim/40 bg-mahogany-deep px-3 py-2 font-mono uppercase outline-none focus:border-gold"
               />
               <button className="btn-gold" disabled={!joinCode.trim()} onClick={joinByCode}>
@@ -277,7 +308,7 @@ function Lobby() {
         )}
 
         {IS_TESTNET && CONTRACTS_CONFIGURED && (
-          <div className="panel p-6">
+          <div className="panel panel-gilt p-6">
             <h2 className="heading-display mb-1 text-xl">Test faucet</h2>
             <p className="mb-3 text-xs text-amber-100/60">
               Sepolia testnet — grab free $DDawgs to wager with.

@@ -1,6 +1,7 @@
 import { Contract, EventLog, JsonRpcProvider } from "ethers";
 import { POOL_DAWGS_ABI, type Address } from "@pooldawgs/shared";
 import type { ServerConfig } from "./config.js";
+import type { LeaderboardStore } from "./leaderboard.js";
 import type { LobbyStore } from "./lobby.js";
 
 const POLL_MS = 5000;
@@ -18,7 +19,11 @@ const MAX_SPAN = 800;
  * stateless and reliable. Seat resolution does NOT depend on this — it reads
  * the contract directly (see chain.ts) — so a lagging poll never blocks play.
  */
-export function startChainListener(config: ServerConfig, lobby: LobbyStore): () => void {
+export function startChainListener(
+  config: ServerConfig,
+  lobby: LobbyStore,
+  leaderboard: LeaderboardStore
+): () => void {
   if (!config.chainEnabled) {
     console.log("[chain] disabled — running in chain-less dev mode");
     return () => {};
@@ -43,7 +48,11 @@ export function startChainListener(config: ServerConfig, lobby: LobbyStore): () 
       lobby.markJoined(a.gameId, a.playerTwo.toLowerCase() as Address);
     }
     for (const ev of await contract.queryFilter(contract.filters.GameFinished(), from, to)) {
-      lobby.markStatus(argsOf<{ gameId: string }>(ev).gameId, "finished");
+      const a = argsOf<{ gameId: string; winner: string; reward: bigint }>(ev);
+      lobby.markStatus(a.gameId, "finished");
+      // Feed the unclaimed-rewards list (idempotent by gameId). The client
+      // cross-checks each game's on-chain rewardClaimed flag before showing it.
+      leaderboard.recordWonGame(a.winner.toLowerCase() as Address, a.gameId, a.reward.toString());
     }
     for (const ev of await contract.queryFilter(contract.filters.GameCancelled(), from, to)) {
       lobby.markStatus(argsOf<{ gameId: string }>(ev).gameId, "cancelled");

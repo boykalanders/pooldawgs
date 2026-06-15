@@ -312,6 +312,306 @@
           ]
         }
       }
+    },
+    "3eda10977886ec5ed23eb691fac7d37ebb5df6f068135e2864bbbd4d0b4399a3": {
+      "address": "0x797960b8EFdeA3F5f6444b5bA3f7C2D620B7ee9e",
+      "txHash": "0x9a6c66715fc185e5cdefaa79d33befeea0a559702665b5b11800c22271fb5bdd",
+      "layout": {
+        "solcVersion": "0.8.28",
+        "storage": [
+          {
+            "label": "rewardToken",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IERC20)1125",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:60"
+          },
+          {
+            "label": "DDawgsNFT",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_contract(IERC721)2669",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:62"
+          },
+          {
+            "label": "chessDawgsNFT",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_contract(IERC721)2669",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:67"
+          },
+          {
+            "label": "poolAddress",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_address",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:69"
+          },
+          {
+            "label": "companyWallet",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_address",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:70"
+          },
+          {
+            "label": "games",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_mapping(t_string_memory_ptr,t_struct(Game)9135_storage)",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:72"
+          },
+          {
+            "label": "playerPaid",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_mapping(t_string_memory_ptr,t_mapping(t_address,t_bool))",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:73"
+          },
+          {
+            "label": "completedAt",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_mapping(t_string_memory_ptr,t_uint256)",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:74"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_array(t_uint256)39_storage",
+            "contract": "PoolDawgs",
+            "src": "contracts\\PoolDawgs.sol:390"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_struct(InitializableStorage)337_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(OwnableStorage)13_storage": {
+            "label": "struct OwnableUpgradeable.OwnableStorage",
+            "members": [
+              {
+                "label": "_owner",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(PausableStorage)111_storage": {
+            "label": "struct PausableUpgradeable.PausableStorage",
+            "members": [
+              {
+                "label": "_paused",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_array(t_uint256)39_storage": {
+            "label": "uint256[39]",
+            "numberOfBytes": "1248"
+          },
+          "t_contract(IERC20)1125": {
+            "label": "contract IERC20",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IERC721)2669": {
+            "label": "contract IERC721",
+            "numberOfBytes": "20"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_mapping(t_address,t_bool))": {
+            "label": "mapping(string => mapping(address => bool))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_struct(Game)9135_storage)": {
+            "label": "mapping(string => struct PoolDawgs.Game)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_string_memory_ptr,t_uint256)": {
+            "label": "mapping(string => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_string_memory_ptr": {
+            "label": "string",
+            "numberOfBytes": "32"
+          },
+          "t_struct(Game)9135_storage": {
+            "label": "struct PoolDawgs.Game",
+            "members": [
+              {
+                "label": "playerOne",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "playerTwo",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "isCompleted",
+                "type": "t_bool",
+                "offset": 20,
+                "slot": "1"
+              },
+              {
+                "label": "winner",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "stake",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "rewardClaimed",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "exitRequested",
+                "type": "t_bool",
+                "offset": 1,
+                "slot": "4"
+              },
+              {
+                "label": "exitRequester",
+                "type": "t_address",
+                "offset": 2,
+                "slot": "4"
+              },
+              {
+                "label": "exitRequestTimestamp",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "exitAccepted",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "playerOneClaimed",
+                "type": "t_bool",
+                "offset": 1,
+                "slot": "6"
+              },
+              {
+                "label": "playerTwoClaimed",
+                "type": "t_bool",
+                "offset": 2,
+                "slot": "6"
+              },
+              {
+                "label": "drawCompleted",
+                "type": "t_bool",
+                "offset": 3,
+                "slot": "6"
+              }
+            ],
+            "numberOfBytes": "224"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_string_storage": {
+            "label": "string"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.Pausable": [
+            {
+              "contract": "PausableUpgradeable",
+              "label": "_paused",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\PausableUpgradeable.sol:21",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Ownable": [
+            {
+              "contract": "OwnableUpgradeable",
+              "label": "_owner",
+              "type": "t_address",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:24",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      }
     }
   }
 }
