@@ -38,9 +38,20 @@ export function createPoolDawgsServer(
 ): PoolDawgsServer {
   const leaderboard = new LeaderboardStore();
 
+  // Accept the configured origins PLUS any localhost / 127.0.0.1 origin (any
+  // port). This avoids the common local-testing trap where the page is opened
+  // on 127.0.0.1 but CORS only allowed localhost (or vice versa), which
+  // silently blocks the WebSocket and leaves the client stuck "connecting".
+  const isAllowedOrigin = (origin?: string): boolean => {
+    if (!origin) return true; // non-browser clients (curl, node, the e2e)
+    if (config.corsOrigins.includes(origin)) return true;
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  };
+
   const httpServer = createHttpServer((req, res) => {
+    const origin = req.headers.origin;
     const cors = {
-      "access-control-allow-origin": config.corsOrigins[0] ?? "*",
+      "access-control-allow-origin": isAllowedOrigin(origin) ? origin ?? "*" : "null",
     };
     if (req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json", ...cors });
@@ -57,7 +68,7 @@ export function createPoolDawgsServer(
   });
 
   const io: IoServer = new Server(httpServer, {
-    cors: { origin: config.corsOrigins },
+    cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) },
   });
 
   const lobby = new LobbyStore();
@@ -136,15 +147,18 @@ export function createPoolDawgsServer(
     socket.on("room:join", async ({ gameId, auth }) => {
       const address = verifyAuth(auth);
       if (!address) {
+        console.warn(`[room] join ${gameId}: bad signature`);
         socket.emit("server:error", { code: "unauthorized", message: "bad signature" });
         return;
       }
       socket.data.address = address;
+      console.log(`[room] join ${gameId} by ${address}`);
 
       let room = rooms.get(gameId);
       if (!room) {
         const resolved = await resolveSeats(gameId, address);
         if (!resolved) {
+          console.warn(`[room] join ${gameId}: not joinable for ${address}`);
           // Dev mode: first player waits for an opponent before a room exists.
           if (!config.chainEnabled && devSeats.get(gameId)?.includes(address)) {
             void socket.join(roomChannel(gameId));
@@ -171,6 +185,7 @@ export function createPoolDawgsServer(
       }
 
       if (room.seatOf(address) === null) {
+        console.warn(`[room] join ${gameId}: ${address} is not a seated player`);
         socket.emit("server:error", { code: "not-a-player", message: "spectating not yet supported" });
         return;
       }
@@ -178,6 +193,7 @@ export function createPoolDawgsServer(
       void socket.join(roomChannel(gameId));
       room.connect(address);
       socket.emit("room:state", room.snapshot());
+      console.log(`[room] seated ${address} in ${gameId}`);
     });
 
     socket.on("room:leave", ({ gameId }) => {

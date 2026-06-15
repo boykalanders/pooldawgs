@@ -29,6 +29,7 @@ import WinnerPopup from "@/components/WinnerPopup";
 import {
   CONTRACTS_CONFIGURED,
   DDAWGS_TOKEN_ADDRESS,
+  NETWORK_NAME,
   POOLDAWGS_ADDRESS,
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
@@ -68,6 +69,8 @@ function GameRoom() {
   const [claimed, setClaimed] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [waitedTooLong, setWaitedTooLong] = useState(false);
 
   const { data: myBalance } = useReadContract({
     address: DDAWGS_TOKEN_ADDRESS ?? undefined,
@@ -210,6 +213,30 @@ function GameRoom() {
       socket.emit("room:leave", { gameId });
     };
   }, [gameId]);
+
+  // Track socket connectivity so the connecting screen can flag a dead server.
+  useEffect(() => {
+    const s = getSocket();
+    setSocketConnected(s.connected);
+    const on = () => setSocketConnected(true);
+    const off = () => setSocketConnected(false);
+    s.on("connect", on);
+    s.on("disconnect", off);
+    return () => {
+      s.off("connect", on);
+      s.off("disconnect", off);
+    };
+  }, []);
+
+  // If we sit in the play phase with no snapshot too long, surface why.
+  useEffect(() => {
+    if (effectivePhase !== "play" || snapshot) {
+      setWaitedTooLong(false);
+      return;
+    }
+    const t = setTimeout(() => setWaitedTooLong(true), 10000);
+    return () => clearTimeout(t);
+  }, [effectivePhase, snapshot]);
 
   const handleAnimationEnd = useCallback(() => {
     if (pendingEndState.current) {
@@ -432,11 +459,33 @@ function GameRoom() {
   // ── connecting (play phase, awaiting the room snapshot) ──
   if (!snapshot || !state) {
     return (
-      <div className="panel mx-auto mt-10 max-w-md p-10 text-center text-amber-100/60">
+      <div className="panel mx-auto mt-10 max-w-md space-y-3 p-10 text-center text-amber-100/60">
         {serverError ? (
-          <span className="text-red-300">{serverError}</span>
+          <p className="text-red-300">{serverError}</p>
         ) : (
-          <>Taking your seat at table {gameId}…</>
+          <p>Taking your seat at table {gameId}…</p>
+        )}
+        {waitedTooLong && !serverError && (
+          <div className="space-y-3 border-t border-gold-dim/20 pt-3 text-sm">
+            <p className="text-amber-100/70">
+              Still connecting. The game server is{" "}
+              {socketConnected ? (
+                <span className="text-emerald-400">reachable</span>
+              ) : (
+                <span className="text-red-400">not reachable</span>
+              )}
+              .
+            </p>
+            {!socketConnected && (
+              <p className="text-xs text-amber-100/50">
+                Make sure the game server is running and you opened the app at the
+                same host it allows (try <span className="text-gold">localhost:3000</span>).
+              </p>
+            )}
+            <button className="btn-outline" onClick={() => router.push("/lobby")}>
+              Back to lobby
+            </button>
+          </div>
         )}
       </div>
     );

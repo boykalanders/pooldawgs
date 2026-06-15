@@ -2,9 +2,16 @@
 
 import { useState, type ReactNode } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
+import {
+  useAccount,
+  usePublicClient,
+  useReadContract,
+  useSwitchChain,
+  useWriteContract,
+} from "wagmi";
 import { POOL_DAWGS_ABI, POOL_DAWGS_NFT_ABI } from "@pooldawgs/shared";
 import {
+  CHAIN_ID,
   CONTRACTS_CONFIGURED,
   NETWORK_NAME,
   POOLDAWGS_ADDRESS,
@@ -19,9 +26,10 @@ import {
  * a connected wallet (look-and-feel build).
  */
 export default function WalletGate({ children }: { children: ReactNode }) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
+  const { switchChain, isPending: switching } = useSwitchChain();
   const [minting, setMinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +73,29 @@ export default function WalletGate({ children }: { children: ReactNode }) {
           <span className="text-gold">{NETWORK_NAME}</span>.
         </p>
         <ConnectButton />
+      </div>
+    );
+  }
+
+  // Wrong network → every contract call (approve/join/mint) would revert.
+  // Force the correct chain before anything else.
+  if (CONTRACTS_CONFIGURED && chainId !== CHAIN_ID) {
+    return (
+      <div className="panel mx-auto flex max-w-md flex-col items-center gap-4 p-10 text-center">
+        <div className="text-4xl">🔌</div>
+        <h2 className="heading-display text-2xl">Wrong network</h2>
+        <p className="text-sm text-amber-100/60">
+          PoolDawgs runs on <span className="text-gold">{NETWORK_NAME}</span>. Your
+          wallet is on a different network — switch to continue.
+        </p>
+        <button
+          className="btn-gold"
+          disabled={switching}
+          onClick={() => switchChain({ chainId: CHAIN_ID })}
+        >
+          {switching ? "Switching…" : `Switch to ${NETWORK_NAME}`}
+        </button>
+        <ConnectButton showBalance={false} />
       </div>
     );
   }
