@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+packages/contracts/artifacts
+packages/contracts/cache
+packages/contracts/typechain-types
+.git
+**/*.log
+reference
+docs
+# Note: apps/web and packages/contracts SOURCE is kept (pnpm needs every
+# workspace package.json to resolve the lockfile); only their build output
+# above is excluded. The filtered install means their deps aren't fetched.

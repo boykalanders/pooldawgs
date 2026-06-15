@@ -11,13 +11,20 @@ const SUPPORTED = [sepolia, mainnet, polygon, base, baseSepolia, hardhat] as con
 
 export const activeChain = SUPPORTED.find((c) => c.id === CHAIN_ID) ?? sepolia;
 
+// Pin CORS-enabled public RPCs. viem's defaults (e.g. eth.merkle.io) don't
+// send CORS headers, so browser reads get blocked. publicnode allows CORS.
+// NEXT_PUBLIC_RPC_URL overrides the active chain's endpoint if you have one.
+const RPC_OVERRIDE = process.env.NEXT_PUBLIC_RPC_URL;
+const rpc = (chainId: number, fallback: string) =>
+  http(RPC_OVERRIDE && chainId === CHAIN_ID ? RPC_OVERRIDE : fallback);
+
 const transports = {
-  [sepolia.id]: http(),
-  [mainnet.id]: http(),
-  [polygon.id]: http(),
-  [base.id]: http(),
-  [baseSepolia.id]: http(),
-  [hardhat.id]: http(),
+  [mainnet.id]: rpc(mainnet.id, "https://ethereum-rpc.publicnode.com"),
+  [sepolia.id]: rpc(sepolia.id, "https://ethereum-sepolia-rpc.publicnode.com"),
+  [polygon.id]: rpc(polygon.id, "https://polygon-bor-rpc.publicnode.com"),
+  [base.id]: rpc(base.id, "https://base-rpc.publicnode.com"),
+  [baseSepolia.id]: rpc(baseSepolia.id, "https://base-sepolia-rpc.publicnode.com"),
+  [hardhat.id]: http("http://127.0.0.1:8545"),
 };
 
 // WalletConnect needs a real 32-hex-char project id from cloud.reown.com. With
