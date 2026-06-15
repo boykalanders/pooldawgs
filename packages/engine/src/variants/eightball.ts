@@ -153,10 +153,11 @@ export const eightBall: GameRules<Acc8> = {
     if (currentColor !== null && currentColor === ball.color) {
       acc.scored = true;
     } else if (ball.color === "cue") {
-      if (currentColor !== null) {
-        acc.foul = true;
-        if (allPocketed(state, currentColor)) acc.won = true;
-      }
+      // Scratch — always just a foul (opponent gets ball-in-hand). It NEVER
+      // ends the frame on its own: even after clearing your group you still
+      // have to pot the black, so the black being on the table means the game
+      // continues. (The fork wrongly ended the frame here.)
+      if (currentColor !== null) acc.foul = true;
     } else if (ball.color === "black") {
       if (currentColor !== null) {
         if (!allPocketed(state, currentColor)) acc.foul = true;

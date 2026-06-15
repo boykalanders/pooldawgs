@@ -10,6 +10,7 @@ import {
   validateShot,
 } from "./world.js";
 import { BALL_SIZE, HOLES, MAX_POWER, TABLE_WIDTH } from "./constants.js";
+import { getRules } from "./variants/index.js";
 import type { BallState, TableState } from "./types.js";
 
 const BR_CORNER = HOLES[3]; // bottom-right (1435, 762)
@@ -185,6 +186,35 @@ describe("8-ball rules", () => {
     const result = simulateShot(state, { angle, power: 42 });
     expect(result.outcome.gameOver).toBe(true);
     expect(result.outcome.winner).toBe(0);
+  });
+
+  it("scratching while potting your last group ball is a FOUL, not a win (black remains)", () => {
+    const rules = getRules("8ball");
+    const state = createInitialState("8ball");
+    state.playerColors = ["red", "yellow"];
+    const reds = state.balls.filter((b) => b.color === "red");
+    // All reds but one already down; this shot clears the group.
+    for (let i = 1; i < reds.length; i++) {
+      reds[i].inHole = true;
+      reds[i].x = 0;
+      reds[i].y = 900;
+    }
+    const lastRed = reds[0];
+    const cue = state.balls[cueBallId(state)];
+    const acc = rules.createTurn();
+
+    rules.onBallsCollide(state, acc, cue, lastRed); // legal first contact
+    lastRed.inHole = true;
+    rules.onPocket(state, acc, lastRed); // clears the group
+    cue.inHole = true;
+    rules.onPocket(state, acc, cue); // scratch on the same shot
+
+    const res = rules.resolve(state, acc);
+    expect(res.gameOver).toBe(false); // black is still on the table
+    expect(res.foul).toBe(true);
+    expect(res.ballInHand).toBe(true);
+    expect(res.nextTurn).toBe(1);
+    expect(state.balls.find((b) => b.color === "black")!.inHole).toBe(false);
   });
 
   it("potting the black with balls remaining loses", () => {

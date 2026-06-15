@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { parseEther, zeroAddress } from "viem";
 import {
@@ -23,15 +23,8 @@ import {
   POOLDAWGS_ADDRESS,
 } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
-import { inviteLink, newGameCode, normalizeCode } from "@/lib/gamecode";
+import { newGameCode, normalizeCode } from "@/lib/gamecode";
 import { getSocket } from "@/lib/socket";
-
-interface CreatedGame {
-  gameId: string;
-  stake: string; // wei
-}
-
-const CREATED_KEY = "pooldawgs:created";
 
 export default function LobbyPage() {
   return (
@@ -50,12 +43,9 @@ function Lobby() {
   const [games, setGames] = useState<LobbyGame[]>([]);
   const [stakeInput, setStakeInput] = useState("100");
   const [joinCode, setJoinCode] = useState("");
-  const [created, setCreated] = useState<CreatedGame | null>(null);
-  const [copied, setCopied] = useState<"code" | "link" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Test-token balance for the faucet panel (testnet only).
   const { data: tokenBalance, refetch: refetchBalance } = useReadContract({
     address: DDAWGS_TOKEN_ADDRESS ?? undefined,
     abi: FAUCET_TOKEN_ABI,
@@ -64,7 +54,7 @@ function Lobby() {
     query: { enabled: Boolean(IS_TESTNET && CONTRACTS_CONFIGURED && address) },
   });
 
-  // Live open-tables list.
+  // Live open-tables list (full/active games are excluded below).
   useEffect(() => {
     const socket = getSocket();
     socket.emit("lobby:subscribe");
@@ -76,59 +66,16 @@ function Lobby() {
     };
   }, []);
 
-  // Restore a pending created game (survives refresh) and any ?join= deep link.
+  // ?join=CODE deep link prefills the join box.
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(CREATED_KEY);
-      if (raw) setCreated(JSON.parse(raw));
-    } catch {
-      /* ignore */
-    }
     const j = new URLSearchParams(window.location.search).get("join");
     if (j) setJoinCode(normalizeCode(j));
   }, []);
 
-  useEffect(() => {
-    if (created) sessionStorage.setItem(CREATED_KEY, JSON.stringify(created));
-    else sessionStorage.removeItem(CREATED_KEY);
-  }, [created]);
-
-  const clearCreated = useCallback(() => setCreated(null), []);
-
-  // When my open game gets an opponent, drop straight into the table.
-  useEffect(() => {
-    if (!created) return;
-    const g = games.find((x) => x.gameId === created.gameId);
-    if (g && g.status === "active") {
-      const id = created.gameId;
-      clearCreated();
-      router.push(`/game/${id}`);
-    }
-  }, [games, created, clearCreated, router]);
-
   const openGames = useMemo(() => games.filter((g) => g.status === "open"), [games]);
 
-  async function ensureApproved(stake: bigint) {
-    if (!POOLDAWGS_ADDRESS || !DDAWGS_TOKEN_ADDRESS || !publicClient || !address) return;
-    const allowance = (await publicClient.readContract({
-      address: DDAWGS_TOKEN_ADDRESS,
-      abi: ERC20_ABI,
-      functionName: "allowance",
-      args: [address, POOLDAWGS_ADDRESS],
-    })) as bigint;
-    if (allowance < stake) {
-      const tx = await writeContractAsync({
-        address: DDAWGS_TOKEN_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [POOLDAWGS_ADDRESS, stake],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: tx });
-    }
-  }
-
   async function createOnChain() {
-    if (!POOLDAWGS_ADDRESS || !publicClient || !address) return;
+    if (!POOLDAWGS_ADDRESS || !DDAWGS_TOKEN_ADDRESS || !publicClient || !address) return;
     setError(null);
     setBusy("create");
     try {
@@ -148,92 +95,44 @@ function Lobby() {
         gameId = newGameCode();
       }
 
-      await ensureApproved(stake);
-      const createTx = await writeContractAsync({
+      const allowance = (await publicClient.readContract({
+        address: DDAWGS_TOKEN_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [address, POOLDAWGS_ADDRESS],
+      })) as bigint;
+      if (allowance < stake) {
+        const a = await writeContractAsync({
+          address: DDAWGS_TOKEN_ADDRESS,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [POOLDAWGS_ADDRESS, stake],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: a });
+      }
+      const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
         functionName: "createGame",
         args: [stake, gameId],
       });
-      await publicClient.waitForTransactionReceipt({ hash: createTx });
-      // Stay in the lobby on a "waiting / share this code" card; we drop into
-      // the table automatically once an opponent joins.
-      setCreated({ gameId, stake: stake.toString() });
-    } catch (e) {
-      setError(e instanceof Error ? e.message.split("\n")[0] : "Transaction failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function cancelCreated() {
-    if (!created || !POOLDAWGS_ADDRESS || !publicClient) return;
-    setError(null);
-    setBusy("cancel");
-    try {
-      const tx = await writeContractAsync({
-        address: POOLDAWGS_ADDRESS,
-        abi: POOL_DAWGS_ABI,
-        functionName: "cancelGame",
-        args: [created.gameId],
-      });
       await publicClient.waitForTransactionReceipt({ hash: tx });
-      clearCreated();
-    } catch (e) {
-      setError(e instanceof Error ? e.message.split("\n")[0] : "Cancel failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doJoin(gameId: string, stake: bigint, busyKey: string) {
-    if (!POOLDAWGS_ADDRESS || !publicClient || !address) return;
-    setError(null);
-    setBusy(busyKey);
-    try {
-      await ensureApproved(stake);
-      const tx = await writeContractAsync({
-        address: POOLDAWGS_ADDRESS,
-        abi: POOL_DAWGS_ABI,
-        functionName: "joinGame",
-        args: [gameId],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: tx });
+      // The game page shows the "waiting / share this code" screen.
       router.push(`/game/${gameId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message.split("\n")[0] : "Transaction failed");
-    } finally {
       setBusy(null);
     }
   }
 
-  async function joinByCode() {
-    if (!POOLDAWGS_ADDRESS || !publicClient || !address) return;
+  // Joining is handled entirely on the game page (it validates the code,
+  // offers to join, or alerts if it's full / not yours).
+  function go(gameId: string) {
+    router.push(`/game/${gameId}`);
+  }
+  function joinByCode() {
     const code = normalizeCode(joinCode);
-    if (!code) return;
-    setError(null);
-    setBusy("joincode");
-    try {
-      const g = (await publicClient.readContract({
-        address: POOLDAWGS_ADDRESS,
-        abi: POOL_DAWGS_ABI,
-        functionName: "games",
-        args: [code],
-      })) as unknown as readonly [string, string, boolean, string, bigint, ...unknown[]];
-      const [playerOne, playerTwo, isCompleted, , stake] = g;
-      if (playerOne === zeroAddress) throw new Error(`No game with code ${code}`);
-      if (isCompleted) throw new Error("That game is already over");
-      if (playerTwo !== zeroAddress) throw new Error("That game is already full");
-      if (playerOne.toLowerCase() === address.toLowerCase()) {
-        // It's your own open game — just go wait in it.
-        router.push(`/game/${code}`);
-        return;
-      }
-      await doJoin(code, stake, "joincode");
-    } catch (e) {
-      setError(e instanceof Error ? e.message.split("\n")[0] : "Could not join");
-      setBusy(null);
-    }
+    if (code) go(code);
   }
 
   async function faucet() {
@@ -254,16 +153,6 @@ function Lobby() {
     } finally {
       setBusy(null);
     }
-  }
-
-  function copy(kind: "code" | "link", text: string) {
-    void navigator.clipboard?.writeText(text);
-    setCopied(kind);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
-  function createDevTable() {
-    router.push(`/game/dev-${Math.random().toString(36).slice(2, 8)}`);
   }
 
   return (
@@ -298,12 +187,8 @@ function Lobby() {
                   <span className="font-semibold text-gold-bright">
                     {formatStake(game.stake)}
                   </span>
-                  <button
-                    className="btn-gold"
-                    disabled={busy !== null || mine}
-                    onClick={() => doJoin(game.gameId, BigInt(game.stake), game.gameId)}
-                  >
-                    {busy === game.gameId ? "Joining…" : mine ? "Yours" : "Join"}
+                  <button className="btn-gold" onClick={() => go(game.gameId)}>
+                    {mine ? "Resume" : "Join"}
                   </button>
                 </li>
               );
@@ -313,10 +198,9 @@ function Lobby() {
         {openGames.some((g) => g.playerOne !== address?.toLowerCase()) && (
           <button
             className="btn-outline mt-4"
-            disabled={busy !== null}
             onClick={() => {
               const t = openGames.find((g) => g.playerOne !== address?.toLowerCase());
-              if (t) void doJoin(t.gameId, BigInt(t.stake), t.gameId);
+              if (t) go(t.gameId);
             }}
           >
             ⚡ Quick match — join the first open table
@@ -325,74 +209,42 @@ function Lobby() {
       </section>
 
       <aside className="space-y-6">
-        {created ? (
-          <div className="panel gold-frame p-6 text-center">
-            <h2 className="heading-display mb-1 text-xl">Waiting for an opponent…</h2>
-            <p className="mb-4 text-xs text-amber-100/60">
-              Share this code (or the link) to challenge someone directly.
-            </p>
-            <div className="mb-3 rounded-lg border border-gold/50 bg-mahogany-deep px-4 py-3 font-mono text-2xl font-bold tracking-widest text-gold-bright">
-              {created.gameId}
-            </div>
-            <div className="mb-4 flex gap-2">
-              <button className="btn-outline flex-1" onClick={() => copy("code", created.gameId)}>
-                {copied === "code" ? "Copied ✓" : "Copy code"}
+        <div className="panel p-6">
+          <h2 className="heading-display mb-4 text-xl">Create a table</h2>
+          {CONTRACTS_CONFIGURED ? (
+            <>
+              <label className="mb-1 block text-xs uppercase tracking-widest text-amber-100/60">
+                Stake ($DDawgs)
+              </label>
+              <input
+                value={stakeInput}
+                onChange={(e) => setStakeInput(e.target.value)}
+                inputMode="decimal"
+                className="mb-4 w-full rounded-lg border border-gold-dim/40 bg-mahogany-deep px-3 py-2 outline-none focus:border-gold"
+              />
+              <button className="btn-gold w-full" disabled={busy !== null} onClick={createOnChain}>
+                {busy === "create" ? "Confirm in wallet…" : "Stake & create"}
               </button>
+              <p className="mt-3 text-xs text-amber-100/50">
+                Generates a shareable game code, escrows your stake, and opens a
+                table you can share or cancel any time before someone joins.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mb-4 text-sm text-amber-100/60">
+                Contracts aren&rsquo;t configured in this build — spin up a dev
+                table instead.
+              </p>
               <button
-                className="btn-outline flex-1"
-                onClick={() => copy("link", inviteLink(created.gameId))}
+                className="btn-gold w-full"
+                onClick={() => go(`dev-${Math.random().toString(36).slice(2, 8)}`)}
               >
-                {copied === "link" ? "Copied ✓" : "Copy link"}
+                Create dev table
               </button>
-            </div>
-            <p className="mb-4 text-xs text-amber-100/50">
-              Stake {formatStake(created.stake)} escrowed. You&rsquo;ll drop into the
-              table the moment someone joins.
-            </p>
-            <button
-              className="btn-outline w-full border-red-900/60 text-red-300 hover:border-red-500"
-              disabled={busy !== null}
-              onClick={cancelCreated}
-            >
-              {busy === "cancel" ? "Cancelling…" : "Cancel & refund"}
-            </button>
-          </div>
-        ) : (
-          <div className="panel p-6">
-            <h2 className="heading-display mb-4 text-xl">Create a table</h2>
-            {CONTRACTS_CONFIGURED ? (
-              <>
-                <label className="mb-1 block text-xs uppercase tracking-widest text-amber-100/60">
-                  Stake ($DDawgs)
-                </label>
-                <input
-                  value={stakeInput}
-                  onChange={(e) => setStakeInput(e.target.value)}
-                  inputMode="decimal"
-                  className="mb-4 w-full rounded-lg border border-gold-dim/40 bg-mahogany-deep px-3 py-2 outline-none focus:border-gold"
-                />
-                <button className="btn-gold w-full" disabled={busy !== null} onClick={createOnChain}>
-                  {busy === "create" ? "Confirm in wallet…" : "Stake & create"}
-                </button>
-                <p className="mt-3 text-xs text-amber-100/50">
-                  Generates a shareable game code. Approves $DDawgs, escrows your
-                  stake, and lists the table publicly — cancel any time before
-                  someone joins.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mb-4 text-sm text-amber-100/60">
-                  Contracts aren&rsquo;t configured in this build — spin up a dev
-                  table instead. First two wallets to open it get the seats.
-                </p>
-                <button className="btn-gold w-full" onClick={createDevTable}>
-                  Create dev table
-                </button>
-              </>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         {CONTRACTS_CONFIGURED && (
           <div className="panel p-6">
@@ -408,12 +260,8 @@ function Lobby() {
                 placeholder="POOL-XXXXX"
                 className="min-w-0 flex-1 rounded-lg border border-gold-dim/40 bg-mahogany-deep px-3 py-2 font-mono uppercase outline-none focus:border-gold"
               />
-              <button
-                className="btn-gold"
-                disabled={busy !== null || !joinCode.trim()}
-                onClick={joinByCode}
-              >
-                {busy === "joincode" ? "…" : "Join"}
+              <button className="btn-gold" disabled={!joinCode.trim()} onClick={joinByCode}>
+                Join
               </button>
             </div>
           </div>
