@@ -30,18 +30,22 @@
   </defs>
 
   <!-- Cue body: butt (left) → tip (right), tapered, centred on y=18 -->
-  <path d="M18 11 L632 15.8 L632 20.2 L18 25 Q9 25 9 18 Q9 11 18 11 Z" fill="url(#cw)"/>
-  <path d="M18 11 L632 15.8 L632 20.2 L18 25 Q9 25 9 18 Q9 11 18 11 Z" fill="url(#cy)"/>
+  <path d="M18 8.5 L632 14.8 L632 21.2 L18 27.5 Q8 27.5 8 18 Q8 8.5 18 8.5 Z" fill="url(#cw)"/>
+  <path d="M18 8.5 L632 14.8 L632 21.2 L18 27.5 Q8 27.5 8 18 Q8 8.5 18 8.5 Z" fill="url(#cy)"/>
 
   <!-- Butt wrap (grip) -->
-  <path d="M18 11.6 L150 12.6 L150 23.4 L18 24.4 Q10 24.4 10 18 Q10 11.6 18 11.6 Z" fill="url(#cwrap)"/>
-  <path d="M18 11.6 L150 12.6 L150 23.4 L18 24.4 Q10 24.4 10 18 Q10 11.6 18 11.6 Z" fill="url(#cy)"/>
+  <path d="M18 9.1 L150 10.4 L150 25.6 L18 26.9 Q9 26.9 9 18 Q9 9.1 18 9.1 Z" fill="url(#cwrap)"/>
+  <path d="M18 9.1 L150 10.4 L150 25.6 L18 26.9 Q9 26.9 9 18 Q9 9.1 18 9.1 Z" fill="url(#cy)"/>
 
   <!-- Gold butt cap + joint collar -->
-  <rect x="11" y="11.4" width="6" height="13.2" rx="2" fill="url(#cg)"/>
-  <rect x="149" y="12.3" width="9" height="11.4" rx="1" fill="url(#cg)"/>
+  <rect x="11" y="8.5" width="6.5" height="19" rx="2.5" fill="url(#cg)"/>
+  <rect x="149" y="10" width="9" height="16" rx="1" fill="url(#cg)"/>
 
   <!-- Ivory ferrule + leather tip -->
-  <path d="M632 15.85 L650 16.4 L650 19.6 L632 20.15 Z" fill="#f4eddb"/>
-  <path d="M650 16.4 L666 16.9 Q672 17.2 672 18 Q672 18.8 666 19.1 L650 19.6 Z" fill="#2f6f9e"/>
+  <path d="M632 14.85 L650 15.3 L650 20.7 L632 21.15 Z" fill="#f4eddb"/>
+  <path d="M650 15.3 L666 15.9 Q672 16.3 672 18 Q672 19.7 666 20.1 L650 20.7 Z" fill="#2f6f9e"/>
+
+  <!-- Brand stamp along the shaft -->
+  <text x="400" y="20.9" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+        font-size="8.5" font-weight="bold" letter-spacing="2.6" fill="#3a2410" opacity="0.9">POOLDAWGS</text>
 </svg>
