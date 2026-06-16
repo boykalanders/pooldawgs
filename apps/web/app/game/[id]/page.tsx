@@ -369,27 +369,35 @@ function GameRoom() {
     setWorking("claim");
     log.info("claim: start", gameId, { settledOnChain, chainSettled, hasTxHash: !!snapshot?.over?.txHash });
     try {
-      // Re-read the chain first: claimReward reverts until the relayer's
-      // finishGame has marked the game completed. Check, so we never send a
-      // doomed tx and the winner gets a clear message instead of silence.
-      const fresh = await refetchGame();
-      const g = fresh.data as ChainGame | undefined;
-      const completed = g ? Boolean(g[2]) : settledOnChain;
-      const onchainWinner = g ? String(g[3]).toLowerCase() : null;
-      const alreadyClaimed = g ? Boolean(g[5]) : false;
-      log.info("claim: on-chain", { completed, onchainWinner, alreadyClaimed, me: address });
-      if (alreadyClaimed) {
+      // The winner can tap Claim the instant they win, but claimReward reverts
+      // until the server's relayer lands finishGame (~1 block later). So poll
+      // the chain for settlement (up to ~36s) and then claim — a single tap
+      // "just works" instead of erroring on a premature click.
+      let g = (await refetchGame()).data as ChainGame | undefined;
+      if (g && Boolean(g[5])) {
+        log.info("claim: already claimed on-chain");
         setClaimed(true);
         return;
       }
+      let completed = g ? Boolean(g[2]) : false;
+      for (let i = 0; i < 12 && !completed; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        g = (await refetchGame()).data as ChainGame | undefined;
+        completed = g ? Boolean(g[2]) : false;
+        log.info("claim: waiting for settlement…", { attempt: i + 1, completed });
+      }
       if (!completed) {
-        setActionError("The match is still finalizing on-chain — give it a few seconds and try again.");
+        setActionError(
+          "The match isn't settled on-chain yet — the game server may not be recording results. You can also claim later from your Profile."
+        );
         return;
       }
+      const onchainWinner = g ? String(g[3]).toLowerCase() : null;
       if (onchainWinner && address && onchainWinner !== address.toLowerCase()) {
         setActionError("This wallet isn't the recorded winner of this match.");
         return;
       }
+      log.info("claim: settled — sending claimReward");
       const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
