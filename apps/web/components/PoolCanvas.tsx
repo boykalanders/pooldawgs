@@ -549,6 +549,11 @@ function drawAimGuide(
 // the draw to put the cue ON the aim line. Lower = cue sits higher; raise it
 // if the cue still looks low.
 const CUE_AXIS = 0.45;
+// The traced cue's centreline also SLOPES (flat bottom, tapering top), so it
+// reads as tilted clockwise when laid along the aim. Rotate it slightly
+// anti-clockwise so the head points at the cue-ball centre. Radians; raise for
+// more anti-clockwise tilt, set to 0 to disable.
+const CUE_TILT = 0.05;
 
 /** The client's traced cue (stick.svg), laid along the aim and centred on the
  *  aim line; a vector cue is drawn as a fallback until the SVG has loaded. */
@@ -571,7 +576,9 @@ function drawCueStick(
     const h = stickLen * (stickImg.naturalHeight / stickImg.naturalWidth);
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(angle);
+    // angle − CUE_TILT rotates the cue a touch anti-clockwise (canvas rotation
+    // is clockwise-positive), aligning the head with the cue-ball centre.
+    ctx.rotate(angle - CUE_TILT);
     ctx.drawImage(stickImg, -(pullback + stickLen), -CUE_AXIS * h, stickLen, h);
     ctx.restore();
     return;
