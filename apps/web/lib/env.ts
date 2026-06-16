@@ -30,7 +30,8 @@ interface NetworkContracts {
 const NETWORKS: Record<number, NetworkContracts> = {
   11155111: {
     name: "Sepolia",
-    poolDawgs: "0xcbc5287F4BE6656614a479257E74af0c9bd28db4",
+    // Voucher-model escrow (fresh proxy). Server CONTRACT_ADDRESS must match.
+    poolDawgs: "0x1a0ff1B3B4D20495B12367f291A8639B9B268764",
     ddawgsToken: "0xe60F1A83C0A08FF104b3c1F74D932f0C9D629C4E",
     // Redeployed with read-time/retroactive metadata; gate re-pointed here.
     poolDawgsNFT: "0x6150D0Cd8b2871adB22c81B796E3DdAFF852DA05",
