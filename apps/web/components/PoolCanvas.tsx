@@ -542,16 +542,12 @@ function drawAimGuide(
   ctx.restore();
 }
 
-// Vertical placement of the cue relative to the aim line. The traced cue art
-// (stick.svg, 0–100 viewBox) has its body at ~y26–64, so this is the fraction
-// of the image height that should land ON the aim line. HIGHER = cue sits
-// higher (moves up); lower = cue sits lower.
-const CUE_AXIS = 0.53;
-// The traced cue's centreline also SLOPES (flat bottom, tapering top), so it
-// reads as tilted clockwise when laid along the aim. Rotate it anti-clockwise
-// so the head points at the cue-ball centre. Radians; raise for more
-// anti-clockwise tilt, set to 0 to disable.
-const CUE_TILT = 0.09;
+// stick.svg is a clean, straight cue centred on its viewBox (centreline at
+// y=18 of 36), so its axis is the vertical middle and it needs no tilt.
+// CUE_AXIS = fraction of the image height that lands on the aim line (raise to
+// lift the cue, lower to drop it). CUE_TILT = anti-clockwise tilt in radians.
+const CUE_AXIS = 0.5;
+const CUE_TILT = 0;
 
 /** The client's traced cue (stick.svg), laid along the aim and centred on the
  *  aim line; a vector cue is drawn as a fallback until the SVG has loaded. */
