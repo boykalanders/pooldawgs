@@ -135,16 +135,11 @@ function GameRoom() {
   // finish is handled by snapshot.over + the winner popup).
   const effectivePhase: Phase = snapshot ? "play" : phase;
 
-  // On-chain settlement state. claimReward reverts ("no win to claim") until
-  // finishGame has confirmed (g.isCompleted == true). The relayer calls it
-  // ~one block AFTER the room declares a winner, so the popup must not offer
-  // Claim until then. Two signals say it's safe: the server re-emits game:over
-  // with a txHash once finishGame mines, and the polled games() read flips
-  // isCompleted. Either one (or the on-chain rewardClaimed flag) is enough.
+  // Claimed state: the on-chain rewardClaimed flag (index 5) or our local flag
+  // after a successful claim. In the voucher model the winner's claim itself
+  // settles the game, so there's no separate "waiting to settle" state.
   const cg = CONTRACTS_CONFIGURED && chainGame ? (chainGame as ChainGame) : null;
-  const chainSettled = cg ? Boolean(cg[2]) : false;
   const chainClaimed = cg ? Boolean(cg[5]) : false;
-  const settledOnChain = Boolean(snapshot?.over?.txHash) || chainSettled;
   const rewardClaimed = claimed || chainClaimed;
 
   // Per-seat avatars: each player's NFT artwork (or a wallet-derived identicon),
@@ -365,59 +360,33 @@ function GameRoom() {
 
   async function claim() {
     if (!POOLDAWGS_ADDRESS) return;
+    // The winner redeems the backend's voucher: claimRewardSigned settles the
+    // game AND pays out in this single winner-paid tx — no settlement wait.
+    const voucher = snapshot?.over?.voucher;
+    if (!voucher) {
+      setActionError("Reward voucher isn't ready yet — you can also claim from your Profile.");
+      return;
+    }
     setActionError(null);
     setWorking("claim");
-    log.info("claim: start", gameId, { settledOnChain, chainSettled, hasTxHash: !!snapshot?.over?.txHash });
+    log.info("claim: redeeming voucher for", gameId);
     try {
-      // The winner can tap Claim the instant they win, but claimReward reverts
-      // until the server's relayer lands finishGame (~1 block later). So poll
-      // the chain for settlement (up to ~36s) and then claim — a single tap
-      // "just works" instead of erroring on a premature click.
-      let g = (await refetchGame()).data as ChainGame | undefined;
-      if (g && Boolean(g[5])) {
-        log.info("claim: already claimed on-chain");
-        setClaimed(true);
-        return;
-      }
-      let completed = g ? Boolean(g[2]) : false;
-      for (let i = 0; i < 12 && !completed; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        g = (await refetchGame()).data as ChainGame | undefined;
-        completed = g ? Boolean(g[2]) : false;
-        log.info("claim: waiting for settlement…", { attempt: i + 1, completed });
-      }
-      if (!completed) {
-        setActionError(
-          "The match isn't settled on-chain yet — the game server may not be recording results. You can also claim later from your Profile."
-        );
-        return;
-      }
-      const onchainWinner = g ? String(g[3]).toLowerCase() : null;
-      if (onchainWinner && address && onchainWinner !== address.toLowerCase()) {
-        setActionError("This wallet isn't the recorded winner of this match.");
-        return;
-      }
-      log.info("claim: settled — sending claimReward");
       const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
-        functionName: "claimReward",
-        args: [gameId],
+        functionName: "claimRewardSigned",
+        args: [gameId, voucher as `0x${string}`],
         chainId: CHAIN_ID,
       });
       log.info("claim: tx sent", tx);
       if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
       log.info("claim: confirmed");
       setClaimed(true);
-      await refetchGame(); // flip the on-chain rewardClaimed read
+      await refetchGame();
     } catch (e) {
       log.error("claim: failed —", e);
       const msg = e instanceof Error ? e.message.split("\n")[0] : "Claim failed";
-      setActionError(
-        /no win to claim|not completed/i.test(msg)
-          ? "The match is still finalizing on-chain — give it a few seconds and try again."
-          : msg
-      );
+      setActionError(/already claimed/i.test(msg) ? "Reward already claimed." : msg);
     } finally {
       setWorking(null);
     }
@@ -538,20 +507,9 @@ function GameRoom() {
             </p>
           )}
           {iWon && !rewardClaimed && (
-            <>
-              <button
-                className="btn-gold w-full"
-                disabled={working === "claim"}
-                onClick={claim}
-              >
-                {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
-              </button>
-              {!settledOnChain && (
-                <p className="text-xs text-amber-100/60">
-                  Finalizing on-chain — tap to claim once ready
-                </p>
-              )}
-            </>
+            <button className="btn-gold w-full" onClick={() => router.push("/profile")}>
+              Claim 80% of the pot
+            </button>
           )}
           {rewardClaimed && <p className="text-gold-bright">Reward claimed ✓</p>}
           {actionError && <p className="text-sm text-red-300">{actionError}</p>}
@@ -677,24 +635,21 @@ function GameRoom() {
             <WinnerPopup
               winnerName="You"
               avatarSrc={winnerAvatar}
-              message={`Won by ${reasonWord}${
-                over.txHash ? ` · settled ${shortAddress(over.txHash)}` : ""
-              }`}
+              message={`Won by ${reasonWord}`}
               amountLabel={potWin ? `+${potWin}` : null}
               actions={
                 <>
-                  {CONTRACTS_CONFIGURED && !rewardClaimed && (
-                    <div className="flex flex-col items-center gap-1">
+                  {CONTRACTS_CONFIGURED &&
+                    !rewardClaimed &&
+                    (over.voucher ? (
                       <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
                         {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
                       </button>
-                      {!settledOnChain && (
-                        <span className="text-[11px] text-amber-100/60">
-                          Finalizing on-chain — tap to claim once ready
-                        </span>
-                      )}
-                    </div>
-                  )}
+                    ) : (
+                      <span className="self-center text-[11px] text-amber-100/60">
+                        Preparing your reward voucher…
+                      </span>
+                    ))}
                   {rewardClaimed && (
                     <span className="self-center text-gold-bright">Reward claimed ✓</span>
                   )}

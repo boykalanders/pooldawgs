@@ -64,6 +64,8 @@ export interface ServerToClientEvents {
     winner: Address;
     reason: GameOverReason;
     txHash?: string;
+    /** Backend voucher the winner redeems via claimRewardSigned. */
+    voucher?: string;
   }) => void;
   "chat:message": (p: ChatMessage) => void;
   "profile:state": (p: PlayerProfile) => void;

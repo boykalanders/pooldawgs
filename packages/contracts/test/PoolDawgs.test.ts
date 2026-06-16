@@ -106,10 +106,28 @@ describe("PoolDawgs", () => {
       );
     });
 
-    it("non-owner cannot finishGame (the chain trusts only the backend)", async () => {
+    it("non-owner/non-operator cannot finishGame (the chain trusts only the backend)", async () => {
       await createAndJoin();
       await expect(
         pool.connect(p1).finishGame(GAME_ID, p1.address)
+      ).to.be.revertedWith("not authorized");
+    });
+
+    it("a dedicated operator may settle, but not touch admin functions", async () => {
+      await createAndJoin();
+      // Owner appoints outsider as the low-privilege operator.
+      await pool.connect(owner).setOperator(outsider.address);
+      // Operator can finish the game…
+      await pool.connect(outsider).finishGame(GAME_ID, p1.address);
+      const g = await pool.games(GAME_ID);
+      expect(g.isCompleted).to.equal(true);
+      expect(g.winner).to.equal(p1.address);
+      // …but cannot use owner-only admin powers.
+      await expect(
+        pool.connect(outsider).setCompanyWallet(outsider.address)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+      await expect(
+        pool.connect(outsider).setOperator(p1.address)
       ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
     });
 
@@ -118,6 +136,47 @@ describe("PoolDawgs", () => {
       await expect(
         pool.connect(owner).finishGame(GAME_ID, outsider.address)
       ).to.be.revertedWith("winner not a player");
+    });
+
+    it("winner self-claims with a backend voucher (no settlement tx)", async () => {
+      await createAndJoin();
+      // The backend signer is set on-chain; the backend never sends a tx.
+      await pool.connect(owner).setResultSigner(company.address);
+      const domain = {
+        name: "PoolDawgs",
+        version: "1",
+        chainId: (await ethers.provider.getNetwork()).chainId,
+        verifyingContract: await pool.getAddress(),
+      };
+      const types = {
+        Result: [
+          { name: "gameId", type: "string" },
+          { name: "winner", type: "address" },
+        ],
+      };
+      const voucher = await company.signTypedData(domain, types, {
+        gameId: GAME_ID,
+        winner: p1.address,
+      });
+
+      const before = await token.balanceOf(p1.address);
+      await pool.connect(p1).claimRewardSigned(GAME_ID, voucher);
+      const g = await pool.games(GAME_ID);
+      expect(g.isCompleted).to.equal(true);
+      expect(g.winner).to.equal(p1.address);
+      expect(g.rewardClaimed).to.equal(true);
+      expect((await token.balanceOf(p1.address)) - before).to.equal(WINNER_SHARE);
+
+      // A voucher signed by anyone but the resultSigner is rejected.
+      await pool.connect(p1).createGame(STAKE, "vouch-2");
+      await pool.connect(p2).joinGame("vouch-2");
+      const forged = await outsider.signTypedData(domain, types, {
+        gameId: "vouch-2",
+        winner: p1.address,
+      });
+      await expect(
+        pool.connect(p1).claimRewardSigned("vouch-2", forged)
+      ).to.be.revertedWith("bad voucher");
     });
 
     it("cannot finish a game twice or before it is full", async () => {

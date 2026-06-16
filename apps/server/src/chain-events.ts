@@ -50,9 +50,22 @@ export function startChainListener(
     for (const ev of await contract.queryFilter(contract.filters.GameFinished(), from, to)) {
       const a = argsOf<{ gameId: string; winner: string; reward: bigint }>(ev);
       lobby.markStatus(a.gameId, "finished");
+      const winner = a.winner.toLowerCase() as Address;
       // Feed the unclaimed-rewards list (idempotent by gameId). The client
       // cross-checks each game's on-chain rewardClaimed flag before showing it.
-      leaderboard.recordWonGame(a.winner.toLowerCase() as Address, a.gameId, a.reward.toString());
+      leaderboard.recordWonGame(winner, a.gameId, a.reward.toString());
+      // Feed the win/loss leaderboard from chain history too, so it survives
+      // server restarts (rebuilt from on-chain finishes), not just live games.
+      // record() is idempotent per gameId, so this never double-counts with the
+      // socket path. The loser is the game's other seat (from the lobby mirror).
+      const game = lobby.get(a.gameId);
+      const loser =
+        game && game.playerTwo
+          ? game.playerOne === winner
+            ? game.playerTwo
+            : game.playerOne
+          : null;
+      if (loser) leaderboard.record(a.gameId, winner, loser, a.reward.toString());
     }
     for (const ev of await contract.queryFilter(contract.filters.GameCancelled(), from, to)) {
       lobby.markStatus(argsOf<{ gameId: string }>(ev).gameId, "cancelled");

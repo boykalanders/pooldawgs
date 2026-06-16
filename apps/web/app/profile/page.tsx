@@ -29,6 +29,7 @@ export default function ProfilePage() {
 /** On-chain game tuple: [p1, p2, isCompleted, winner, stake, rewardClaimed, …]. */
 type ChainGame = readonly [string, string, boolean, string, bigint, boolean, ...unknown[]];
 
+
 function Profile() {
   const { address } = useAccount();
   const publicClient = usePublicClient();
@@ -60,8 +61,9 @@ function Profile() {
 
   const wonGames = useMemo(() => profile?.wonGames ?? [], [profile?.wonGames]);
 
-  // Cross-check each won game's on-chain state: a reward is claimable only when
-  // the game is completed, this wallet is the winner, and it's not yet claimed.
+  // Cross-check each won game on-chain. Anything not yet claimed is listed so
+  // the winner always sees it: claimable now if finishGame has settled it, or
+  // "finalizing" (claimable later) if the result isn't recorded on-chain yet.
   useEffect(() => {
     if (!publicClient || !address || !POOLDAWGS_ADDRESS || wonGames.length === 0) {
       setUnclaimed([]);
@@ -79,12 +81,11 @@ function Profile() {
             functionName: "games",
             args: [g.gameId],
           })) as unknown as ChainGame;
-          const [, , isCompleted, winner, , rewardClaimed] = game;
-          if (isCompleted && !rewardClaimed && winner.toLowerCase() === address.toLowerCase()) {
-            open.push(g);
-          }
+          if (game[5]) continue; // rewardClaimed — already paid out
+          open.push(g); // claimable now if it carries a voucher
         } catch (e) {
           log.info("profile: reward check skipped for", g.gameId, e instanceof Error ? e.message : e);
+          open.push(g);
         }
       }
       if (!cancelled) {
@@ -98,16 +99,16 @@ function Profile() {
   }, [wonGames, publicClient, address, refresh]);
 
   const claim = useCallback(
-    async (gameId: string) => {
-      if (!POOLDAWGS_ADDRESS) return;
+    async (gameId: string, voucher: string) => {
+      if (!POOLDAWGS_ADDRESS || !voucher) return;
       setClaimError(null);
       setClaiming(gameId);
       try {
         const tx = await writeContractAsync({
           address: POOLDAWGS_ADDRESS,
           abi: POOL_DAWGS_ABI,
-          functionName: "claimReward",
-          args: [gameId],
+          functionName: "claimRewardSigned",
+          args: [gameId, voucher as `0x${string}`],
           chainId: CHAIN_ID,
         });
         if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
@@ -226,26 +227,39 @@ function Profile() {
         ) : (
           <ul className="space-y-3">
             {unclaimed.map((g) => (
-              <li key={g.gameId} className="flex items-center gap-4 rounded-lg border border-gold-dim/30 bg-mahogany-deep px-4 py-3">
+              <li key={g.gameId} className="flex items-center gap-4 rounded-lg border border-gold-dim/30 bg-emerald-deep px-4 py-3">
                 <div className="text-2xl">🏆</div>
                 <div className="min-w-0 flex-1">
-                  <p className="font-mono font-semibold text-amber-50">{g.gameId}</p>
-                  <p className="text-xs text-amber-100/60">
+                  <p className="font-mono font-semibold text-cream">{g.gameId}</p>
+                  <p className="text-xs text-cream/60">
                     {GAME_TYPE_LABEL[gameTypeFromId(g.gameId)]} · won{" "}
                     <span className="text-gold-bright">{formatStake(g.reward)}</span>
                   </p>
                 </div>
-                <button
-                  className="btn-gold"
-                  disabled={claiming === g.gameId}
-                  onClick={() => claim(g.gameId)}
-                >
-                  {claiming === g.gameId ? "Claiming…" : "Claim"}
-                </button>
+                {g.voucher ? (
+                  <button
+                    className="btn-gold"
+                    disabled={claiming === g.gameId}
+                    onClick={() => claim(g.gameId, g.voucher!)}
+                  >
+                    {claiming === g.gameId ? "Claiming…" : "Claim"}
+                  </button>
+                ) : (
+                  <span
+                    className="rounded-lg border border-gold-dim/40 px-3 py-2 text-xs text-cream/60"
+                    title="The reward voucher isn't available yet — reconnect to the game server and refresh."
+                  >
+                    Pending…
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
+        <p className="mt-3 text-[11px] text-cream/40">
+          Wins show here even before they settle on-chain — once the result is recorded you can
+          claim them anytime.
+        </p>
       </section>
     </div>
   );

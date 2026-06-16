@@ -23,7 +23,13 @@ export interface RoomEmitter {
   broadcastShot(p: ShotBroadcast): void;
   broadcastCuePlaced(p: { gameId: string; x: number; y: number; stateHash: string }): void;
   broadcastState(p: RoomSnapshot): void;
-  broadcastOver(p: { gameId: string; winner: Address; reason: GameOverReason; txHash?: string }): void;
+  broadcastOver(p: {
+    gameId: string;
+    winner: Address;
+    reason: GameOverReason;
+    txHash?: string;
+    voucher?: string;
+  }): void;
 }
 
 export type RoomActionResult = { ok: true } | { ok: false; error: ServerError };
@@ -194,22 +200,22 @@ export class GameRoom {
 
     const winner = this.seats[winnerSeat];
     this.state = { ...this.state, gameOver: true, winner: winnerSeat };
-    this.over = { winner, reason };
-    this.emitter.broadcastOver({ gameId: this.gameId, winner, reason });
-    this.emitter.broadcastState(this.snapshot());
 
+    // Sign the win voucher off-chain (fast, no transaction). The winner redeems
+    // it via claimRewardSigned, which settles AND pays in a single winner-paid
+    // tx — so there's no relayer gas and no "waiting to settle" window. If
+    // signing is unavailable the frame still stands; the winner can claim later
+    // from their profile (which re-signs the voucher on demand).
+    let voucher: string | undefined;
     try {
-      const txHash = await this.relayer.finishGame(this.gameId, winner);
-      if (txHash) {
-        this.over = { winner, reason, txHash };
-        this.emitter.broadcastOver({ gameId: this.gameId, winner, reason, txHash });
-      }
+      voucher = (await this.relayer.signResult(this.gameId, winner)) ?? undefined;
     } catch {
-      // Already logged by the relayer; the game result stands and settlement
-      // must be retried operationally.
-    } finally {
-      this.settling = false;
+      /* logged by the relayer */
     }
+    this.over = { winner, reason, voucher };
+    this.emitter.broadcastOver({ gameId: this.gameId, winner, reason, voucher });
+    this.emitter.broadcastState(this.snapshot());
+    this.settling = false;
   }
 
   dispose(): void {

@@ -542,7 +542,8 @@ function drawAimGuide(
   ctx.restore();
 }
 
-/** The client's traced cue (stick.svg); vector fallback while it loads. */
+/** Crisp vector cue, stroked exactly along the aim line so it's always centred
+ *  on the cue ball and renders every frame (no heavy traced-SVG to rasterise). */
 function drawCueStick(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -554,19 +555,6 @@ function drawCueStick(
   const stickLen = 430;
   const tipX = cx - Math.cos(angle) * pullback;
   const tipY = cy - Math.sin(angle) * pullback;
-
-  const stickImg = getImage("/assets/stick.svg");
-  if (stickImg) {
-    // Image points butt→tip left-to-right; lay it along the aim direction
-    // behind the cue ball.
-    const h = stickLen * (stickImg.naturalHeight / stickImg.naturalWidth);
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(angle);
-    ctx.drawImage(stickImg, -(pullback + stickLen), -h / 2, stickLen, h);
-    ctx.restore();
-    return;
-  }
   const buttX = cx - Math.cos(angle) * (pullback + stickLen);
   const buttY = cy - Math.sin(angle) * (pullback + stickLen);
 

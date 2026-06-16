@@ -38,8 +38,10 @@ export interface RoomSnapshot {
   stateHash: string;
   /** Epoch ms when the current player's 4-minute shot clock expires. */
   clockExpiresAt: number;
-  /** Set once settled on-chain. */
-  over: { winner: Address; reason: GameOverReason; txHash?: string } | null;
+  /** Set when the frame ends. `voucher` is the backend's EIP-712 signature the
+   *  winner submits to claimRewardSigned; `txHash` is set only on the legacy
+   *  owner-settled path. */
+  over: { winner: Address; reason: GameOverReason; txHash?: string; voucher?: string } | null;
 }
 
 /** Broadcast after the server has validated and simulated a shot. Clients
@@ -77,6 +79,8 @@ export interface WonGame {
   gameId: string;
   /** Winner's payout in wei (80% of the 2-stake pot), decimal string. */
   reward: string;
+  /** Backend EIP-712 voucher to redeem via claimRewardSigned (when available). */
+  voucher?: string | null;
 }
 
 /** Per-wallet profile served on demand: editable name + stats + claimable wins. */

@@ -6,8 +6,14 @@ export class LeaderboardStore {
   // winner → (gameId → reward). Keyed by gameId so the same finish recorded
   // from both the live socket path and the chain backfill is counted once.
   private won = new Map<Address, Map<string, string>>();
+  // gameIds already counted into wins/losses, so the socket path and the chain
+  // backfill (which both report a finish) don't double-count.
+  private counted = new Set<string>();
 
-  record(winner: Address, loser: Address, wonAmountWei: string): void {
+  /** Record a finished game's win/loss. Idempotent per gameId. */
+  record(gameId: string, winner: Address, loser: Address, wonAmountWei: string): void {
+    if (this.counted.has(gameId)) return;
+    this.counted.add(gameId);
     const w = this.getOrCreate(winner);
     w.wins += 1;
     w.wonAmount = (BigInt(w.wonAmount) + BigInt(wonAmountWei)).toString();

@@ -119,6 +119,24 @@ export const POOL_DAWGS_ABI = [
     outputs: [],
   },
   {
+    // Winner-driven claim with a backend EIP-712 voucher (no settlement tx).
+    type: "function",
+    name: "claimRewardSigned",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "gameId", type: "string" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "resultSigner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "address" }],
+  },
+  {
     type: "function",
     name: "claimDrawReward",
     stateMutability: "nonpayable",

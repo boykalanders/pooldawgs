@@ -14,6 +14,8 @@ import {
 import type { ChatMessage } from "@pooldawgs/shared";
 import Chat from "@/components/Chat";
 import PlayerCard from "@/components/PlayerCard";
+import { ballAssetByNumber, ballStyle } from "@/lib/balls";
+import { targetBall, targetLabel, type Target } from "@/lib/target";
 import PoolCanvas, {
   type PoolCanvasHandle,
   type ShotAnimation,
@@ -344,10 +346,24 @@ export default function GameShell({
               </span>
             </button>
           ) : (
-            <div className="max-w-full rounded-xl border-2 border-gold/60 bg-black/70 px-10 py-2 text-center touch:px-4 touch:py-1">
-              <span className="block truncate font-display text-lg font-bold tracking-widest text-gold-bright">
-                {statusText}
-              </span>
+            <div
+              className={`flex max-w-full items-center gap-3 rounded-xl border-2 px-6 py-1.5 text-center transition touch:gap-2 touch:px-3 ${
+                interactive
+                  ? "border-gold bg-gold/15 shadow-gold-glow"
+                  : "border-gold/40 bg-black/70"
+              }`}
+            >
+              {!state.gameOver && <TargetBadge target={targetBall(state)} />}
+              <div className="min-w-0">
+                <span className="block truncate font-display text-base font-bold tracking-widest text-gold-bright">
+                  {statusText}
+                </span>
+                {!state.gameOver && targetBall(state) && (
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-100/70">
+                    {targetLabel(targetBall(state))}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -602,6 +618,41 @@ function ModeChip({
       />
       {label}
     </button>
+  );
+}
+
+/** Visual of the ball the shooter must hit first — numbered ball (9-ball) or a
+ *  coloured disc (snooker). Renders nothing for 8-ball (player cards show it). */
+function TargetBadge({ target }: { target: Target }) {
+  if (!target) return null;
+  if (target.kind === "number") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={ballAssetByNumber(target.number)}
+        alt={`${target.number} ball`}
+        className="h-9 w-9 shrink-0 drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)] touch:h-7 touch:w-7"
+        draggable={false}
+      />
+    );
+  }
+  if (target.kind === "colour") {
+    return (
+      <span
+        title="Any colour"
+        className="h-7 w-7 shrink-0 rounded-full border-2 border-white/40 shadow touch:h-6 touch:w-6"
+        style={{
+          background: "conic-gradient(#e8c33a,#1f7a3d,#7a4a1e,#1f4fd8,#e87fa6,#15151a,#e8c33a)",
+        }}
+      />
+    );
+  }
+  const color = target.kind === "red" ? "#c0202a" : ballStyle({ color: target.color, number: 0 }).color;
+  return (
+    <span
+      className="h-7 w-7 shrink-0 rounded-full border-2 border-white/40 shadow touch:h-6 touch:w-6"
+      style={{ background: color }}
+    />
   );
 }
 

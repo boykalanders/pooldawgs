@@ -7,6 +7,9 @@ export interface ServerConfig {
   rpcUrl: string | null;
   contractAddress: string | null;
   ownerPrivateKey: string | null;
+  /** Dedicated low-privilege settlement key (preferred over the owner key).
+   *  Can only call finishGame/exit/draw on-chain — see PoolDawgs.onlyRelayer. */
+  operatorPrivateKey: string | null;
   shotClockMs: number;
   /** True when RPC + contract are configured; otherwise chain-less dev mode. */
   chainEnabled: boolean;
@@ -26,6 +29,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     rpcUrl,
     contractAddress,
     ownerPrivateKey: env.OWNER_PRIVATE_KEY || null,
+    operatorPrivateKey: env.OPERATOR_PRIVATE_KEY || null,
     shotClockMs: Number(env.SHOT_CLOCK_MS) || SHOT_CLOCK_MS,
     chainEnabled: Boolean(rpcUrl && contractAddress),
     dataDir: env.DATA_DIR || process.cwd(),

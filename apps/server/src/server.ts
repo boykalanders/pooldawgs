@@ -104,7 +104,7 @@ export function createPoolDawgsServer(
           // Winner takes 80% of the 2-stake pot.
           const stake = lobby.get(gameId)?.stake ?? room.stakeWei() ?? "0";
           const winnings = ((BigInt(stake) * 2n * 8000n) / 10000n).toString();
-          if (loser) leaderboard.record(p.winner, loser, winnings);
+          if (loser) leaderboard.record(gameId, p.winner, loser, winnings);
           // Surface as a claimable win immediately (idempotent with the chain
           // backfill, which also records it once finishGame mines).
           leaderboard.recordWonGame(p.winner, gameId, winnings);
@@ -269,21 +269,29 @@ export function createPoolDawgsServer(
       });
     });
 
-    const emitProfile = (address: Address): void => {
+    const emitProfile = async (address: Address): Promise<void> => {
       const key = address.toLowerCase() as Address;
       const stats = leaderboard.entry(key);
+      // Sign a fresh voucher for each won game so the winner can claim it from
+      // the profile (deterministic — re-signing yields the same voucher).
+      const wonGames = await Promise.all(
+        leaderboard.wonGames(key).map(async (g) => ({
+          ...g,
+          voucher: (await relayer.signResult(g.gameId, key)) ?? null,
+        }))
+      );
       socket.emit("profile:state", {
         address: key,
         username: profiles.getName(key),
         wins: stats.wins,
         losses: stats.losses,
         wonAmount: stats.wonAmount,
-        wonGames: leaderboard.wonGames(key),
+        wonGames,
       });
     };
 
     socket.on("profile:get", ({ address }) => {
-      if (typeof address === "string" && address) emitProfile(address as Address);
+      if (typeof address === "string" && address) void emitProfile(address as Address);
     });
 
     socket.on("profile:set", ({ auth, username }) => {
@@ -294,7 +302,7 @@ export function createPoolDawgsServer(
       }
       const stored = profiles.setName(address, String(username ?? ""));
       console.log(`[profile] ${address} → ${stored ? JSON.stringify(stored) : "(cleared)"}`);
-      emitProfile(address);
+      void emitProfile(address);
       // Reflect the new name in any open rooms + the lobby browse list.
       for (const room of rooms.values()) {
         if (room.seatOf(address) !== null) io.to(roomChannel(room.gameId)).emit("room:state", room.snapshot());

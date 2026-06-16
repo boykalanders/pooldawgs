@@ -4,12 +4,14 @@ pragma solidity ^0.8.24;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 // Constructor-free, transient-storage guard (EIP-1153, Cancun+) — proxy-safe;
 // OZ 5.6 no longer ships an upgradeable ReentrancyGuard variant.
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @title PoolDawgs — wagered 8-ball pool staking/escrow
 /// @notice Direct adaptation of the deployed ChessDawgs contract
@@ -28,6 +30,7 @@ contract PoolDawgs is
     Initializable,
     OwnableUpgradeable,
     PausableUpgradeable,
+    EIP712Upgradeable,
     ReentrancyGuardTransient
 {
     using SafeERC20 for IERC20;
@@ -73,6 +76,24 @@ contract PoolDawgs is
     mapping(string => mapping(address => bool)) public playerPaid;
     mapping(string => uint256) private completedAt;
 
+    /// @notice Low-privilege relayer key allowed to settle games (finishGame,
+    ///         exit/draw). It can record outcomes but CANNOT move funds, change
+    ///         wallets/gate, pause, or upgrade — so the hot key the backend
+    ///         holds has a small blast radius. Set/rotated by the owner.
+    ///         Appended at the end of storage to keep the upgrade layout safe.
+    address public operator;
+
+    /// @notice Backend signer for win vouchers. The backend NEVER sends a
+    ///         settlement tx; it signs an EIP-712 Result(gameId, winner) voucher
+    ///         off-chain, and the winner redeems it via claimRewardSigned — the
+    ///         contract just validates that the recovered signer == resultSigner.
+    ///         So this address holds a signing-only key (a sealed env var or a
+    ///         KMS key) that can't move funds or touch the contract directly.
+    address public resultSigner;
+
+    bytes32 private constant RESULT_TYPEHASH =
+        keccak256("Result(string gameId,address winner)");
+
     event GameCreated(string gameId, address indexed playerOne, uint256 stake);
     event GameJoined(string gameId, address indexed playerTwo);
     event GameFinished(string gameId, address winner, uint256 reward);
@@ -85,6 +106,16 @@ contract PoolDawgs is
     event OwnerWithdrawal(string gameId, address indexed player, uint256 amount);
     event ChessDawgsNFTUpdated(address indexed nft);
     event DDawgsNFTUpdated(address indexed nft);
+    event OperatorUpdated(address indexed operator);
+    event ResultSignerUpdated(address indexed signer);
+
+    /// @notice Relayer authority: the owner OR the dedicated operator may settle
+    ///         games. Admin powers (funds, wallets, gate, pause, upgrade) stay
+    ///         owner-only.
+    modifier onlyRelayer() {
+        require(msg.sender == owner() || msg.sender == operator, "not authorized");
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -105,6 +136,7 @@ contract PoolDawgs is
 
         __Ownable_init(msg.sender);
         __Pausable_init();
+        __EIP712_init("PoolDawgs", "1");
 
         rewardToken = IERC20(_rewardToken);
         DDawgsNFT = IERC721(_dDawgsNFT);
@@ -176,7 +208,7 @@ contract PoolDawgs is
     /// @notice Backend authority reports the winner. Covers normal wins,
     ///         resignations, and shot-clock forfeits — the off-chain server
     ///         decides which; the chain only records the result.
-    function finishGame(string memory gameId, address winner) external onlyOwner {
+    function finishGame(string memory gameId, address winner) external onlyRelayer {
         Game storage g = games[gameId];
         require(g.playerOne != address(0) && g.playerTwo != address(0), "game not active");
         require(!g.isCompleted, "game completed");
@@ -206,12 +238,48 @@ contract PoolDawgs is
         rewardToken.safeTransfer(poolAddress, (pot * BURN_PERCENT) / 100);
     }
 
+    /// @notice Winner-driven claim with a backend voucher. The backend signs an
+    ///         EIP-712 Result(gameId, winner) off-chain (no transaction); the
+    ///         winner submits it here and the contract validates that the
+    ///         recovered signer == resultSigner, then settles + pays out. This
+    ///         keeps the backend's key signing-only and off-chain.
+    function claimRewardSigned(string memory gameId, bytes calldata signature)
+        external
+        nonReentrant
+    {
+        Game storage g = games[gameId];
+        require(g.playerOne != address(0) && g.playerTwo != address(0), "game not active");
+        require(!g.isCompleted && !g.drawCompleted, "already settled");
+        require(!g.rewardClaimed, "already claimed");
+        require(msg.sender == g.playerOne || msg.sender == g.playerTwo, "not a player");
+        require(resultSigner != address(0), "signer unset");
+
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(RESULT_TYPEHASH, keccak256(bytes(gameId)), msg.sender))
+        );
+        require(ECDSA.recover(digest, signature) == resultSigner, "bad voucher");
+
+        g.isCompleted = true;
+        g.winner = msg.sender;
+        g.rewardClaimed = true;
+        completedAt[gameId] = block.timestamp;
+        playerPaid[gameId][msg.sender] = true;
+
+        uint256 pot = g.stake * 2;
+        uint256 share = _winnerShare(g.stake);
+        rewardToken.safeTransfer(msg.sender, share);
+        rewardToken.safeTransfer(companyWallet, (pot * COMPANY_PERCENT) / 100);
+        rewardToken.safeTransfer(poolAddress, (pot * BURN_PERCENT) / 100);
+
+        emit GameFinished(gameId, msg.sender, share);
+    }
+
     // ────────────── exit/draw flow (ChessDawgs template parity) ──────────────
     // Pool has no draws in practice (resign = loss, timeout = forfeit), but the
     // flow is kept so every Dawgs game shares an identical contract shape.
     // All steps are owner-relayed: clients never talk to the chain mid-game.
 
-    function ownerRequestExitGame(string memory gameId, address player) external onlyOwner {
+    function ownerRequestExitGame(string memory gameId, address player) external onlyRelayer {
         Game storage g = games[gameId];
         require(g.playerOne != address(0) && g.playerTwo != address(0), "game not active");
         require(!g.isCompleted, "game completed");
@@ -224,7 +292,7 @@ contract PoolDawgs is
         emit ExitRequested(gameId, player);
     }
 
-    function ownerAcceptExitRequest(string memory gameId, address player) external onlyOwner {
+    function ownerAcceptExitRequest(string memory gameId, address player) external onlyRelayer {
         Game storage g = games[gameId];
         require(g.exitRequested && !g.exitAccepted, "no pending request");
         require(
@@ -236,7 +304,7 @@ contract PoolDawgs is
         emit ExitRequestAccepted(gameId, player);
     }
 
-    function ownerRejectExitRequest(string memory gameId, address player) external onlyOwner {
+    function ownerRejectExitRequest(string memory gameId, address player) external onlyRelayer {
         Game storage g = games[gameId];
         require(g.exitRequested && !g.exitAccepted, "no pending request");
 
@@ -250,7 +318,7 @@ contract PoolDawgs is
     ///         after ABANDONMENT_TIMEOUT if they ignored the request. Takes
     ///         the 10% company and 10% burn cuts immediately; players then
     ///         pull their 40% halves via claimDrawReward.
-    function drawGame(string memory gameId, address requester) external onlyOwner nonReentrant {
+    function drawGame(string memory gameId, address requester) external onlyRelayer nonReentrant {
         Game storage g = games[gameId];
         require(g.playerOne != address(0) && g.playerTwo != address(0), "game not active");
         require(!g.isCompleted, "game completed");
@@ -353,6 +421,21 @@ contract PoolDawgs is
         require(_dDawgsNFT != address(0), "zero nft");
         DDawgsNFT = IERC721(_dDawgsNFT);
         emit DDawgsNFTUpdated(_dDawgsNFT);
+    }
+
+    /// @notice Set (or clear, with the zero address) the relayer/operator key
+    ///         allowed to settle games. Keep this on a dedicated low-value
+    ///         signer (a sealed env var or a KMS key) — never the owner key.
+    function setOperator(address _operator) external onlyOwner {
+        operator = _operator;
+        emit OperatorUpdated(_operator);
+    }
+
+    /// @notice Set (or clear) the backend voucher signer. Keep its key off-chain
+    ///         (sealed env / KMS) — it signs win vouchers but never transacts.
+    function setResultSigner(address _signer) external onlyOwner {
+        resultSigner = _signer;
+        emit ResultSignerUpdated(_signer);
     }
 
     function pause() external onlyOwner {
