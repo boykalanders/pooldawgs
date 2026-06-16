@@ -552,6 +552,8 @@ function drawCueStick(
 ) {
   const pullback = 26 + power * 2.4;
   const stickLen = 430;
+  const tipX = cx - Math.cos(angle) * pullback;
+  const tipY = cy - Math.sin(angle) * pullback;
 
   const stickImg = getImage("/assets/stick.svg");
   if (stickImg) {
@@ -563,10 +565,9 @@ function drawCueStick(
     ctx.rotate(angle);
     ctx.drawImage(stickImg, -(pullback + stickLen), -h / 2, stickLen, h);
     ctx.restore();
+    drawPowerCharge(ctx, tipX, tipY, angle, power);
     return;
   }
-  const tipX = cx - Math.cos(angle) * pullback;
-  const tipY = cy - Math.sin(angle) * pullback;
   const buttX = cx - Math.cos(angle) * (pullback + stickLen);
   const buttY = cy - Math.sin(angle) * (pullback + stickLen);
 
@@ -609,6 +610,49 @@ function drawCueStick(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("POOL DAWGS", 0, 0);
+  ctx.restore();
+  drawPowerCharge(ctx, tipX, tipY, angle, power);
+}
+
+/** Power-charge color: red (low) → orange → gold (full). */
+function powerColor(t: number): string {
+  const stops = [
+    [209, 31, 42], // red
+    [255, 107, 53], // orange
+    [232, 197, 71], // gold
+  ];
+  const clamped = Math.max(0, Math.min(1, t));
+  const seg = clamped >= 0.5 ? 1 : 0;
+  const k = clamped >= 0.5 ? (clamped - 0.5) / 0.5 : clamped / 0.5;
+  const a = stops[seg];
+  const b = stops[seg + 1];
+  const ch = (i: number) => Math.round(a[i] + (b[i] - a[i]) * k);
+  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
+}
+
+/** Glowing charge band at the cue tip — grows in length and brightens toward
+ *  gold as power builds, so the player reads the power right on the table. */
+function drawPowerCharge(
+  ctx: CanvasRenderingContext2D,
+  tipX: number,
+  tipY: number,
+  angle: number,
+  power: number
+) {
+  const t = Math.min(1, power / MAX_POWER);
+  if (t < 0.02) return;
+  const color = powerColor(t);
+  const len = 20 + t * 130;
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 6 + t * 26;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 5 + t * 5;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - Math.cos(angle) * len, tipY - Math.sin(angle) * len);
+  ctx.stroke();
   ctx.restore();
 }
 

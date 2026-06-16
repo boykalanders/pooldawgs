@@ -12,7 +12,7 @@ import {
   type WonGame,
 } from "@pooldawgs/shared";
 import WalletGate from "@/components/WalletGate";
-import { CONTRACTS_CONFIGURED, DDAWGS_TOKEN_ADDRESS, POOLDAWGS_ADDRESS } from "@/lib/env";
+import { CHAIN_ID, CONTRACTS_CONFIGURED, DDAWGS_TOKEN_ADDRESS, POOLDAWGS_ADDRESS } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
 import { log } from "@/lib/log";
 import { useNftAvatar } from "@/lib/useNftAvatar";
@@ -108,6 +108,7 @@ function Profile() {
           abi: POOL_DAWGS_ABI,
           functionName: "claimReward",
           args: [gameId],
+          chainId: CHAIN_ID,
         });
         if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
         setRefresh((n) => n + 1); // re-check on-chain claimed state

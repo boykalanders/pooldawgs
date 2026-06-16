@@ -28,7 +28,6 @@ import {
   IconGift,
   IconHome,
   IconMenu,
-  IconShop,
   IconSoundOff,
   IconSoundOn,
   IconSpin,
@@ -121,10 +120,10 @@ export default function GameShell({
     }
   }, [chat?.messages.length, chatOpen]);
 
-  // Dock the chat open by default on desktop (fine pointer); on touch it stays
-  // a toggle drawer so it never covers the cloth on load.
+  // Open the chat sidebar by default only on screens wide enough that it sits
+  // in the page margin (outside the box) rather than over the table/controls.
   useEffect(() => {
-    if (typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches) {
+    if (typeof window !== "undefined" && window.matchMedia?.("(min-width: 1900px)").matches) {
       setChatOpen(true);
     }
   }, []);
@@ -143,6 +142,7 @@ export default function GameShell({
     interactive && !state.gameOver && !state.ballInHand && !state.balls[cueBallId(state)].inHole;
 
   return (
+    <>
     <div className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-emerald-deep/85 p-3 shadow-2xl shadow-felt-inset touch:h-[calc(100dvh-2rem)] touch:min-h-0">
       {/* Logo floats over the table's top rail, like the design. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -242,7 +242,6 @@ export default function GameShell({
       <div className="relative flex min-h-0 flex-1 items-stretch gap-2.5">
         <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
           <RailButton label="Cues" icon={<IconCue />} disabled title="Cue skins — coming soon" />
-          <RailButton label="Shop" icon={<IconShop />} disabled title="Shop — coming soon" />
           <RailButton
             label="Spin"
             icon={<IconSpin />}
@@ -314,19 +313,6 @@ export default function GameShell({
             title={`Side english: ${spin.x.toFixed(2)} — drag the white ball sideways to set; click to clear`}
           />
         </div>
-
-        {/* Docked chat — a real column on the right (a drawer on touch), not a
-            popup floating over the cloth. */}
-        {chat && chatOpen && (
-          <div className="flex w-72 shrink-0 flex-col touch:absolute touch:inset-y-0 touch:right-0 touch:z-30 touch:w-[min(20rem,82%)] touch:shadow-2xl">
-            <Chat
-              messages={chat.messages}
-              myAddress={chat.myAddress}
-              onSend={chat.onSend}
-              onClose={() => setChatOpen(false)}
-            />
-          </div>
-        )}
       </div>
 
       {/* ── controls hint (pointless on touch — no keyboard/mouse) ── */}
@@ -400,6 +386,34 @@ export default function GameShell({
         />
       </nav>
     </div>
+
+    {/* Table Talk — a sliding sidebar OUTSIDE the game box, so the cloth keeps
+        its full size. On wide screens it sits in the page margin; on phones it
+        slides in over the table as an overlay drawer (with a backdrop). */}
+    {chat && (
+      <>
+        {chatOpen && (
+          <button
+            aria-label="Close chat"
+            onClick={() => setChatOpen(false)}
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm desktop:hidden"
+          />
+        )}
+        <aside
+          className={`fixed right-0 top-0 bottom-0 z-50 flex w-[min(20rem,88vw)] flex-col p-2 transition-transform duration-200 ease-out desktop:top-[4.25rem] desktop:bottom-4 ${
+            chatOpen ? "translate-x-0" : "pointer-events-none translate-x-full"
+          }`}
+        >
+          <Chat
+            messages={chat.messages}
+            myAddress={chat.myAddress}
+            onSend={chat.onSend}
+            onClose={() => setChatOpen(false)}
+          />
+        </aside>
+      </>
+    )}
+    </>
   );
 }
 

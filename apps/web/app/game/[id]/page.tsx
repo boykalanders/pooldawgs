@@ -27,6 +27,7 @@ import { type ShotAnimation } from "@/components/PoolCanvas";
 import WalletGate from "@/components/WalletGate";
 import WinnerPopup from "@/components/WinnerPopup";
 import {
+  CHAIN_ID,
   CONTRACTS_CONFIGURED,
   DDAWGS_TOKEN_ADDRESS,
   NETWORK_NAME,
@@ -366,18 +367,49 @@ function GameRoom() {
     if (!POOLDAWGS_ADDRESS) return;
     setActionError(null);
     setWorking("claim");
+    log.info("claim: start", gameId, { settledOnChain, chainSettled, hasTxHash: !!snapshot?.over?.txHash });
     try {
+      // Re-read the chain first: claimReward reverts until the relayer's
+      // finishGame has marked the game completed. Check, so we never send a
+      // doomed tx and the winner gets a clear message instead of silence.
+      const fresh = await refetchGame();
+      const g = fresh.data as ChainGame | undefined;
+      const completed = g ? Boolean(g[2]) : settledOnChain;
+      const onchainWinner = g ? String(g[3]).toLowerCase() : null;
+      const alreadyClaimed = g ? Boolean(g[5]) : false;
+      log.info("claim: on-chain", { completed, onchainWinner, alreadyClaimed, me: address });
+      if (alreadyClaimed) {
+        setClaimed(true);
+        return;
+      }
+      if (!completed) {
+        setActionError("The match is still finalizing on-chain — give it a few seconds and try again.");
+        return;
+      }
+      if (onchainWinner && address && onchainWinner !== address.toLowerCase()) {
+        setActionError("This wallet isn't the recorded winner of this match.");
+        return;
+      }
       const tx = await writeContractAsync({
         address: POOLDAWGS_ADDRESS,
         abi: POOL_DAWGS_ABI,
         functionName: "claimReward",
         args: [gameId],
+        chainId: CHAIN_ID,
       });
+      log.info("claim: tx sent", tx);
       if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
+      log.info("claim: confirmed");
       setClaimed(true);
       await refetchGame(); // flip the on-chain rewardClaimed read
     } catch (e) {
-      setActionError(e instanceof Error ? e.message.split("\n")[0] : "Claim failed");
+      log.error("claim: failed —", e);
+      const msg = e instanceof Error ? e.message.split("\n")[0] : "Claim failed";
+      setActionError(
+        /no win to claim|not completed/i.test(msg)
+          ? "The match is still finalizing on-chain — give it a few seconds and try again."
+          : msg
+      );
     } finally {
       setWorking(null);
     }
@@ -497,17 +529,22 @@ function GameRoom() {
               Winner: <span className="font-mono text-gold-bright">{shortAddress(onchainWinner)}</span>
             </p>
           )}
-          {iWon &&
-            !rewardClaimed &&
-            (settledOnChain ? (
-              <button className="btn-gold w-full" disabled={working === "claim"} onClick={claim}>
+          {iWon && !rewardClaimed && (
+            <>
+              <button
+                className="btn-gold w-full"
+                disabled={working === "claim"}
+                onClick={claim}
+              >
                 {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
               </button>
-            ) : (
-              <button className="btn-gold w-full" disabled>
-                Settling on-chain…
-              </button>
-            ))}
+              {!settledOnChain && (
+                <p className="text-xs text-amber-100/60">
+                  Finalizing on-chain — tap to claim once ready
+                </p>
+              )}
+            </>
+          )}
           {rewardClaimed && <p className="text-gold-bright">Reward claimed ✓</p>}
           {actionError && <p className="text-sm text-red-300">{actionError}</p>}
           <Back />
@@ -638,21 +675,18 @@ function GameRoom() {
               amountLabel={potWin ? `+${potWin}` : null}
               actions={
                 <>
-                  {CONTRACTS_CONFIGURED &&
-                    !rewardClaimed &&
-                    (settledOnChain ? (
+                  {CONTRACTS_CONFIGURED && !rewardClaimed && (
+                    <div className="flex flex-col items-center gap-1">
                       <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
                         {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
                       </button>
-                    ) : (
-                      <button
-                        className="btn-gold"
-                        disabled
-                        title="Waiting for the payout to settle on-chain"
-                      >
-                        Settling on-chain…
-                      </button>
-                    ))}
+                      {!settledOnChain && (
+                        <span className="text-[11px] text-amber-100/60">
+                          Finalizing on-chain — tap to claim once ready
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {rewardClaimed && (
                     <span className="self-center text-gold-bright">Reward claimed ✓</span>
                   )}
