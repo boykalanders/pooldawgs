@@ -51,6 +51,13 @@ type Phase = "loading" | "notfound" | "waiting" | "invite" | "full" | "over" | "
 /** Decoded on-chain game tuple from PoolDawgs.games(gameId). */
 type ChainGame = readonly [string, string, boolean, string, bigint, ...unknown[]];
 
+/** How a frame ended, phrased for the end-game modal. */
+const REASON_WORD: Record<GameOverReason, string> = {
+  pot: "the frame",
+  resign: "resignation",
+  timeout: "the shot clock",
+};
+
 function GameRoom() {
   const params = useParams<{ id: string }>();
   const gameId = params.id;
@@ -570,6 +577,21 @@ function GameRoom() {
         ? "Spectating"
         : "Opponent's shot";
 
+  // End-of-frame modal data: who won, by what, and the amounts at stake.
+  const over = snapshot.over;
+  const winnerPlayer = over
+    ? snapshot.players.find((p) => p.address.toLowerCase() === over.winner.toLowerCase())
+    : undefined;
+  const winnerAvatar = winnerPlayer?.seat === 1 ? seat1Avatar : seat0Avatar;
+  const winnerDisplay = over
+    ? winnerPlayer?.username?.trim() || shortAddress(over.winner)
+    : "";
+  const reasonWord = over ? REASON_WORD[over.reason] : "";
+  const potWin = snapshot.stake
+    ? formatStake((BigInt(snapshot.stake) * 2n * 8000n) / 10000n)
+    : null;
+  const myStake = snapshot.stake ? formatStake(BigInt(snapshot.stake)) : null;
+
   return (
     <GameShell
       state={state}
@@ -605,49 +627,58 @@ function GameRoom() {
         onSend: (text) => getSocket().emit("chat:send", { gameId, text }),
       }}
       overlay={
-        snapshot.over && !animation ? (
-          <WinnerPopup
-            winnerName={
-              iWon
-                ? "You"
-                : snapshot.players.find(
-                    (p) => p.address.toLowerCase() === snapshot.over!.winner.toLowerCase()
-                  )?.username?.trim() || shortAddress(snapshot.over.winner)
-            }
-            avatarSrc={
-              snapshot.players.find((p) => p.address.toLowerCase() === snapshot.over!.winner.toLowerCase())
-                ?.seat === 1
-                ? seat1Avatar
-                : seat0Avatar
-            }
-            message={`wins by ${snapshot.over.reason}${
-              snapshot.over.txHash ? ` · settled on-chain ${shortAddress(snapshot.over.txHash)}` : ""
-            }`}
-            amountLabel={
-              snapshot.stake ? `+${formatStake((BigInt(snapshot.stake) * 2n * 8000n) / 10000n)}` : null
-            }
-            actions={
-              <>
-                {iWon &&
-                  CONTRACTS_CONFIGURED &&
-                  !rewardClaimed &&
-                  (settledOnChain ? (
-                    <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
-                      {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
-                    </button>
-                  ) : (
-                    <button className="btn-gold" disabled title="Waiting for the payout to settle on-chain">
-                      Settling on-chain…
-                    </button>
-                  ))}
-                {rewardClaimed && <span className="self-center text-gold-bright">Reward claimed ✓</span>}
-                {actionError && <span className="self-center text-sm text-red-300">{actionError}</span>}
+        over && !animation ? (
+          iWon ? (
+            <WinnerPopup
+              winnerName="You"
+              avatarSrc={winnerAvatar}
+              message={`Won by ${reasonWord}${
+                over.txHash ? ` · settled ${shortAddress(over.txHash)}` : ""
+              }`}
+              amountLabel={potWin ? `+${potWin}` : null}
+              actions={
+                <>
+                  {CONTRACTS_CONFIGURED &&
+                    !rewardClaimed &&
+                    (settledOnChain ? (
+                      <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
+                        {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn-gold"
+                        disabled
+                        title="Waiting for the payout to settle on-chain"
+                      >
+                        Settling on-chain…
+                      </button>
+                    ))}
+                  {rewardClaimed && (
+                    <span className="self-center text-gold-bright">Reward claimed ✓</span>
+                  )}
+                  {actionError && (
+                    <span className="self-center text-sm text-red-300">{actionError}</span>
+                  )}
+                  <button className="btn-outline" onClick={() => router.push("/lobby")}>
+                    Back to lobby
+                  </button>
+                </>
+              }
+            />
+          ) : (
+            <WinnerPopup
+              defeated
+              winnerName={winnerDisplay}
+              avatarSrc={winnerAvatar}
+              message={`Won by ${reasonWord}`}
+              amountLabel={myStake ? `−${myStake}` : null}
+              actions={
                 <button className="btn-outline" onClick={() => router.push("/lobby")}>
                   Back to lobby
                 </button>
-              </>
-            }
-          />
+              }
+            />
+          )
         ) : null
       }
     />

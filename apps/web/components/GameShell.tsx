@@ -21,6 +21,20 @@ import PoolCanvas, {
 import PowerSlider from "@/components/PowerSlider";
 import ShotClock from "@/components/ShotClock";
 import SpinControl, { type SpinValue } from "@/components/SpinControl";
+import {
+  IconAim,
+  IconChat,
+  IconCue,
+  IconGift,
+  IconHome,
+  IconMenu,
+  IconShop,
+  IconSoundOff,
+  IconSoundOn,
+  IconSpin,
+  IconTrophy,
+  IconWallet,
+} from "@/components/icons";
 
 export interface ShellPlayer {
   name: string;
@@ -107,6 +121,14 @@ export default function GameShell({
     }
   }, [chat?.messages.length, chatOpen]);
 
+  // Dock the chat open by default on desktop (fine pointer); on touch it stays
+  // a toggle drawer so it never covers the cloth on load.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(pointer: fine)").matches) {
+      setChatOpen(true);
+    }
+  }, []);
+
   function releasePower(value: number) {
     canvasRef.current?.shootNow(value);
     setPower(0);
@@ -134,23 +156,29 @@ export default function GameShell({
       {/* ── top bar ── */}
       <div className="grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 px-1 pb-2">
         <div className="relative">
-          <RailButton label="" icon="☰" onClick={() => setMenuOpen((v) => !v)} />
+          <IconButton
+            icon={<IconMenu />}
+            active={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+            title="Menu"
+          />
           {menuOpen && (
-            <div className="absolute left-0 top-14 z-30 w-48 overflow-hidden rounded-xl border border-gold-dim/50 bg-gunmetal-dark shadow-2xl">
+            <div className="absolute left-0 top-[3.25rem] z-30 w-52 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
               <button
-                className="block w-full px-4 py-2.5 text-left text-sm text-amber-50 transition hover:bg-mahogany-dark"
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
                 onClick={() => {
                   setMenuOpen(false);
                   setMuted((v) => !v);
                 }}
               >
-                {muted ? "🔇 Sound: off" : "🔊 Sound: on"}
+                {muted ? <IconSoundOff className="h-4 w-4" /> : <IconSoundOn className="h-4 w-4" />}
+                {muted ? "Sound: off" : "Sound: on"}
               </button>
               {menuItems.map((item) => (
                 <button
                   key={item.label}
-                  className={`block w-full px-4 py-2.5 text-left text-sm transition hover:bg-mahogany-dark ${
-                    item.danger ? "text-red-300" : "text-amber-50"
+                  className={`block w-full px-4 py-2.5 text-left text-sm transition hover:bg-gold/10 ${
+                    item.danger ? "text-red-300 hover:bg-red-500/10" : "text-cream"
                   }`}
                   onClick={() => {
                     setMenuOpen(false);
@@ -194,36 +222,37 @@ export default function GameShell({
           flip
         />
 
-        <div className="relative">
-          <RailButton
-            label=""
-            icon="💬"
+        <div className="relative justify-self-end">
+          <IconButton
+            icon={<IconChat />}
+            active={chatOpen}
             onClick={() => setChatOpen((v) => !v)}
             disabled={!chat}
+            title="Table talk"
           />
           {unread > 0 && !chatOpen && (
-            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-burn text-[10px] font-bold text-white">
+            <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-emerald-deep bg-burn px-1 text-[10px] font-bold text-white shadow">
               {unread}
             </span>
           )}
         </div>
       </div>
 
-      {/* ── main row: rails + table ── */}
-      <div className="flex min-h-0 flex-1 items-stretch gap-3">
-        <div className="flex w-[72px] flex-col gap-2">
-          <RailButton label="Cues" icon="🎯" disabled title="Cue skins — coming soon" />
-          <RailButton label="Shop" icon="🛒" disabled title="Shop — coming soon" />
+      {/* ── main row: rails + table (+ docked chat) ── */}
+      <div className="relative flex min-h-0 flex-1 items-stretch gap-2.5">
+        <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
+          <RailButton label="Cues" icon={<IconCue />} disabled title="Cue skins — coming soon" />
+          <RailButton label="Shop" icon={<IconShop />} disabled title="Shop — coming soon" />
           <RailButton
             label="Spin"
-            icon="🌀"
+            icon={<IconSpin />}
             active={spinActive}
             onClick={() => setSpin({ x: 0, y: 0 })}
             title="Reset cue-ball spin (drag the white ball below to set it)"
           />
           <RailButton
             label="Aim"
-            icon="✛"
+            icon={<IconAim />}
             active={showGuide}
             onClick={() => setShowGuide((v) => !v)}
             title="Toggle the aim guide"
@@ -266,20 +295,10 @@ export default function GameShell({
               {overlay}
             </div>
           )}
-
-          {chat && chatOpen && (
-            <div className="absolute bottom-2 right-2 top-2 z-20 w-80 max-w-[70%]">
-              <Chat
-                messages={chat.messages}
-                myAddress={chat.myAddress}
-                onSend={chat.onSend}
-              />
-            </div>
-          )}
         </div>
 
-        <div className="flex w-[72px] flex-col gap-2">
-          <div className="min-h-0 flex-1 rounded-xl border border-gold-dim/40 bg-gunmetal-dark/70 p-2">
+        <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
+          <div className="min-h-0 flex-1 rounded-xl border border-gold-dim/30 bg-emerald-panel/60 p-2">
             <PowerSlider
               value={power}
               disabled={!canShoot}
@@ -295,6 +314,19 @@ export default function GameShell({
             title={`Side english: ${spin.x.toFixed(2)} — drag the white ball sideways to set; click to clear`}
           />
         </div>
+
+        {/* Docked chat — a real column on the right (a drawer on touch), not a
+            popup floating over the cloth. */}
+        {chat && chatOpen && (
+          <div className="flex w-72 shrink-0 flex-col touch:absolute touch:inset-y-0 touch:right-0 touch:z-30 touch:w-[min(20rem,82%)] touch:shadow-2xl">
+            <Chat
+              messages={chat.messages}
+              myAddress={chat.myAddress}
+              onSend={chat.onSend}
+              onClose={() => setChatOpen(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── controls hint (pointless on touch — no keyboard/mouse) ── */}
@@ -352,38 +384,62 @@ export default function GameShell({
             shows on touch devices (where the header is hidden instead). ── */}
       <nav
         data-testid="shell-nav"
-        className="mt-2 flex items-center justify-center gap-5 border-t border-gold-dim/20 pt-2 text-xs uppercase tracking-widest text-amber-100/70 desktop:hidden"
+        className="mt-2 flex items-end justify-around border-t border-gold-dim/20 px-2 pt-2 text-[10px] uppercase tracking-[0.12em] text-cream/65 desktop:hidden"
       >
-        <Link href="/lobby" className="flex items-center gap-2 transition hover:text-gold-bright">
-          🏠 Lobby
-        </Link>
-        <NavDivider />
-        <Link href="/leaderboard" className="flex items-center gap-2 transition hover:text-gold-bright">
-          🏆 Leaderboard
-        </Link>
-        <NavDivider />
-        <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-gold bg-mahogany-deep shadow-gold-glow">
+        <NavItem href="/lobby" icon={<IconHome className="h-5 w-5" />} label="Lobby" />
+        <NavItem href="/leaderboard" icon={<IconTrophy className="h-5 w-5" />} label="Ranks" />
+        <span className="-mt-4 flex h-12 w-12 items-center justify-center rounded-full border-2 border-gold bg-emerald-deep shadow-gold-glow">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/assets/token.svg" alt="" className="h-8 w-8" draggable={false} />
         </span>
-        <NavDivider />
-        <span className="flex cursor-not-allowed items-center gap-2 opacity-50" title="Rewards — coming soon">
-          🎁 Rewards
-        </span>
-        <NavDivider />
-        <button
-          className="flex items-center gap-2 uppercase tracking-widest transition hover:text-gold-bright"
+        <NavItem icon={<IconGift className="h-5 w-5" />} label="Rewards" disabled title="Rewards — coming soon" />
+        <NavItem
+          icon={<IconWallet className="h-5 w-5" />}
+          label="Wallet"
           onClick={() => (isConnected ? openAccountModal?.() : openConnectModal?.())}
-        >
-          👛 Wallet
-        </button>
+        />
       </nav>
     </div>
   );
 }
 
-function NavDivider() {
-  return <span className="text-gold-dim/40">|</span>;
+function NavItem({
+  href,
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+}: {
+  href?: string;
+  icon: ReactNode;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  const inner = (
+    <span
+      className={`flex flex-col items-center gap-1 px-2 transition ${
+        disabled ? "cursor-not-allowed opacity-45" : "hover:text-gold-bright"
+      }`}
+    >
+      {icon}
+      {label}
+    </span>
+  );
+  if (href && !disabled) {
+    return (
+      <Link href={href} className="contents">
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={disabled ? undefined : onClick} disabled={disabled} title={title}>
+      {inner}
+    </button>
+  );
 }
 
 function CueBallIcon() {
@@ -394,6 +450,41 @@ function CueBallIcon() {
   );
 }
 
+const railBase =
+  "flex items-center justify-center rounded-xl border transition disabled:cursor-not-allowed disabled:opacity-40";
+const railTone = (active?: boolean) =>
+  active
+    ? "border-gold/80 bg-gold/10 text-gold-bright shadow-gold-glow"
+    : "border-gold-dim/30 bg-emerald-panel/60 text-cream/75 enabled:hover:border-gold/60 enabled:hover:bg-gold/5 enabled:hover:text-gold-bright";
+
+/** Square icon button — top-bar menu / chat. */
+function IconButton({
+  icon,
+  onClick,
+  disabled,
+  active,
+  title,
+}: {
+  icon: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`${railBase} h-11 w-11 touch:h-10 touch:w-10 ${railTone(active)}`}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** Vertical rail button — icon over a tiny label. */
 function RailButton({
   label,
   icon,
@@ -411,18 +502,15 @@ function RailButton({
 }) {
   return (
     <button
-      className={`flex h-12 w-full flex-col items-center justify-center rounded-xl border text-lg transition touch:h-9 touch:text-base ${
-        active
-          ? "border-gold bg-mahogany-dark text-gold-bright shadow-gold-glow"
-          : "border-gold-dim/40 bg-gunmetal-dark/70 text-amber-100/80"
-      } ${disabled ? "cursor-not-allowed opacity-40" : "hover:border-gold hover:text-gold-bright"}`}
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={title}
+      className={`${railBase} w-full flex-col gap-1 py-2.5 touch:gap-0.5 touch:py-1.5 ${railTone(active)}`}
     >
-      <span className="leading-none">{icon}</span>
+      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
       {label && (
-        <span className="mt-0.5 text-[8px] font-semibold uppercase tracking-widest touch:hidden">
+        <span className="text-[8px] font-semibold uppercase leading-none tracking-[0.14em] touch:hidden">
           {label}
         </span>
       )}
@@ -447,15 +535,15 @@ function MoneyPanel({
   plus?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-gold-dim/40 bg-gunmetal-dark/70 px-4 py-2 touch:px-2.5 touch:py-1">
-      <span className="text-xl">{icon}</span>
+    <div className="flex items-center gap-2.5 rounded-xl border border-gold-dim/30 bg-emerald-panel/60 px-3.5 py-2 touch:gap-1.5 touch:px-2.5 touch:py-1.5">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center">{icon}</span>
       <div className="leading-tight">
-        <p className="text-[9px] uppercase tracking-widest text-amber-100/50">{title}</p>
+        <p className="text-[9px] uppercase tracking-[0.14em] text-cream/45">{title}</p>
         <p className="font-mono text-sm font-semibold text-gold-bright">{value}</p>
       </div>
       {plus && (
         <button
-          className="ml-1 flex h-6 w-6 cursor-not-allowed items-center justify-center rounded-full border border-gold-dim/50 text-gold opacity-60"
+          className="ml-0.5 flex h-6 w-6 cursor-not-allowed items-center justify-center rounded-full border border-gold-dim/50 text-gold opacity-60"
           title="Buy $DDawgs — coming soon"
         >
           +
@@ -484,10 +572,10 @@ function ModeChip({
       onClick={onSelect}
       className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-4 py-2 font-display text-sm font-bold tracking-wider transition touch:hidden ${
         active
-          ? "gold-frame bg-black/80 text-amber-50"
+          ? "border-gold bg-gold/10 text-gold-bright shadow-gold-glow"
           : selectable
-            ? "border-gold-dim/40 bg-black/50 text-amber-100/70 hover:border-gold hover:text-gold-bright"
-            : "cursor-not-allowed border-gold-dim/30 bg-black/50 text-amber-100/40"
+            ? "border-gold-dim/30 bg-emerald-panel/60 text-cream/70 hover:border-gold/60 hover:text-gold-bright"
+            : "cursor-not-allowed border-gold-dim/25 bg-emerald-panel/40 text-cream/40"
       }`}
       title={selectable ? `Switch to ${label}` : `${label} — coming soon`}
     >

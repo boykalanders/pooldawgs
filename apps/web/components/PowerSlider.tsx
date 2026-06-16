@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { MAX_POWER } from "@pooldawgs/engine";
 
 interface PowerSliderProps {
+  /** Live power in engine units (0…MAX_POWER). */
   value: number;
   disabled?: boolean;
   onChange: (value: number) => void;
@@ -11,15 +12,14 @@ interface PowerSliderProps {
   onRelease: (value: number) => void;
 }
 
-/** Vertical power slider (right rail in the design). Drag up to charge,
- *  release to strike. */
+/** Vertical power meter (right rail). Drag up to charge, release to strike.
+ *  Reads 0–100% regardless of the engine's internal MAX_POWER scale. */
 export default function PowerSlider({ value, disabled, onChange, onRelease }: PowerSliderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
   function valueFromPointer(clientY: number): number {
-    const track = trackRef.current!;
-    const rect = track.getBoundingClientRect();
+    const rect = trackRef.current!.getBoundingClientRect();
     const frac = 1 - (clientY - rect.top) / rect.height;
     return Math.max(0, Math.min(MAX_POWER, frac * MAX_POWER));
   }
@@ -27,7 +27,7 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
   function handleDown(e: React.PointerEvent) {
     if (disabled) return;
     dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     onChange(valueFromPointer(e.clientY));
   }
 
@@ -42,16 +42,16 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
     onRelease(valueFromPointer(e.clientY));
   }
 
-  const pct = (value / MAX_POWER) * 100;
+  const pct = Math.max(0, Math.min(100, (value / MAX_POWER) * 100));
+  const display = Math.round(pct);
 
   return (
-    <div className="flex h-full select-none flex-col items-center gap-2">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-gold">
-        Power
-      </span>
+    <div className="flex h-full select-none flex-col items-center gap-1.5">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-gold">Power</span>
+
       <div
         ref={trackRef}
-        className={`relative w-7 flex-1 rounded-full border border-gold-dim/50 bg-black/80 shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)] ${
+        className={`relative w-7 flex-1 overflow-hidden rounded-full border border-gold-dim/50 bg-emerald-deep shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)] ${
           disabled ? "opacity-40" : "cursor-pointer"
         }`}
         style={{ touchAction: "none" }}
@@ -60,25 +60,38 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
         onPointerUp={handleUp}
         onPointerCancel={handleUp}
       >
-        {/* Centre guide line, like the design's needle track. */}
-        <span className="absolute left-1/2 top-2 h-[calc(100%-16px)] w-px -translate-x-1/2 bg-gold-dim/40" />
-        {/* Fill glow rising from the bottom */}
+        {/* Quartile ticks */}
+        {[25, 50, 75].map((t) => (
+          <span
+            key={t}
+            className="pointer-events-none absolute inset-x-0 h-px bg-gold-dim/25"
+            style={{ bottom: `${t}%` }}
+          />
+        ))}
+
+        {/* Red→gold fill rising from the bottom; clipped to the rounded track. */}
         <div
-          className="absolute inset-x-1.5 bottom-1.5 rounded-full"
+          className="pointer-events-none absolute inset-x-0 bottom-0"
           style={{
-            height: `calc(${pct}% )`,
-            background: "linear-gradient(to top, #ff6b35, #e8c547)",
-            boxShadow: pct > 1 ? "0 0 12px rgba(232, 197, 71, 0.7)" : "none",
-            transition: dragging.current ? "none" : "height 120ms",
+            height: `${pct}%`,
+            background: "linear-gradient(to top, #d11f2a 0%, #ff6b35 55%, #e8c547 100%)",
+            boxShadow: pct > 1 ? "0 0 14px rgba(232, 197, 71, 0.6)" : "none",
+            transition: dragging.current ? "none" : "height 90ms linear",
           }}
         />
-        {/* Knob */}
+
+        {/* Level marker at the current power. */}
         <div
-          className="absolute left-1/2 h-4 w-4 -translate-x-1/2 translate-y-1/2 rounded-full border border-gold-dim bg-gradient-to-b from-[#f0d77b] to-[#8a6d1d] shadow-gold-glow"
-          style={{ bottom: `calc(${pct}% )` }}
+          className="pointer-events-none absolute inset-x-0 h-0.5 bg-amber-50 shadow-[0_0_6px_rgba(255,255,255,0.8)]"
+          style={{
+            bottom: `${pct}%`,
+            opacity: pct > 1 ? 1 : 0,
+            transition: dragging.current ? "none" : "bottom 90ms linear",
+          }}
         />
       </div>
-      <span className="font-mono text-xs text-amber-100/70">{Math.round(value)}</span>
+
+      <span className="font-mono text-xs font-bold tabular-nums text-gold-bright">{display}</span>
     </div>
   );
 }
