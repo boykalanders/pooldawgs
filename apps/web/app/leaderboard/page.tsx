@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { LeaderboardEntry } from "@pooldawgs/shared";
+import type { LeaderboardEntry, PlatformStats } from "@pooldawgs/shared";
 import { SERVER_URL } from "@/lib/env";
 import { formatStake, shortAddress } from "@/lib/format";
 
 export default function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[] | null>(null);
+  const [stats, setStats] = useState<PlatformStats | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     fetch(`${SERVER_URL}/leaderboard`)
       .then((r) => r.json())
-      .then((data) => setEntries(data.entries ?? []))
+      .then((data) => {
+        setEntries(data.entries ?? []);
+        setStats(data.stats ?? null);
+      })
       .catch(() => setError(true));
   }, []);
 
@@ -21,6 +25,22 @@ export default function LeaderboardPage() {
       <div className="mb-6 flex items-center gap-3">
         <span className="text-3xl">👑</span>
         <h1 className="heading-display text-3xl">Top Dawgs</h1>
+      </div>
+
+      {/* Platform totals */}
+      <div className="mb-6 grid grid-cols-3 gap-4">
+        <StatCard label="Games played" value={stats ? stats.games.toLocaleString() : "—"} />
+        <StatCard
+          label="Total wagered"
+          value={stats ? formatStake(stats.totalWagered).replace(" $DDawgs", "") : "—"}
+          icon
+        />
+        <StatCard
+          label="🔥 Burned"
+          value={stats ? formatStake(stats.totalBurned).replace(" $DDawgs", "") : "—"}
+          icon
+          burn
+        />
       </div>
       {error && (
         <div className="panel p-10 text-center text-cream/50">
@@ -69,4 +89,33 @@ export default function LeaderboardPage() {
 
 function rankBadge(i: number): string {
   return ["🥇", "🥈", "🥉"][i] ?? `${i + 1}`;
+}
+
+function StatCard({
+  label,
+  value,
+  icon = false,
+  burn = false,
+}: {
+  label: string;
+  value: string;
+  icon?: boolean;
+  burn?: boolean;
+}) {
+  return (
+    <div className="panel panel-gilt p-4 text-center">
+      <p
+        className={`flex items-center justify-center gap-1 text-2xl font-bold ${
+          burn ? "text-burn" : "text-gold-bright"
+        }`}
+      >
+        {icon && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/assets/token.svg" alt="" className="h-5 w-5" draggable={false} />
+        )}
+        {value}
+      </p>
+      <p className="mt-1 text-[11px] uppercase tracking-widest text-cream/50">{label}</p>
+    </div>
+  );
 }

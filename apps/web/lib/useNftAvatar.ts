@@ -54,13 +54,17 @@ async function poolPassImage(client: Client, owner: Address): Promise<string | n
     args: [owner],
   })) as bigint;
   if (balance === 0n) return null;
-  // Find the holder's token id from the Minted event (indexed `to`).
+  // Find the holder's token id from the Minted event (indexed `to`). Bound the
+  // range — public RPCs cap eth_getLogs (publicnode: 50k blocks). The pass NFT
+  // is recent, so the last ~45k blocks (~6 days on Sepolia) covers it.
+  const head = await client.getBlockNumber();
+  const fromBlock = head > 45000n ? head - 45000n : 0n;
   const logs = await client.getContractEvents({
     address: POOLDAWGS_NFT_ADDRESS,
     abi: POOL_DAWGS_NFT_ABI,
     eventName: "Minted",
     args: { to: owner },
-    fromBlock: "earliest",
+    fromBlock,
   });
   const tokenId = logs.at(-1)?.args?.tokenId as bigint | undefined;
   if (tokenId === undefined) return null;

@@ -1,7 +1,12 @@
 import type { Address } from "@pooldawgs/shared";
 
-export const SERVER_URL =
-  process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:4000";
+// Tolerate a SERVER_URL set without a scheme (e.g. "host.up.railway.app"):
+// socket.io copes, but `fetch(SERVER_URL + "/…")` would treat it as a relative
+// path. Prepend https:// when no scheme is present so both work.
+const rawServerUrl = process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:4000";
+export const SERVER_URL = /^https?:\/\//i.test(rawServerUrl)
+  ? rawServerUrl
+  : `https://${rawServerUrl}`;
 
 // A real WalletConnect/Reown project id is 32 hex chars. Empty by default so
 // the app falls back to injected wallets instead of throwing.

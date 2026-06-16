@@ -542,8 +542,16 @@ function drawAimGuide(
   ctx.restore();
 }
 
-/** Crisp vector cue, stroked exactly along the aim line so it's always centred
- *  on the cue ball and renders every frame (no heavy traced-SVG to rasterise). */
+// The traced cue art (stick.svg, 0–100 viewBox) sits ABOVE the image's vertical
+// centre — its body spans ~y26–64, centre ≈ y45. Drawing the image box centred
+// on the ball therefore lifts the cue ~5% above the aim line. CUE_AXIS is the
+// fraction of the image height where the cue's centreline sits, so we offset
+// the draw to put the cue ON the aim line. Lower = cue sits higher; raise it
+// if the cue still looks low.
+const CUE_AXIS = 0.45;
+
+/** The client's traced cue (stick.svg), laid along the aim and centred on the
+ *  aim line; a vector cue is drawn as a fallback until the SVG has loaded. */
 function drawCueStick(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -555,6 +563,20 @@ function drawCueStick(
   const stickLen = 430;
   const tipX = cx - Math.cos(angle) * pullback;
   const tipY = cy - Math.sin(angle) * pullback;
+
+  const stickImg = getImage("/assets/stick.svg");
+  if (stickImg) {
+    // Image points butt→tip left-to-right; lay it along the aim behind the cue
+    // ball, offset vertically so the cue's axis (CUE_AXIS) lands on the aim line.
+    const h = stickLen * (stickImg.naturalHeight / stickImg.naturalWidth);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.drawImage(stickImg, -(pullback + stickLen), -CUE_AXIS * h, stickLen, h);
+    ctx.restore();
+    return;
+  }
+
   const buttX = cx - Math.cos(angle) * (pullback + stickLen);
   const buttY = cy - Math.sin(angle) * (pullback + stickLen);
 

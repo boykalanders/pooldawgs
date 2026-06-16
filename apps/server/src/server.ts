@@ -64,7 +64,7 @@ export function createPoolDawgsServer(
     }
     if (req.url === "/leaderboard") {
       res.writeHead(200, { "content-type": "application/json", ...cors });
-      res.end(JSON.stringify({ entries: leaderboard.top() }));
+      res.end(JSON.stringify({ entries: leaderboard.top(), stats: leaderboard.stats() }));
       return;
     }
     res.writeHead(404);
@@ -260,12 +260,9 @@ export function createPoolDawgsServer(
         }
         const trimmed = String(text ?? "").trim().slice(0, MAX_CHAT_LENGTH);
         if (!trimmed) return;
-        io.to(roomChannel(gameId)).emit("chat:message", {
-          gameId,
-          from: address,
-          text: trimmed,
-          ts: Date.now(),
-        });
+        const msg = { gameId, from: address, text: trimmed, ts: Date.now() };
+        room.addChat(msg); // persist so a reconnecting player sees it
+        io.to(roomChannel(gameId)).emit("chat:message", msg);
       });
     });
 

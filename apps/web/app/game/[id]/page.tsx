@@ -73,6 +73,7 @@ function GameRoom() {
   const [state, setState] = useState<TableState | null>(null);
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
   const pendingEndState = useRef<TableState | null>(null);
+  const seededChat = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -197,6 +198,12 @@ function GameRoom() {
       );
       setSnapshot(snap);
       if (!pendingEndState.current) setState(snap.state);
+      // Seed chat history once on (re)join so a returning player sees past
+      // messages; live messages then arrive via chat:message.
+      if (!seededChat.current) {
+        seededChat.current = true;
+        if (snap.messages?.length) setMessages(snap.messages);
+      }
     };
     const onShot = (shot: ShotBroadcast) => {
       if (shot.gameId !== gameId) return;

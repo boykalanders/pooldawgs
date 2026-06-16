@@ -12,6 +12,7 @@ import {
 } from "@pooldawgs/engine";
 import type {
   Address,
+  ChatMessage,
   GameOverReason,
   RoomSnapshot,
   ServerError,
@@ -53,6 +54,7 @@ export class GameRoom {
   private clockExpiresAt = 0;
   private over: RoomSnapshot["over"] = null;
   private settling = false;
+  private messages: ChatMessage[] = [];
 
   constructor(
     gameId: string,
@@ -84,6 +86,13 @@ export class GameRoom {
     return this.stake;
   }
 
+  /** Append a chat message to the room's history (kept so reconnecting players
+   *  see it). Capped to the most recent 100. */
+  addChat(msg: ChatMessage): void {
+    this.messages.push(msg);
+    if (this.messages.length > 100) this.messages.shift();
+  }
+
   connect(address: Address): void {
     this.connected.add(address.toLowerCase() as Address);
     this.emitter.broadcastState(this.snapshot());
@@ -108,6 +117,7 @@ export class GameRoom {
       stake: this.stake,
       state: this.state,
       stateHash: stateHash(this.state),
+      messages: this.messages,
       clockExpiresAt: this.clockExpiresAt,
       over: this.over,
     };

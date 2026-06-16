@@ -36,6 +36,8 @@ export interface RoomSnapshot {
   state: TableState;
   /** Server hash of `state` for desync detection. */
   stateHash: string;
+  /** Chat history for the room, so a reconnecting player sees past messages. */
+  messages: ChatMessage[];
   /** Epoch ms when the current player's 4-minute shot clock expires. */
   clockExpiresAt: number;
   /** Set when the frame ends. `voucher` is the backend's EIP-712 signature the
@@ -71,6 +73,16 @@ export interface LeaderboardEntry {
   losses: number;
   /** Total winnings in wei (decimal string). */
   wonAmount: string;
+}
+
+/** Platform-wide totals shown on the leaderboard. */
+export interface PlatformStats {
+  /** Number of finished games. */
+  games: number;
+  /** Total $DDAWGS burned (10% of every pot), wei decimal string. */
+  totalBurned: string;
+  /** Total staked across all finished games (both players' stakes), wei. */
+  totalWagered: string;
 }
 
 /** A game the player won — the client checks each one's on-chain `rewardClaimed`

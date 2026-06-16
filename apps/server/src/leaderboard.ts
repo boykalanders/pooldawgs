@@ -1,4 +1,4 @@
-import type { Address, LeaderboardEntry, WonGame } from "@pooldawgs/shared";
+import type { Address, LeaderboardEntry, PlatformStats, WonGame } from "@pooldawgs/shared";
 
 /** In-memory win/loss ledger; swap for a DB alongside the lobby store. */
 export class LeaderboardStore {
@@ -9,16 +9,30 @@ export class LeaderboardStore {
   // gameIds already counted into wins/losses, so the socket path and the chain
   // backfill (which both report a finish) don't double-count.
   private counted = new Set<string>();
+  // Sum of winner shares (80% of each pot) across counted games — used to
+  // derive platform totals (burn = share/8, wagered = share*10/8).
+  private totalWonWei = 0n;
 
   /** Record a finished game's win/loss. Idempotent per gameId. */
   record(gameId: string, winner: Address, loser: Address, wonAmountWei: string): void {
     if (this.counted.has(gameId)) return;
     this.counted.add(gameId);
+    this.totalWonWei += BigInt(wonAmountWei);
     const w = this.getOrCreate(winner);
     w.wins += 1;
     w.wonAmount = (BigInt(w.wonAmount) + BigInt(wonAmountWei)).toString();
     const l = this.getOrCreate(loser);
     l.losses += 1;
+  }
+
+  /** Platform totals. Winner share is 80% of the pot, so burn (10%) = share/8
+   *  and total wagered (both stakes = the pot) = share * 10/8. */
+  stats(): PlatformStats {
+    return {
+      games: this.counted.size,
+      totalBurned: (this.totalWonWei / 8n).toString(),
+      totalWagered: ((this.totalWonWei * 10n) / 8n).toString(),
+    };
   }
 
   /** Record a game this wallet won, for the "unclaimed rewards" list. Idempotent. */
