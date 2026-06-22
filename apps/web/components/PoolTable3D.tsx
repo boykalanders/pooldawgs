@@ -101,10 +101,11 @@ export default function PoolTable3D({
     cam.wheelPrecision = 40;
 
     const hemi = new HemisphericLight("h", new Vector3(0, 1, 0), scene);
-    hemi.intensity = 0.7;
+    hemi.intensity = 1.05;
+    hemi.groundColor = new Color3(0.12, 0.18, 0.14);
     const dir = new DirectionalLight("d", new Vector3(-0.4, -1, 0.3), scene);
-    dir.position = new Vector3(M(0.5), M(2), M(-0.5));
-    dir.intensity = 0.9;
+    dir.position = new Vector3(0.5, 2, -0.5);
+    dir.intensity = 1.0;
 
     buildTable(scene);
 
@@ -306,14 +307,16 @@ function buildTable(scene: Scene): void {
   // Cloth.
   const cloth = MeshBuilder.CreateGround("cloth", { width: playW, height: playH }, scene);
   const clothMat = new StandardMaterial("clothMat", scene);
-  clothMat.diffuseColor = Color3.FromHexString("#0b3d2e");
-  clothMat.specularColor = new Color3(0.05, 0.1, 0.08);
+  clothMat.diffuseColor = Color3.FromHexString("#15795a");
+  clothMat.emissiveColor = Color3.FromHexString("#062c1f"); // keeps it green in shadow
+  clothMat.specularColor = new Color3(0.04, 0.08, 0.06);
   cloth.material = clothMat;
   cloth.position.y = 0;
 
-  // Wooden frame (a slightly larger, lower box around the cloth).
+  // Wooden frame — kept BELOW the cloth plane (top at -0.015) so it doesn't
+  // z-fight with the green cloth at y=0 (which made the cloth read brown).
   const frame = MeshBuilder.CreateBox("frame", { width: fullW + 0.06, height: 0.09, depth: fullH + 0.06 }, scene);
-  frame.position.y = -0.045;
+  frame.position.y = -0.06;
   const woodMat = new StandardMaterial("woodMat", scene);
   woodMat.diffuseColor = Color3.FromHexString("#2a160c");
   woodMat.specularColor = new Color3(0.2, 0.15, 0.1);

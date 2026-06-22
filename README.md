@@ -15,6 +15,31 @@ anti-tunneling substeps, cue-ball spin/english, centre pockets that capture
 what they visually promise, and ball-in-hand that lifts the cue ball off the
 table until placed.
 
+### 3D mode — Babylon + Havok
+
+The game can run on **real Havok physics** rendered in **3D with Babylon.js**:
+
+- **Physics** (`packages/engine/src/havok`): a Havok (Babylon v2 physics) pool
+  simulator running headless on a `NullEngine`. It produces the *same*
+  `ShotResult` (frames + events + endState) as the built-in TS engine, so the
+  rules, server and contract are unchanged — only the physics core swaps.
+  Spin (follow/draw/english) is *real* here: initial angular velocity on the
+  cue ball, with cloth-contact friction doing the rest. Calibrated via
+  `node packages/engine/scripts/havok-playtest.mjs` (5/5 checklist).
+- **Authority**: the SERVER runs Havok and is the sole judge of outcomes;
+  clients replay the trajectory. So Havok's cross-machine non-determinism
+  never affects who wins the pot. Enable with `PHYSICS_BACKEND=havok` (the
+  server default) — it `initHavok()`s at boot and injects it via
+  `setSimulator`.
+- **Rendering** (`apps/web/components/PoolTable3D.tsx`): a Babylon 3D scene
+  (wood table, gold rails, green cloth, glowing pockets, numbered balls,
+  point-to-aim) that *replays* the engine's shot frames — visuals and the
+  wagered result always agree. Try it at **`/play3d`** (browser Havok; the
+  WASM is served from `public/HavokPhysics.wasm`).
+
+The 2D canvas renderer (`PoolCanvas`) remains the default game view; the 3D
+view is additive. Swap physics back with `PHYSICS_BACKEND=ts`.
+
 ### Physics tuning (spec V0.1)
 
 The engine is calibrated to **PHYSICS SPEC V0.1** — Miniclip-grade feel,
