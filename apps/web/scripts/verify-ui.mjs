@@ -155,7 +155,9 @@ try {
     '[data-testid="shell-nav"]',
     (el) => getComputedStyle(el).display
   );
-  check("mobile: shell bottom nav visible", mNav !== "none");
+  // The bottom nav is now hidden on phones (moved into the top-left menu) so
+  // the table gets the whole screen.
+  check("mobile: bottom nav hidden (moved to menu)", mNav === "none");
   const mFit = await mobile.evaluate(() => ({
     scrollH: document.documentElement.scrollHeight,
     innerH: window.innerHeight,

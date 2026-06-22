@@ -206,6 +206,37 @@ export default function GameShell({
                   {item.label}
                 </button>
               ))}
+
+              {/* Touch only: the bottom nav is hidden on phones to give the
+                  table the whole screen, so its destinations live here. */}
+              <div className="hidden border-t border-gold-dim/20 touch:block">
+                <Link
+                  href="/lobby"
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <IconHome className="h-4 w-4" /> Lobby
+                </Link>
+                <Link
+                  href="/leaderboard"
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <IconTrophy className="h-4 w-4" /> Leaderboard
+                </Link>
+                <span className="flex w-full cursor-not-allowed items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream/40">
+                  <IconGift className="h-4 w-4" /> Rewards — soon
+                </span>
+                <button
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    isConnected ? openAccountModal?.() : openConnectModal?.();
+                  }}
+                >
+                  <IconWallet className="h-4 w-4" /> Wallet
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -404,38 +435,11 @@ export default function GameShell({
         <MoneyPanel title="Current pot" value={potLabel ?? "—"} icon={<TokenIcon />} />
       </div>
 
-      {/* ── bottom nav: redundant with the site header on PCs, so it only
-            shows on touch devices (where the header is hidden instead). ── */}
-      <nav
-        data-testid="shell-nav"
-        className="mt-2 flex items-end justify-around border-t border-gold-dim/20 px-2 pt-2 text-[10px] uppercase tracking-[0.12em] text-cream/65 desktop:hidden"
-      >
-        <NavItem href="/lobby" icon={<IconHome className="h-5 w-5" />} label="Lobby" />
-        <NavItem href="/leaderboard" icon={<IconTrophy className="h-5 w-5" />} label="Ranks" />
-        {/* Centre token doubles as the turn indicator on phones: it glows on
-            your turn, and the player-turn status sits beneath it. */}
-        <div className="-mt-4 flex flex-col items-center gap-1">
-          <span
-            className={`flex h-12 w-12 items-center justify-center rounded-full border-2 bg-emerald-deep ${
-              !state.gameOver && interactive
-                ? "animate-pulse border-gold shadow-gold-glow"
-                : "border-gold-dim/60"
-            }`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/assets/token.svg" alt="" className="h-8 w-8" draggable={false} />
-          </span>
-          <span className="max-w-[6rem] truncate text-[9px] font-semibold tracking-[0.08em] text-gold-bright">
-            {statusText}
-          </span>
-        </div>
-        <NavItem icon={<IconGift className="h-5 w-5" />} label="Rewards" disabled title="Rewards — coming soon" />
-        <NavItem
-          icon={<IconWallet className="h-5 w-5" />}
-          label="Wallet"
-          onClick={() => (isConnected ? openAccountModal?.() : openConnectModal?.())}
-        />
-      </nav>
+      {/* On phones there is NO bottom nav — it lived here and is now in the
+          top-left menu, so the table gets the whole screen. Whose turn it is
+          stays clear from the glowing player card up top. The shell-nav marker
+          is kept (hidden) so existing checks can assert it's not shown. */}
+      <span data-testid="shell-nav" className="hidden" />
     </div>
 
     {/* Table Talk — a sliding sidebar OUTSIDE the game box, so the cloth keeps
@@ -468,44 +472,6 @@ export default function GameShell({
   );
 }
 
-function NavItem({
-  href,
-  icon,
-  label,
-  onClick,
-  disabled,
-  title,
-}: {
-  href?: string;
-  icon: ReactNode;
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  const inner = (
-    <span
-      className={`flex flex-col items-center gap-1 px-2 transition ${
-        disabled ? "cursor-not-allowed opacity-45" : "hover:text-gold-bright"
-      }`}
-    >
-      {icon}
-      {label}
-    </span>
-  );
-  if (href && !disabled) {
-    return (
-      <Link href={href} className="contents">
-        {inner}
-      </Link>
-    );
-  }
-  return (
-    <button type="button" onClick={disabled ? undefined : onClick} disabled={disabled} title={title}>
-      {inner}
-    </button>
-  );
-}
 
 function CueBallIcon() {
   return (
