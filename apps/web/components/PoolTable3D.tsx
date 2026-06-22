@@ -7,6 +7,7 @@ import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { Vector3, Color3, Color4 } from "@babylonjs/core/Maths/math.js";
+import { Quaternion } from "@babylonjs/core/Maths/math.vector.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture.js";
@@ -33,10 +34,6 @@ const wz = (py: number) => (TABLE_HEIGHT / 2 - py) * S;
 const R = BALL_RADIUS * S;
 
 const SOLID = "#f5efe0";
-const NUM_COLOR: Record<number, string> = {
-  1: "#f0b90b", 2: "#1f4fd8", 3: "#d2122e", 4: "#6a2c91", 5: "#ef7d14",
-  6: "#0f7a3d", 7: "#7a1f2b", 8: "#101014",
-};
 
 export interface ShotPlayback {
   frames: Frame[];
@@ -233,69 +230,81 @@ function applyFrame(balls: Mesh[], frame: Frame, scene: Scene, ids: BallLike[]):
     }
     if (ids[fb.id]) styleBall(m, ids[fb.id], scene);
     m.isVisible = true;
-    m.position.set(wx(fb.x), R, wz(fb.y));
+    const nx = wx(fb.x);
+    const nz = wz(fb.y);
+    rollBall(m, nx, nz); // rotate by the distance travelled BEFORE moving
+    m.position.set(nx, R, nz);
   }
+}
+
+/**
+ * Roll the ball like a real one: rotate about the horizontal axis
+ * perpendicular to its motion by angle = distance / radius (rolling without
+ * slipping). Composes in world space so successive frames accumulate.
+ */
+function rollBall(mesh: Mesh, nx: number, nz: number): void {
+  const dx = nx - mesh.position.x;
+  const dz = nz - mesh.position.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist < 1e-5 || dist > R * 6) return; // ignore teleports (re-rack/placement)
+  // axis = up × dir = (0,1,0) × (dx,0,dz) = (dz, 0, -dx)
+  const axis = new Vector3(dz / dist, 0, -dx / dist);
+  const q = Quaternion.RotationAxis(axis, dist / R);
+  mesh.rotationQuaternion = q.multiply(mesh.rotationQuaternion ?? Quaternion.Identity());
 }
 
 const styled = new WeakSet<Mesh>();
 function styleBall(mesh: Mesh, ball: BallLike, scene: Scene): void {
   if (styled.has(mesh)) return;
   styled.add(mesh);
+  if (!mesh.rotationQuaternion) mesh.rotationQuaternion = Quaternion.Identity();
   const id = ball.number;
   const style = ballStyle(ball);
-  const mat = new StandardMaterial(`bm${id}`, scene);
-  mat.specularColor = new Color3(0.9, 0.9, 0.9);
-  mat.specularPower = 64;
-  const base =
-    style.number === null
-      ? SOLID
-      : style.kind === "stripe"
-        ? SOLID
-        : NUM_COLOR[style.number] ?? SOLID;
-  mat.diffuseColor = Color3.FromHexString(base);
-  mesh.material = mat;
 
-  // Number / stripe decal on a top-facing disc so it reads from above.
-  if (style.number !== null) {
-    const disc = MeshBuilder.CreateDisc(`d${id}`, { radius: R * 0.95, tessellation: 24 }, scene);
-    disc.parent = mesh;
-    disc.rotation.x = Math.PI / 2; // face up
-    disc.position.y = R * 0.96;
-    const tex = new DynamicTexture(`t${id}`, { width: 128, height: 128 }, scene, false);
-    const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
-    const col = NUM_COLOR[style.number <= 8 ? style.number : style.number - 8] ?? "#888";
-    ctx.fillStyle = style.kind === "stripe" ? "#f5efe0" : col;
-    ctx.fillRect(0, 0, 128, 128);
-    if (style.kind === "stripe") {
-      ctx.fillStyle = col;
-      ctx.fillRect(0, 36, 128, 56);
-    }
+  // Bake the ball's look INTO the sphere texture so the number/stripe rolls
+  // with the ball (real tumbling) instead of sitting on a fixed top decal.
+  // u = longitude (around), v = latitude (pole→pole).
+  const tex = new DynamicTexture(`bt${id}_${Math.round(mesh.uniqueId)}`, { width: 256, height: 256 }, scene, true);
+  const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
+  const hue = style.color;
+
+  if (style.kind === "cue") {
+    ctx.fillStyle = SOLID;
+    ctx.fillRect(0, 0, 256, 256);
     ctx.beginPath();
-    ctx.arc(64, 64, 34, 0, Math.PI * 2);
+    ctx.arc(128, 128, 13, 0, Math.PI * 2);
+    ctx.fillStyle = "#c0272d"; // the cue ball's red spot
+    ctx.fill();
+  } else if (style.kind === "stripe") {
+    ctx.fillStyle = SOLID;
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = hue; // colour band around the middle latitudes
+    ctx.fillRect(0, 86, 256, 84);
+  } else {
+    ctx.fillStyle = hue; // solid / eight / snooker colour
+    ctx.fillRect(0, 0, 256, 256);
+  }
+
+  // Numbered balls: a white circle with the printed number near the top so
+  // it's readable at rest and revolves as the ball rolls.
+  if (style.number !== null) {
+    ctx.beginPath();
+    ctx.arc(128, 80, 34, 0, Math.PI * 2);
     ctx.fillStyle = "#f5efe0";
     ctx.fill();
     ctx.fillStyle = "#16120e";
-    ctx.font = "bold 52px Georgia";
+    ctx.font = "bold 40px Georgia";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(style.number), 64, 70);
-    tex.update();
-    const dmat = new StandardMaterial(`dm${id}`, scene);
-    dmat.diffuseTexture = tex;
-    dmat.emissiveColor = new Color3(0.25, 0.25, 0.25);
-    dmat.specularColor = new Color3(0, 0, 0);
-    disc.material = dmat;
-  } else {
-    // Cue ball: a small red spot on top.
-    const spot = MeshBuilder.CreateDisc(`cs`, { radius: R * 0.22, tessellation: 16 }, scene);
-    spot.parent = mesh;
-    spot.rotation.x = Math.PI / 2;
-    spot.position.y = R * 0.99;
-    const sm = new StandardMaterial(`csm`, scene);
-    sm.emissiveColor = new Color3(0.8, 0.1, 0.1);
-    sm.disableLighting = true;
-    spot.material = sm;
+    ctx.fillText(String(style.number), 128, 82);
   }
+  tex.update();
+
+  const mat = new StandardMaterial(`bm${id}_${Math.round(mesh.uniqueId)}`, scene);
+  mat.diffuseTexture = tex;
+  mat.specularColor = new Color3(0.85, 0.85, 0.85);
+  mat.specularPower = 80;
+  mesh.material = mat;
 }
 
 function buildTable(scene: Scene): void {

@@ -4,6 +4,26 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
+import { PNG } from "pngjs";
+
+/** Fraction of pixels that differ between two PNG screenshots (0..1), with a
+ *  small per-channel tolerance so anti-aliasing jitter doesn't count. A real
+ *  shot moves balls across the table → large fraction; a static aim → ~0. */
+function diffFraction(a, b) {
+  const pa = PNG.sync.read(a);
+  const pb = PNG.sync.read(b);
+  if (pa.width !== pb.width || pa.height !== pb.height) return 1;
+  let diff = 0;
+  for (let i = 0; i < pa.data.length; i += 4) {
+    if (
+      Math.abs(pa.data[i] - pb.data[i]) > 16 ||
+      Math.abs(pa.data[i + 1] - pb.data[i + 1]) > 16 ||
+      Math.abs(pa.data[i + 2] - pb.data[i + 2]) > 16
+    )
+      diff++;
+  }
+  return diff / (pa.width * pa.height);
+}
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -159,9 +179,13 @@ try {
   const aimA = await mCanvas.screenshot();
   await sleep(1200);
   const aimB = await mCanvas.screenshot();
+  // A fired shot would have balls mid-flight here (large frame-to-frame diff);
+  // a pure aim leaves the table static (tolerant of AA jitter).
+  const aimDiff = diffFraction(aimA, aimB);
   check(
     "mobile: dragging the table aims without shooting",
-    Buffer.compare(aimA, aimB) === 0
+    aimDiff < 0.01,
+    `${(aimDiff * 100).toFixed(2)}% of pixels changed (a shot would be far more)`
   );
 
   // Drag the power slider up and release → this fires the shot.

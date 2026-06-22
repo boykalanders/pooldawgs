@@ -317,16 +317,15 @@ export default function GameShell({
         </div>
       </div>
 
-      {/* ── controls hint — desktop vs touch get different schemes ── */}
+      {/* ── controls hint (desktop only — touch declutters to the nav) ── */}
       <p className="mt-1.5 text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:hidden">
         Aim: mouse · Power: hold click, W/S, or slider · Shoot: release, click, or Space · Spin: drag the white ball
       </p>
-      <p className="mt-1.5 hidden text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:block">
-        Drag the table to aim · drag the Power slider up &amp; release to shoot · drag the white ball for spin
-      </p>
 
-      {/* ── bottom bar ── */}
-      <div className="mt-2 flex items-center gap-3">
+      {/* ── bottom bar — hidden on touch; phones get the compact nav below,
+            with the turn shown on the centre token (balance/pot/mode chips
+            drop away to give the table room). ── */}
+      <div className="mt-2 flex items-center gap-3 touch:hidden">
         <MoneyPanel title="$DDAWGS balance" value={balanceLabel ?? "—"} icon={<TokenIcon />} plus />
         <ModeChip
           label="8 BALL"
@@ -393,10 +392,23 @@ export default function GameShell({
       >
         <NavItem href="/lobby" icon={<IconHome className="h-5 w-5" />} label="Lobby" />
         <NavItem href="/leaderboard" icon={<IconTrophy className="h-5 w-5" />} label="Ranks" />
-        <span className="-mt-4 flex h-12 w-12 items-center justify-center rounded-full border-2 border-gold bg-emerald-deep shadow-gold-glow">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/token.svg" alt="" className="h-8 w-8" draggable={false} />
-        </span>
+        {/* Centre token doubles as the turn indicator on phones: it glows on
+            your turn, and the player-turn status sits beneath it. */}
+        <div className="-mt-4 flex flex-col items-center gap-1">
+          <span
+            className={`flex h-12 w-12 items-center justify-center rounded-full border-2 bg-emerald-deep ${
+              !state.gameOver && interactive
+                ? "animate-pulse border-gold shadow-gold-glow"
+                : "border-gold-dim/60"
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/token.svg" alt="" className="h-8 w-8" draggable={false} />
+          </span>
+          <span className="max-w-[6rem] truncate text-[9px] font-semibold tracking-[0.08em] text-gold-bright">
+            {statusText}
+          </span>
+        </div>
         <NavItem icon={<IconGift className="h-5 w-5" />} label="Rewards" disabled title="Rewards — coming soon" />
         <NavItem
           icon={<IconWallet className="h-5 w-5" />}

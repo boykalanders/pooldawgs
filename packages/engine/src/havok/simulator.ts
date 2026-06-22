@@ -58,16 +58,16 @@ const PX = (m: number) => m * PX_PER_M;
 const R = M(BALL_RADIUS); // ball radius (m)
 
 const DT = 1 / 120; // fixed Havok timestep (matches PHYSICS_FPS)
-/** Settle threshold (m/s) — below this every ball is treated as stopped.
- *  ~3 cm/s; trims the slow end-crawl so full-power shots settle in a few
- *  seconds rather than creeping for ~8 s under light damping. */
-const SLEEP_SPEED = M(18);
+/** Settle threshold (m/s) — below this a ball is treated as stopped. Kept low
+ *  (~1.5 cm/s) so balls EASE to rest instead of snapping to a stop while still
+ *  visibly creeping (which read as "stops too soon"). */
+const SLEEP_SPEED = M(8);
 /** Full-power launch speed (m/s). Real cue-ball break tops out ~7–8 m/s; this
  *  also keeps per-step travel below the rail thickness (no tunnelling). */
 const MAX_SPEED_MS = 8.5;
-/** Cloth drag — calibrated in scripts/havok-playtest.mjs (3–4 table lengths).
- *  Low, because cloth friction now provides most of the rolling resistance. */
-const LINEAR_DAMPING = 0.4;
+/** Cloth drag — calibrated in scripts/havok-playtest.mjs. Lower = balls carry
+ *  further and slow more gently (less "high friction" feel). */
+const LINEAR_DAMPING = 0.28;
 /** Low, so cue-ball spin survives the roll to first contact (draw/follow). */
 const ANGULAR_DAMPING = 0.3;
 /** Spin authority: multiples of the natural rolling rate (v/R) at full spin. */
