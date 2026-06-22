@@ -119,10 +119,10 @@ export default function PracticePage() {
   const turnLabel = (() => {
     if (state.gameOver) return `🏆 Player ${state.winner! + 1} wins!`;
     if (state.gameType === "snooker") {
-      return `Player ${state.turn + 1} to shoot — on a ${state.onColor ? "colour" : "red"}`;
+      return `Player ${state.turn + 1} — on ${state.onColor ? "a colour" : "a red"}`;
     }
-    if (state.gameType === "9ball") return `Player ${state.turn + 1} — lowest ball first`;
-    return `Player ${state.turn + 1} to shoot`;
+    if (state.gameType === "9ball") return `Player ${state.turn + 1} — lowest first`;
+    return `Player ${state.turn + 1}`;
   })();
 
   const winMessage =

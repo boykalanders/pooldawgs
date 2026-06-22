@@ -103,6 +103,9 @@ export default function GameShell({
   const [muted, setMuted] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Collapse the desktop bottom bar (balance / mode chips / status / pot) to
+  // give the pool table more room — toggled from the top-left menu.
+  const [barCollapsed, setBarCollapsed] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const seenCount = useRef(0);
@@ -175,6 +178,19 @@ export default function GameShell({
               >
                 {muted ? <IconSoundOff className="h-4 w-4" /> : <IconSoundOn className="h-4 w-4" />}
                 {muted ? "Sound: off" : "Sound: on"}
+              </button>
+              {/* Desktop only: phones already drop the bottom bar. */}
+              <button
+                className="hidden w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10 desktop:flex"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setBarCollapsed((v) => !v);
+                }}
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-gold">
+                  {barCollapsed ? "▴" : "▾"}
+                </span>
+                {barCollapsed ? "Show bottom bar" : "Hide bottom bar (bigger table)"}
               </button>
               {menuItems.map((item) => (
                 <button
@@ -317,15 +333,19 @@ export default function GameShell({
         </div>
       </div>
 
-      {/* ── controls hint (desktop only — touch declutters to the nav) ── */}
-      <p className="mt-1.5 text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:hidden">
+      {/* ── controls hint (desktop only — touch declutters to the nav; also
+            hidden when the bottom bar is collapsed for a bigger table) ── */}
+      <p
+        className={`mt-1.5 text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:hidden ${
+          barCollapsed ? "hidden" : ""
+        }`}
+      >
         Aim: mouse · Power: hold click, W/S, or slider · Shoot: release, click, or Space · Spin: drag the white ball
       </p>
 
-      {/* ── bottom bar — hidden on touch; phones get the compact nav below,
-            with the turn shown on the centre token (balance/pot/mode chips
-            drop away to give the table room). ── */}
-      <div className="mt-2 flex items-center gap-3 touch:hidden">
+      {/* ── bottom bar — hidden on touch (phones use the compact nav below);
+            collapsible on desktop from the top-left menu to grow the table. ── */}
+      <div className={`mt-2 items-center gap-3 touch:hidden ${barCollapsed ? "hidden" : "flex"}`}>
         <MoneyPanel title="$DDAWGS balance" value={balanceLabel ?? "—"} icon={<TokenIcon />} plus />
         <ModeChip
           label="8 BALL"
