@@ -261,7 +261,7 @@ function styleBall(mesh: Mesh, ball: BallLike, scene: Scene): void {
     disc.rotation.x = Math.PI / 2; // face up
     disc.position.y = R * 0.96;
     const tex = new DynamicTexture(`t${id}`, { width: 128, height: 128 }, scene, false);
-    const ctx = tex.getContext();
+    const ctx = tex.getContext() as unknown as CanvasRenderingContext2D;
     const col = NUM_COLOR[style.number <= 8 ? style.number : style.number - 8] ?? "#888";
     ctx.fillStyle = style.kind === "stripe" ? "#f5efe0" : col;
     ctx.fillRect(0, 0, 128, 128);
