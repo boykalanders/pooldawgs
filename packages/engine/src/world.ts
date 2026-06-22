@@ -89,15 +89,40 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
 }
 
 /**
+ * Pluggable physics backend. By default `simulateShot` runs the built-in
+ * deterministic TS engine (below). The server (and the web in practice mode)
+ * can inject the Havok backend via setSimulator(simulateShotHavok) AFTER
+ * awaiting initHavok(). Keeping the injection here means this module never
+ * imports Babylon/Havok, so consumers that stay on the TS engine don't pay
+ * the bundle cost.
+ */
+export type SimulatorFn = (
+  state: TableState,
+  shot: ShotInput,
+  opts?: SimulateOptions
+) => ShotResult;
+
+let injectedSimulator: SimulatorFn | null = null;
+
+export function setSimulator(fn: SimulatorFn | null): void {
+  injectedSimulator = fn;
+}
+
+export function activeBackend(): "ts" | "custom" {
+  return injectedSimulator ? "custom" : "ts";
+}
+
+/**
  * Authoritatively simulate one shot to settle. Pure: the input state is not
- * mutated. Deterministic: identical (state, shot) always produces an
- * identical result, in Node and in the browser.
+ * mutated. Dispatches to the injected backend (Havok) when set, else the
+ * built-in deterministic TS engine.
  */
 export function simulateShot(
   state: TableState,
   shot: ShotInput,
   opts: SimulateOptions = {}
 ): ShotResult {
+  if (injectedSimulator) return injectedSimulator(state, shot, opts);
   const valid = validateShot(state, shot);
   if (!valid.ok) throw new Error(`illegal shot: ${valid.reason}`);
 

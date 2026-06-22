@@ -317,9 +317,12 @@ export default function GameShell({
         </div>
       </div>
 
-      {/* ── controls hint (pointless on touch — no keyboard/mouse) ── */}
+      {/* ── controls hint — desktop vs touch get different schemes ── */}
       <p className="mt-1.5 text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:hidden">
         Aim: mouse · Power: hold click, W/S, or slider · Shoot: release, click, or Space · Spin: drag the white ball
+      </p>
+      <p className="mt-1.5 hidden text-center text-[10px] uppercase tracking-widest text-amber-100/40 touch:block">
+        Drag the table to aim · drag the Power slider up &amp; release to shoot · drag the white ball for spin
       </p>
 
       {/* ── bottom bar ── */}

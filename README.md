@@ -15,6 +15,25 @@ anti-tunneling substeps, cue-ball spin/english, centre pockets that capture
 what they visually promise, and ball-in-hand that lifts the cue ball off the
 table until placed.
 
+### Physics tuning (spec V0.1)
+
+The engine is calibrated to **PHYSICS SPEC V0.1** — Miniclip-grade feel,
+~92% realism. The spec is written in SI units; the fork's geometry is fixed
+in pixels, so `packages/engine/src/constants.ts` keeps the geometry and
+translates the spec's dimensionless coefficients directly (restitutions,
+power curve `input^1.4`, spin authority, 120 Hz tick), calibrating the
+velocity/friction scale so the spec's distance targets hold in pixels. The
+checklist is automated:
+
+```bash
+pnpm --filter @pooldawgs/engine build && node packages/engine/scripts/playtest.mjs
+```
+
+It measures all six spec tests against the live constants — full-power roll
+(≈3.9 table lengths), 45° bank (settles, no pinball), thin cut pot, draw
+(≈22 cm return), follow (≈25 cm), and a soft hanger that drops. Tune the
+constants, re-run, and iterate there rather than by eye.
+
 ## Game modes
 
 Three variants share one deterministic engine (`packages/engine`), each a

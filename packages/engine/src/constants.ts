@@ -56,10 +56,15 @@ export const MAX_SHOT_SPEED = 9600;
 // exponential decay: a fixed speed loss per second (Coulomb rolling
 // resistance) plus a small viscous term, so balls roll a long way then settle
 // rather than gliding forever.
-export const ROLL_DECEL = 1650; // px/s² constant deceleration
-export const VISCOUS_DRAG = 0.9935; // per-step multiplicative drag (@120 Hz)
+// Two-term model: viscous drag (speed-proportional) bleeds the high-speed
+// glide and sets the full-power distance; a SMALL constant rolling resistance
+// gives the gentle final roll-out. Keeping ROLL_DECEL low is what makes balls
+// ease to rest instead of halting abruptly (client feedback: "the way it
+// stops"); the stop threshold is low so the settle reads as smooth.
+export const ROLL_DECEL = 240; // px/s² constant deceleration (gentle roll-out)
+export const VISCOUS_DRAG = 0.9897; // per-step multiplicative drag (@120 Hz)
 /** Below this speed (px/s) a ball is considered stopped. */
-export const STOP_THRESHOLD = 6;
+export const STOP_THRESHOLD = 2.5;
 
 // ── restitution (spec §3, §5) ─────────────────────────────────────────────
 /** Ball-ball restitution (spec 0.93). */

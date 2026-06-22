@@ -51,7 +51,8 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
 
       <div
         ref={trackRef}
-        className={`relative w-7 min-h-[64px] flex-1 overflow-hidden rounded-full border border-gold-dim/50 bg-emerald-deep shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)] ${
+        data-testid="power-slider"
+        className={`relative w-7 min-h-[64px] flex-1 overflow-hidden rounded-full border border-gold-dim/50 bg-emerald-deep shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)] touch:w-11 ${
           disabled ? "opacity-40" : "cursor-pointer"
         }`}
         style={{ touchAction: "none" }}

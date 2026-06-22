@@ -18,6 +18,12 @@ export {
   validateShot,
   placeCueBall,
   stateHash,
+  setSimulator,
+  activeBackend,
   type SimulateOptions,
   type ShotValidation,
+  type SimulatorFn,
 } from "./world.js";
+// Havok backend is exported from a SEPARATE entry (./havok) so importing the
+// engine core never pulls in Babylon. Use:
+//   import { initHavok, simulateShotHavok } from "@pooldawgs/engine/havok";

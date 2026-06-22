@@ -60,7 +60,15 @@ try {
     Buffer.compare(before, afterClick) !== 0
   );
 
-  // 3. W charges power, Space fires.
+  // 3. W charges power, Space fires. Reload to a fresh rack first so this
+  //    isolates the keyboard path (the prior shot may have left the cue in
+  //    hand / potted, which would legitimately block the next shot).
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("canvas", { timeout: 30000 });
+  await sleep(2000);
+  const canvas2 = await page.$("canvas"); // reload invalidates the old handle
+  await page.mouse.move(aim.x, aim.y); // set aim
+  const keysBefore = await canvas2.screenshot();
   await page.keyboard.down("w");
   await sleep(600);
   await page.keyboard.up("w");
@@ -68,10 +76,10 @@ try {
   await sleep(6000);
   await page.mouse.move(aim.x, aim.y);
   await sleep(300);
-  const afterKeys = await canvas.screenshot();
+  const afterKeys = await canvas2.screenshot();
   check(
     "W key + Space takes a shot",
-    Buffer.compare(afterClick, afterKeys) !== 0
+    Buffer.compare(keysBefore, afterKeys) !== 0
   );
 
   // 4. The spin widget dot follows a drag.
@@ -137,6 +145,38 @@ try {
     mFit.scrollH <= mFit.innerH + 2,
     `scrollHeight ${mFit.scrollH} vs viewport ${mFit.innerH}`
   );
+
+  // 7. Mobile controls: dragging the TABLE only aims (must NOT fire a shot);
+  //    the POWER SLIDER is the shoot trigger. We detect an unwanted shot by
+  //    the table animating between two post-gesture snapshots.
+  const mCanvas = await mobile.$("canvas");
+  const cbox = await mCanvas.boundingBox();
+  // Touch-drag across the table to aim.
+  await mobile.touchscreen.touchStart(cbox.x + cbox.width * 0.5, cbox.y + cbox.height * 0.5);
+  await mobile.touchscreen.touchMove(cbox.x + cbox.width * 0.72, cbox.y + cbox.height * 0.4);
+  await mobile.touchscreen.touchEnd();
+  await sleep(700);
+  const aimA = await mCanvas.screenshot();
+  await sleep(1200);
+  const aimB = await mCanvas.screenshot();
+  check(
+    "mobile: dragging the table aims without shooting",
+    Buffer.compare(aimA, aimB) === 0
+  );
+
+  // Drag the power slider up and release → this fires the shot.
+  const sbox = await (await mobile.$('[data-testid="power-slider"]')).boundingBox();
+  const sx = sbox.x + sbox.width / 2;
+  await mobile.touchscreen.touchStart(sx, sbox.y + sbox.height * 0.9);
+  await mobile.touchscreen.touchMove(sx, sbox.y + sbox.height * 0.3);
+  await mobile.touchscreen.touchEnd();
+  await sleep(900);
+  const shotC = await mCanvas.screenshot();
+  check(
+    "mobile: power slider fires the shot",
+    Buffer.compare(aimA, shotC) !== 0
+  );
+
   await mobile.screenshot({ path: path.join(ROOT, "docs", "game-shell-mobile.png") });
   console.log("  screenshot → docs/game-shell-mobile.png");
 } finally {

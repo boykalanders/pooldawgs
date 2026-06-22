@@ -299,8 +299,17 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     }
     if (s.balls[cueBallId(s)].inHole || s.gameOver) return;
 
+    if (e.pointerType === "touch") {
+      // Touch: dragging the table ONLY aims — charging power with the same
+      // finger you aim with is what made phone play fiddly. Shooting on touch
+      // is the deliberate power-slider gesture (drag up, release). Capture so
+      // aim keeps tracking even if the finger slides past the canvas edge.
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
     if (current > 1) {
-      // Power already set (W/S or slider): a left click fires, like the fork.
+      // Mouse with power already set (W/S or slider): a click fires.
       shootAtAim.current(current);
     } else {
       // Otherwise press-and-hold charges; release fires.
@@ -310,6 +319,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function handlePointerUp() {
+    // Touch never charges from the canvas, so there's nothing to release here.
     if (!charging.current) return;
     charging.current = false;
     const current = propsRef.current.power;
@@ -321,6 +331,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function handlePointerMove(e: React.PointerEvent) {
+    // Mouse updates aim on hover; touch updates it while dragging.
+    if (e.pointerType === "touch" && e.buttons === 0) return;
     mouse.current = toTable(e);
   }
 

@@ -15,6 +15,8 @@ export interface ServerConfig {
   chainEnabled: boolean;
   /** Directory for best-effort JSON persistence (usernames). */
   dataDir: string;
+  /** Authoritative physics: "havok" (real 3D physics) or "ts" (built-in). */
+  physicsBackend: "havok" | "ts";
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -33,5 +35,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     shotClockMs: Number(env.SHOT_CLOCK_MS) || SHOT_CLOCK_MS,
     chainEnabled: Boolean(rpcUrl && contractAddress),
     dataDir: env.DATA_DIR || process.cwd(),
+    physicsBackend: env.PHYSICS_BACKEND === "ts" ? "ts" : "havok",
   };
 }
