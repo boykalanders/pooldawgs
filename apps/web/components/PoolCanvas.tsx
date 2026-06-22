@@ -11,6 +11,7 @@ import {
   BORDER_SIZE,
   HOLES,
   MAX_POWER,
+  STEP_MS,
   TABLE_HEIGHT,
   TABLE_WIDTH,
   cloneState,
@@ -55,8 +56,11 @@ function getImage(src: string): HTMLImageElement | null {
 }
 
 const BALL_RADIUS = BALL_SIZE / 2;
-/** ms per recorded frame: frameStride 2 at 100 Hz simulation = 20ms. */
-const FRAME_MS = 20;
+/** Replay frame stride (sim steps per recorded frame) and the real-time ms it
+ *  represents — derived from the engine's step rate so replays stay in sync
+ *  whatever PHYSICS_FPS is set to. */
+const FRAME_STRIDE = 2;
+const FRAME_MS = STEP_MS * FRAME_STRIDE;
 
 export interface ShotAnimation {
   fromState: TableState;
@@ -219,7 +223,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     try {
       const result = simulateShot(cloneState(animation.fromState), animation.shot, {
         recordFrames: true,
-        frameStride: 2,
+        frameStride: FRAME_STRIDE,
       });
       playing.current = {
         frames: result.frames ?? [],
@@ -228,7 +232,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
         key: animation.key,
         events: result.events,
         eventIdx: 0,
-        frameStride: 2,
+        frameStride: FRAME_STRIDE,
       };
     } catch {
       playing.current = null; // bad animation input — just draw the end state

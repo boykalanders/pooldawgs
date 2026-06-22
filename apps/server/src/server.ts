@@ -214,6 +214,18 @@ export function createPoolDawgsServer(
       if (room && socket.data.address) room.disconnect(socket.data.address);
     });
 
+    // Reconciliation: hand back the authoritative snapshot so the client can
+    // overwrite any state drifted from a missed delta. Only for a socket that
+    // already authenticated + seated on THIS connection (set by room:join) —
+    // no signature needed. On a fresh reconnect the client re-joins first,
+    // which both re-seats the socket and returns a snapshot.
+    socket.on("room:sync", ({ gameId }) => {
+      const room = rooms.get(gameId);
+      if (!room || !socket.data.address) return;
+      if (room.seatOf(socket.data.address) === null) return;
+      socket.emit("room:state", room.snapshot());
+    });
+
     const withRoom = (
       gameId: string,
       fn: (room: GameRoom, address: Address) => void

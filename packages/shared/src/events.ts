@@ -43,6 +43,10 @@ export interface ClientToServerEvents {
   "lobby:unsubscribe": () => void;
   "room:join": (p: { gameId: string; auth: AuthPayload }) => void;
   "room:leave": (p: { gameId: string }) => void;
+  /** Request the authoritative room snapshot (reconciliation after a missed
+   *  delta / reconnect / tab refocus). Served only to a socket already seated
+   *  this connection; no new signature required. */
+  "room:sync": (p: { gameId: string }) => void;
   "game:shoot": (p: { gameId: string; shot: ShotInput }) => void;
   "game:placeCueBall": (p: { gameId: string; x: number; y: number }) => void;
   "game:resign": (p: { gameId: string }) => void;

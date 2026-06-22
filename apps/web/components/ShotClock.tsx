@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { serverNow } from "@/lib/serverClock";
 
-/** 4-minute shot clock display. The server is the enforcer; this just shows it. */
+/** 4-minute shot clock display. The server is the enforcer; this just shows it.
+ *  Counts down against the server's clock (skew-corrected) so it matches the
+ *  authoritative timeout regardless of the client's wall-clock accuracy. */
 export default function ShotClock({ expiresAt }: { expiresAt: number }) {
-  const [remaining, setRemaining] = useState(() => Math.max(0, expiresAt - Date.now()));
+  const [remaining, setRemaining] = useState(() => Math.max(0, expiresAt - serverNow()));
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setRemaining(Math.max(0, expiresAt - Date.now()));
+      setRemaining(Math.max(0, expiresAt - serverNow()));
     }, 250);
     return () => clearInterval(interval);
   }, [expiresAt]);

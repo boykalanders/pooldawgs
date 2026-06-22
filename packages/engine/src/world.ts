@@ -1,10 +1,13 @@
 import {
+  BACK_SPIN,
   BALL_SIZE,
   MAX_POWER,
   MAX_STEPS,
-  SPIN_FOLLOW_FACTOR,
+  SIDE_ENGLISH,
+  SPIN_DECAY,
   SPIN_SIDE_DECAY,
-  SPIN_SIDE_FACTOR,
+  SPIN_TRANSFER,
+  TOP_SPIN,
 } from "./constants.js";
 import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.js";
 import { getRules } from "./variants/index.js";
@@ -124,9 +127,23 @@ export function simulateShot(
       if (!spinCtx.firstContactDone && (a.id === cueIdx || b.id === cueIdx)) {
         spinCtx.firstContactDone = true;
         const cue = a.id === cueIdx ? a : b;
+        const obj = a.id === cueIdx ? b : a;
         const speed = Math.sqrt(cue.vx * cue.vx + cue.vy * cue.vy);
         if (spinCtx.followSpin !== 0 && speed > 1e-9) {
           spinCtx.pendingFollow = { dx: cue.vx / speed, dy: cue.vy / speed, speed };
+        }
+        // Spin transfer / "throw": side english nudges the object ball
+        // sideways off the contact tangent (spec §8 SPIN_TRANSFER).
+        if (spinCtx.sideSpin !== 0 && speed > 1e-9) {
+          const ndx = obj.x - cue.x;
+          const ndy = obj.y - cue.y;
+          const nd = Math.sqrt(ndx * ndx + ndy * ndy) || 1;
+          const tx = -ndy / nd;
+          const ty = ndx / nd;
+          const throwMag = SPIN_TRANSFER * spinCtx.sideSpin * speed;
+          obj.vx += tx * throwMag;
+          obj.vy += ty * throwMag;
+          obj.moving = true;
         }
       }
       rules.onBallsCollide(next, turnAcc, a, b);
@@ -146,10 +163,12 @@ export function simulateShot(
 
     anyMoving = stepWorld(next.balls, steps, events, hooks);
 
-    // Follow/draw: one-shot impulse along the pre-contact direction.
+    // Follow/draw: one-shot impulse along the pre-contact direction. Follow
+    // (top) and draw (back) have distinct authority (spec §8).
     const follow = spinCtx.pendingFollow;
     if (follow && !cue.inHole) {
-      const boost = spinCtx.followSpin * SPIN_FOLLOW_FACTOR * follow.speed;
+      const factor = spinCtx.followSpin >= 0 ? TOP_SPIN : BACK_SPIN;
+      const boost = spinCtx.followSpin * factor * follow.speed;
       cue.vx += follow.dx * boost;
       cue.vy += follow.dy * boost;
       if (Math.abs(cue.vx) >= 1 || Math.abs(cue.vy) >= 1) {
@@ -167,12 +186,16 @@ export function simulateShot(
         if (event.type !== "cushion" || event.ballId !== cueIdx) continue;
         const flippedX = preVx !== 0 && Math.sign(cue.vx) !== Math.sign(preVx);
         const flippedY = preVy !== 0 && Math.sign(cue.vy) !== Math.sign(preVy);
-        if (flippedX) cue.vy += spinCtx.sideSpin * SPIN_SIDE_FACTOR * Math.abs(preVx);
-        if (flippedY) cue.vx -= spinCtx.sideSpin * SPIN_SIDE_FACTOR * Math.abs(preVy);
+        if (flippedX) cue.vy += spinCtx.sideSpin * SIDE_ENGLISH * Math.abs(preVx);
+        if (flippedY) cue.vx -= spinCtx.sideSpin * SIDE_ENGLISH * Math.abs(preVy);
         if (flippedX || flippedY) spinCtx.sideSpin *= SPIN_SIDE_DECAY;
         break;
       }
     }
+
+    // Spin dissipates as the cue rolls (spec §8: spin *= 0.985 per frame).
+    spinCtx.followSpin *= SPIN_DECAY;
+    spinCtx.sideSpin *= SPIN_DECAY;
 
     steps++;
     if (frames && steps % frameStride === 0) {

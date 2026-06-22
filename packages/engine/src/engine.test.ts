@@ -118,12 +118,25 @@ describe("anti-tunneling at full power", () => {
     const cue = cueBall(state);
     cue.x = 400;
     cue.y = 412;
-    const result = simulateShot(state, { angle: 0, power: MAX_POWER });
+    const result = simulateShot(
+      state,
+      { angle: 0, power: MAX_POWER },
+      { recordFrames: true, frameStride: 1 }
+    );
     expect(result.events.some((e) => e.type === "ballsCollide")).toBe(true);
-    const endObject = result.endState.balls[object.id];
-    const moved =
-      endObject.inHole || Math.abs(endObject.x - 800) + Math.abs(endObject.y - 412) > 200;
-    expect(moved).toBe(true);
+    // Momentum is transferred → the struck ball travels far at some point in
+    // the shot (it may bank and settle back near its start, so check the PEAK
+    // displacement, not the final rest position).
+    let maxDisp = 0;
+    for (const f of result.frames!) {
+      const o = f.balls[object.id];
+      if (!o.visible) {
+        maxDisp = Infinity;
+        break;
+      }
+      maxDisp = Math.max(maxDisp, Math.abs(o.x - 800) + Math.abs(o.y - 412));
+    }
+    expect(maxDisp).toBeGreaterThan(200);
   });
 
   it("a full-power break never leaves balls overlapping at rest", () => {

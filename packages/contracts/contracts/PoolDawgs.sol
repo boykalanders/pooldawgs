@@ -91,6 +91,11 @@ contract PoolDawgs is
     ///         KMS key) that can't move funds or touch the contract directly.
     address public resultSigner;
 
+    /// @notice Optional central DDawgsNFTRegistry. When set, the play gate
+    ///         defers to registry.ownsAny so ANY registered DDawgs game NFT
+    ///         unlocks play — no contract change to add a future game's NFT.
+    address public registry;
+
     bytes32 private constant RESULT_TYPEHASH =
         keccak256("Result(string gameId,address winner)");
 
@@ -108,6 +113,7 @@ contract PoolDawgs is
     event DDawgsNFTUpdated(address indexed nft);
     event OperatorUpdated(address indexed operator);
     event ResultSignerUpdated(address indexed signer);
+    event RegistryUpdated(address indexed registry);
 
     /// @notice Relayer authority: the owner OR the dedicated operator may settle
     ///         games. Admin powers (funds, wallets, gate, pause, upgrade) stay
@@ -145,9 +151,17 @@ contract PoolDawgs is
         companyWallet = _companyWallet;
     }
 
-    /// @notice The play gate: a wallet may play if it holds the PoolDawgs
-    ///         membership NFT OR (grandfather) a ChessDawgs NFT.
+    /// @notice The play gate. If a registry is set, ANY registered DDawgs NFT
+    ///         unlocks play (registry.ownsAny) — with the local PoolDawgs pass /
+    ///         grandfathered ChessDawgs NFT as a fallback. The registry call is a
+    ///         guarded staticcall so a bad/unset registry can't brick the gate.
     function ownsNFT(address account) public view returns (bool) {
+        if (registry != address(0)) {
+            (bool ok, bytes memory data) = registry.staticcall(
+                abi.encodeWithSignature("ownsAny(address)", account)
+            );
+            if (ok && data.length >= 32 && abi.decode(data, (bool))) return true;
+        }
         if (DDawgsNFT.balanceOf(account) > 0) return true;
         if (address(chessDawgsNFT) != address(0) && chessDawgsNFT.balanceOf(account) > 0) {
             return true;
@@ -438,6 +452,20 @@ contract PoolDawgs is
         emit ResultSignerUpdated(_signer);
     }
 
+    /// @notice Set (or clear) the central DDawgsNFTRegistry used by the gate.
+    ///         The address is validated — it must answer `ownsAny(address)` with
+    ///         a bool — so a wrong/incompatible contract can't be wired in.
+    function setRegistry(address _registry) external onlyOwner {
+        if (_registry != address(0)) {
+            (bool ok, bytes memory data) = _registry.staticcall(
+                abi.encodeWithSignature("ownsAny(address)", address(this))
+            );
+            require(ok && data.length >= 32, "bad registry");
+        }
+        registry = _registry;
+        emit RegistryUpdated(_registry);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -468,5 +496,5 @@ contract PoolDawgs is
     }
 
     // Reduced from 40 → 39 when chessDawgsNFT was added (one new slot).
-    uint256[39] private __gap;
+    uint256[38] private __gap;
 }

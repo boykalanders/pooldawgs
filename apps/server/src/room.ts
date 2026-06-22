@@ -119,6 +119,7 @@ export class GameRoom {
       stateHash: stateHash(this.state),
       messages: this.messages,
       clockExpiresAt: this.clockExpiresAt,
+      serverNow: Date.now(),
       over: this.over,
     };
   }
@@ -145,6 +146,7 @@ export class GameRoom {
       endState: result.endState,
       endStateHash: stateHash(result.endState),
       clockExpiresAt: this.clockExpiresAt,
+      serverNow: Date.now(),
     });
 
     if (result.outcome.gameOver && result.outcome.winner !== null) {

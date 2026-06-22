@@ -40,6 +40,9 @@ export interface RoomSnapshot {
   messages: ChatMessage[];
   /** Epoch ms when the current player's 4-minute shot clock expires. */
   clockExpiresAt: number;
+  /** Server's `Date.now()` at snapshot time, so the client can correct for
+   *  client/server clock skew when rendering the shot clock. */
+  serverNow: number;
   /** Set when the frame ends. `voucher` is the backend's EIP-712 signature the
    *  winner submits to claimRewardSigned; `txHash` is set only on the legacy
    *  owner-settled path. */
@@ -58,6 +61,8 @@ export interface ShotBroadcast {
   endState: TableState;
   endStateHash: string;
   clockExpiresAt: number;
+  /** Server's `Date.now()` at broadcast time, for client clock-skew correction. */
+  serverNow: number;
 }
 
 export interface ChatMessage {

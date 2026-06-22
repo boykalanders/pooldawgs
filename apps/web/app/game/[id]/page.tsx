@@ -12,10 +12,12 @@ import {
   type TableState,
 } from "@pooldawgs/engine";
 import {
+  AUTH_TTL_MS,
   ERC20_ABI,
   loginMessage,
   POOL_DAWGS_ABI,
   type Address,
+  type AuthPayload,
   type ChatMessage,
   type GameOverReason,
   type RoomSnapshot,
@@ -38,6 +40,7 @@ import { GAME_TYPE_LABEL, gameTypeFromId, inviteLink } from "@/lib/gamecode";
 import { useNftAvatar } from "@/lib/useNftAvatar";
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
+import { syncServerClock } from "@/lib/serverClock";
 
 export default function GamePage() {
   return (
@@ -77,7 +80,6 @@ function GameRoom() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [joined, setJoined] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
@@ -161,34 +163,64 @@ function GameRoom() {
     log.info("game:", gameId, "phase →", effectivePhase);
   }, [gameId, effectivePhase]);
 
-  // Connect to the socket room only once the game is playable for us.
+  // Cached login signature so reconnects (which create a brand-new socket and
+  // therefore drop our room membership) can re-join WITHOUT popping the wallet
+  // on every blip. A signature is valid for AUTH_TTL_MS; we re-sign ~1 min
+  // before it lapses.
+  const authRef = useRef<{ auth: AuthPayload; signedAt: number } | null>(null);
+  const getAuth = useCallback(async (): Promise<AuthPayload | null> => {
+    if (!address) return null;
+    const cached = authRef.current;
+    if (cached && Date.now() - cached.signedAt < AUTH_TTL_MS - 60_000) return cached.auth;
+    const ts = Date.now();
+    const signature = await signMessageAsync({ message: loginMessage(address as Address, ts) });
+    const auth: AuthPayload = { address: address as Address, ts, signature };
+    authRef.current = { auth, signedAt: ts };
+    return auth;
+  }, [address, signMessageAsync]);
+
+  const joinRoom = useCallback(async () => {
+    if (!address) return;
+    try {
+      const auth = await getAuth();
+      if (!auth) return;
+      log.info("game: emitting room:join", gameId, "as", address);
+      getSocket().emit("room:join", { gameId, auth });
+    } catch (e) {
+      log.error("game: login signature rejected —", e);
+      setServerError("Signature rejected — sign in to take your seat.");
+    }
+  }, [address, gameId, getAuth]);
+
+  const syncRoom = useCallback(() => {
+    const s = getSocket();
+    if (s.connected) s.emit("room:sync", { gameId });
+  }, [gameId]);
+
+  // Take (and re-take) our seat: join on entry, and again on every reconnect.
+  // Socket.IO room membership is per-connection and is lost when the transport
+  // drops; without re-joining the client silently stops receiving updates and
+  // looks frozen until a page refresh.
   useEffect(() => {
-    if (!address || joined || effectivePhase !== "play") return;
+    if (!address || effectivePhase !== "play") return;
     const socket = getSocket();
-    let cancelled = false;
-    (async () => {
-      try {
-        const ts = Date.now();
-        const signature = await signMessageAsync({ message: loginMessage(address as Address, ts) });
-        if (cancelled) return;
-        log.info("game: emitting room:join", gameId, "as", address);
-        socket.emit("room:join", { gameId, auth: { address: address as Address, ts, signature } });
-        setJoined(true);
-      } catch (e) {
-        log.error("game: login signature rejected —", e);
-        setServerError("Signature rejected — sign in to take your seat.");
-      }
-    })();
-    return () => {
-      cancelled = true;
+    const onConnect = () => {
+      log.info("game: socket (re)connected — re-joining", gameId);
+      void joinRoom();
     };
-  }, [address, gameId, joined, effectivePhase, signMessageAsync]);
+    if (socket.connected) void joinRoom();
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("connect", onConnect);
+    };
+  }, [address, effectivePhase, gameId, joinRoom]);
 
   // Socket subscriptions (always mounted; harmless before we join).
   useEffect(() => {
     const socket = getSocket();
     const onRoomState = (snap: RoomSnapshot) => {
       if (snap.gameId !== gameId) return;
+      syncServerClock(snap.serverNow);
       log.info(
         "game: room:state —",
         snap.players.length,
@@ -207,6 +239,7 @@ function GameRoom() {
     };
     const onShot = (shot: ShotBroadcast) => {
       if (shot.gameId !== gameId) return;
+      syncServerClock(shot.serverNow);
       setState((current) => {
         const from = current ?? shot.endState;
         pendingEndState.current = shot.endState;
@@ -276,6 +309,27 @@ function GameRoom() {
       s.off("disconnect", off);
     };
   }, []);
+
+  // Reconciliation safety net: pull the authoritative snapshot when the tab is
+  // refocused (background tabs throttle timers + sockets) and on a slow
+  // interval, so a single missed delta can't leave the board desynced until a
+  // refresh. If the socket dropped while hidden, force a reconnect — onConnect
+  // then re-joins.
+  useEffect(() => {
+    if (effectivePhase !== "play" || snapshot?.over) return;
+    const onVisible = () => {
+      if (document.hidden) return;
+      const s = getSocket();
+      if (s.connected) syncRoom();
+      else s.connect();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = setInterval(syncRoom, 15000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, [effectivePhase, snapshot?.over, syncRoom]);
 
   // If we sit in the play phase with no snapshot too long, surface why.
   useEffect(() => {
