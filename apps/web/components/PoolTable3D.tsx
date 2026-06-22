@@ -24,7 +24,7 @@ import {
   type Frame,
   type TableState,
 } from "@pooldawgs/engine";
-import { ballStyle } from "@/lib/balls";
+import { ballStyle, type BallLike } from "@/lib/balls";
 
 // px → metres, world origin at table centre (X length, Z width, Y up).
 const S = 1 / PX_PER_M;
@@ -132,7 +132,7 @@ export default function PoolTable3D({
       for (const ball of s.balls) {
         const m = ballMeshFor(ball.id);
         if (!m) continue;
-        styleBall(m, ball.id, scene);
+        styleBall(m, ball, scene);
         if (ball.inHole) {
           m.isVisible = false;
         } else {
@@ -172,11 +172,11 @@ export default function PoolTable3D({
         const idx = Math.floor((performance.now() - playing.current.startedAt) / playing.current.frameMs);
         if (idx >= pb.frames.length - 1) {
           // Land on the authoritative final state and finish.
-          applyFrame(balls, pb.frames[pb.frames.length - 1], scene);
+          applyFrame(balls, pb.frames[pb.frames.length - 1], scene, s.balls);
           playing.current = null;
           end?.();
         } else {
-          applyFrame(balls, pb.frames[idx], scene);
+          applyFrame(balls, pb.frames[idx], scene, s.balls);
         }
       } else {
         // Idle: show the resting state + the aim guide.
@@ -222,7 +222,7 @@ function M(px: number): number {
   return px;
 }
 
-function applyFrame(balls: Mesh[], frame: Frame, scene: Scene): void {
+function applyFrame(balls: Mesh[], frame: Frame, scene: Scene, ids: BallLike[]): void {
   for (const fb of frame.balls) {
     const m = balls[fb.id];
     if (!m) continue;
@@ -230,17 +230,18 @@ function applyFrame(balls: Mesh[], frame: Frame, scene: Scene): void {
       m.isVisible = false;
       continue;
     }
-    styleBall(m, fb.id, scene);
+    if (ids[fb.id]) styleBall(m, ids[fb.id], scene);
     m.isVisible = true;
     m.position.set(wx(fb.x), R, wz(fb.y));
   }
 }
 
 const styled = new WeakSet<Mesh>();
-function styleBall(mesh: Mesh, id: number, scene: Scene): void {
+function styleBall(mesh: Mesh, ball: BallLike, scene: Scene): void {
   if (styled.has(mesh)) return;
   styled.add(mesh);
-  const style = ballStyle(id);
+  const id = ball.number;
+  const style = ballStyle(ball);
   const mat = new StandardMaterial(`bm${id}`, scene);
   mat.specularColor = new Color3(0.9, 0.9, 0.9);
   mat.specularPower = 64;
