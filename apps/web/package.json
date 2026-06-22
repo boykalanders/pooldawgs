@@ -10,6 +10,8 @@
     "assets": "node scripts/trace-assets.mjs && node scripts/gen-balls.mjs"
   },
   "dependencies": {
+    "@babylonjs/core": "^9.13.0",
+    "@babylonjs/havok": "^1.3.12",
     "@pooldawgs/engine": "workspace:*",
     "@pooldawgs/shared": "workspace:*",
     "@rainbow-me/rainbowkit": "^2.2.1",
