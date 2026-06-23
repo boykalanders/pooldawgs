@@ -16,10 +16,13 @@ import Chat from "@/components/Chat";
 import PlayerCard from "@/components/PlayerCard";
 import { ballAssetByNumber, ballStyle } from "@/lib/balls";
 import { targetBall, targetLabel, type Target } from "@/lib/target";
+import dynamic from "next/dynamic";
 import PoolCanvas, {
   type PoolCanvasHandle,
   type ShotAnimation,
 } from "@/components/PoolCanvas";
+// Babylon is heavy + browser-only — load the 3D table on demand.
+const PoolTable3D = dynamic(() => import("@/components/PoolTable3D"), { ssr: false });
 import PowerSlider from "@/components/PowerSlider";
 import ShotClock from "@/components/ShotClock";
 import SpinControl, { type SpinValue } from "@/components/SpinControl";
@@ -64,6 +67,8 @@ interface GameShellProps {
   menuItems: ShellMenuItem[];
   /** Switch game variant (8-ball / 9-ball / snooker) from the mode chips. */
   onSelectGameType?: (type: GameType) => void;
+  /** "3d" swaps the 2D canvas for the Babylon 3D table (same controls). */
+  renderer?: "2d" | "3d";
   animation?: ShotAnimation | null;
   onShoot: (shot: ShotInput) => void;
   onPlaceCueBall: (x: number, y: number) => void;
@@ -90,6 +95,7 @@ export default function GameShell({
   centerAction,
   menuItems,
   onSelectGameType,
+  renderer = "2d",
   animation,
   onShoot,
   onPlaceCueBall,
@@ -97,7 +103,9 @@ export default function GameShell({
   chat,
   overlay,
 }: GameShellProps) {
-  const canvasRef = useRef<PoolCanvasHandle>(null);
+  // One handle for both renderers (PoolCanvasHandle and PoolTable3DHandle are
+  // the same shape): PoolCanvas takes it as `ref`, PoolTable3D as `apiRef`.
+  const canvasRef = useRef<PoolCanvasHandle | null>(null);
   const [power, setPower] = useState(0);
   const [spin, setSpin] = useState<SpinValue>({ x: 0, y: 0 });
   const [muted, setMuted] = useState(false);
@@ -311,20 +319,37 @@ export default function GameShell({
         </div>
 
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
-          <PoolCanvas
-            ref={canvasRef}
-            state={state}
-            interactive={interactive}
-            power={canShoot ? power : 0}
-            onPowerChange={setPower}
-            spin={spin}
-            muted={muted}
-            showGuide={showGuide}
-            animation={animation}
-            onShoot={handleShoot}
-            onPlaceCueBall={onPlaceCueBall}
-            onAnimationEnd={onAnimationEnd}
-          />
+          {renderer === "3d" ? (
+            <PoolTable3D
+              apiRef={canvasRef}
+              state={state}
+              interactive={interactive}
+              power={canShoot ? power : 0}
+              onPowerChange={setPower}
+              spin={spin}
+              muted={muted}
+              showGuide={showGuide}
+              animation={animation}
+              onShoot={handleShoot}
+              onPlaceCueBall={onPlaceCueBall}
+              onAnimationEnd={onAnimationEnd}
+            />
+          ) : (
+            <PoolCanvas
+              ref={canvasRef}
+              state={state}
+              interactive={interactive}
+              power={canShoot ? power : 0}
+              onPowerChange={setPower}
+              spin={spin}
+              muted={muted}
+              showGuide={showGuide}
+              animation={animation}
+              onShoot={handleShoot}
+              onPlaceCueBall={onPlaceCueBall}
+              onAnimationEnd={onAnimationEnd}
+            />
+          )}
 
           {clockExpiresAt != null && !state.gameOver && (
             <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">

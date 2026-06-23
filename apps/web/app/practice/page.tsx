@@ -33,6 +33,13 @@ const GAME_NAME: Record<GameType, string> = {
  */
 export default function PracticePage() {
   const router = useRouter();
+  // Default to the 3D table; ?view=2d forces the classic 2D canvas.
+  const [view, setView] = useState<"2d" | "3d">(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("view") === "2d"
+      ? "2d"
+      : "3d"
+  );
   const [gameType, setGameType] = useState<GameType>("8ball");
   const [state, setState] = useState<TableState>(() => createInitialState("8ball"));
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
@@ -157,7 +164,12 @@ export default function PracticePage() {
       }
       centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}
       onSelectGameType={selectGameType}
+      renderer={view}
       menuItems={[
+        {
+          label: view === "3d" ? "Switch to 2D view" : "Switch to 3D view",
+          onClick: () => setView((v) => (v === "3d" ? "2d" : "3d")),
+        },
         { label: `Re-rack (${GAME_NAME[gameType]})`, onClick: () => reRack() },
         { label: "Exit to lobby", onClick: () => router.push("/lobby") },
       ]}

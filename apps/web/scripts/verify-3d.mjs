@@ -1,11 +1,12 @@
-// Visual verification of the Babylon 3D table + Havok physics replay.
+// Visual verification of the Babylon 3D table (Golden Spec) inside the full
+// game shell: renders, shows the cue stick, and replays a shot.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const URL = "http://localhost:3000/play3d";
+const URL = "http://localhost:3000/practice?view=3d";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
@@ -23,47 +24,36 @@ const browser = await puppeteer.launch({
 
 try {
   const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 800 });
+  await page.setViewport({ width: 1440, height: 900 });
   const errors = [];
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await page.goto(URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForSelector("canvas", { timeout: 60000 });
+  await sleep(3000); // Babylon mount + first frames
 
-  // Wait until Havok finishes loading (the Shoot button enables).
-  await page.waitForFunction(
-    () => {
-      const b = [...document.querySelectorAll("button")].find((x) => x.textContent?.trim() === "Shoot");
-      return b && !b.disabled;
-    },
-    { timeout: 60000 }
-  );
-  await sleep(1500); // let the scene render a few frames
-  await page.screenshot({ path: path.join(ROOT, "docs", "play3d-rack.png") });
-  console.log("✓ 3D table rendered (Havok ready) → docs/play3d-rack.png");
-
-  // Aim across the rack and break.
-  const canvas = await page.$("canvas");
-  const box = await canvas.boundingBox();
-  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.5);
-  await sleep(200);
-  await page.$$eval("button", (bs) => {
-    const b = bs.find((x) => x.textContent?.trim() === "Shoot");
-    b?.click();
+  const glOk = await page.evaluate(() => {
+    const c = document.querySelector("canvas");
+    return !!(c && (c.getContext("webgl2") || c.getContext("webgl")));
   });
-  await sleep(2500); // mid-break
+  console.log(glOk ? "✓ WebGL context active" : "✗ no WebGL context");
+
+  // Aim by moving the pointer over the cloth (so the cue stick appears).
+  const box = await (await page.$("canvas")).boundingBox();
+  await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.55);
+  await sleep(800);
+  await page.screenshot({ path: path.join(ROOT, "docs", "play3d-rack.png") });
+  console.log("✓ 3D table + cue stick rendered → docs/play3d-rack.png");
+
+  // Hold to charge power, release to break.
+  await page.mouse.move(box.x + box.width * 0.42, box.y + box.height * 0.5);
+  await page.mouse.down();
+  await sleep(700);
+  await page.mouse.up();
+  await sleep(2500);
   await page.screenshot({ path: path.join(ROOT, "docs", "play3d-break.png") });
   console.log("✓ break shot replayed in 3D → docs/play3d-break.png");
 
-  // Confirm WebGL actually produced a non-blank frame.
-  const blank = await page.evaluate(() => {
-    const c = document.querySelector("canvas");
-    if (!c) return true;
-    const g = c.getContext("webgl2") || c.getContext("webgl");
-    return !g; // if no GL context, treat as blank
-  });
-  console.log(blank ? "✗ no WebGL context" : "✓ WebGL context active");
-  if (errors.length) console.log("page errors:", errors.slice(0, 5).join(" | "));
+  if (errors.length) console.log("page errors:", errors.slice(0, 6).join(" | "));
 } finally {
   await browser.close();
 }

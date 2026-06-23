@@ -27,7 +27,9 @@ function diffFraction(a, b) {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const URL = process.env.VERIFY_URL ?? "http://localhost:3000/practice";
+// Force the 2D canvas for the control/layout checks (deterministic, no WebGL);
+// the 3D table is verified separately in verify-3d.mjs.
+const URL = process.env.VERIFY_URL ?? "http://localhost:3000/practice?view=2d";
 
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -214,7 +216,8 @@ try {
     userAgent:
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
   });
-  await bih.goto(`${URL}?preview=ballinhand`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  const bihUrl = `${URL}${URL.includes("?") ? "&" : "?"}preview=ballinhand`;
+  await bih.goto(bihUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
   await bih.waitForSelector("canvas", { timeout: 30000 });
   await sleep(1500);
   const inHandBefore = await bih.evaluate(() => document.body.innerText.includes("Ball in hand"));
