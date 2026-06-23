@@ -61,13 +61,21 @@ export default function PracticePage() {
     [gameType, reRack]
   );
 
-  // Dev/design preview: /practice?preview=win shows the winner popup.
+  // Dev hooks via query param: ?preview=win shows the winner popup;
+  // ?preview=ballinhand starts with the cue ball in hand (placement testing).
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("preview") === "win") {
+    const preview = new URLSearchParams(window.location.search).get("preview");
+    if (preview === "win") {
       const won = createInitialState("8ball");
       won.gameOver = true;
       won.winner = 0;
       setState(won);
+    } else if (preview === "ballinhand") {
+      const s = createInitialState("8ball");
+      const cue = s.balls[s.balls.length - 1];
+      cue.inHole = true;
+      s.ballInHand = true;
+      setState(s);
     }
   }, []);
 
@@ -144,7 +152,7 @@ export default function PracticePage() {
       statusText={turnLabel}
       banner={
         state.ballInHand && !state.gameOver
-          ? "Ball in hand — tap the cloth to place the cue ball"
+          ? "Ball in hand — drag the cue ball to a clear spot to place it"
           : message
       }
       centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}

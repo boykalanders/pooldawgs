@@ -667,7 +667,9 @@ function GameRoom() {
       statusText={statusText}
       banner={
         serverError ??
-        (myTurn && state.ballInHand ? "Ball in hand — tap the cloth to place the cue ball" : null)
+        (myTurn && state.ballInHand
+          ? "Ball in hand — drag the cue ball to a clear spot to place it"
+          : null)
       }
       menuItems={[
         ...(mySeat !== null && !snapshot.over

@@ -118,6 +118,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: TABLE_WIDTH / 2, y: TABLE_HEIGHT / 2 });
   const charging = useRef(false);
+  /** Touch ball-in-hand: dragging a ghost cue ball, dropped on release. */
+  const placingBall = useRef(false);
   const keysDown = useRef(new Set<string>());
   const lastTick = useRef(0);
   const playing = useRef<{
@@ -284,6 +286,10 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     };
   }
 
+  function legalCuePlacement(s: TableState, x: number, y: number): boolean {
+    return !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y);
+  }
+
   function handlePointerDown(e: React.PointerEvent) {
     const { state: s, interactive: canAct, power: current, onPlaceCueBall: place } =
       propsRef.current;
@@ -291,10 +297,17 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     if (!canAct || playing.current) return;
 
     if (s.ballInHand && place) {
-      const { x, y } = mouse.current;
-      if (!isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y)) {
-        place(x, y);
+      if (e.pointerType === "touch") {
+        // Touch: grab the ghost cue ball and DRAG it into position (a moving
+        // ghost with a legal/illegal ring); it's dropped on release. Tapping a
+        // precise legal spot on a small screen was the problem.
+        placingBall.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
       }
+      // Mouse: hover shows the ghost, a click drops it at the cursor.
+      const { x, y } = mouse.current;
+      if (legalCuePlacement(s, x, y)) place(x, y);
       return;
     }
     if (s.balls[cueBallId(s)].inHole || s.gameOver) return;
@@ -319,6 +332,15 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function handlePointerUp() {
+    // Touch ball-in-hand: drop the dragged cue ball at the released position
+    // if it's legal (otherwise keep it in hand so the player can re-drag).
+    if (placingBall.current) {
+      placingBall.current = false;
+      const { state: s, onPlaceCueBall: place } = propsRef.current;
+      const { x, y } = mouse.current;
+      if (s.ballInHand && place && legalCuePlacement(s, x, y)) place(x, y);
+      return;
+    }
     // Touch never charges from the canvas, so there's nothing to release here.
     if (!charging.current) return;
     charging.current = false;
@@ -331,8 +353,9 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function handlePointerMove(e: React.PointerEvent) {
-    // Mouse updates aim on hover; touch updates it while dragging.
-    if (e.pointerType === "touch" && e.buttons === 0) return;
+    // Mouse updates aim/ghost on hover; touch updates it while a finger is
+    // down (aiming, or dragging the ball-in-hand ghost).
+    if (e.pointerType === "touch" && e.buttons === 0 && !placingBall.current) return;
     mouse.current = toTable(e);
   }
 

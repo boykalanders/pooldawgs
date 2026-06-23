@@ -205,6 +205,32 @@ try {
 
   await mobile.screenshot({ path: path.join(ROOT, "docs", "game-shell-mobile.png") });
   console.log("  screenshot → docs/game-shell-mobile.png");
+
+  // 8. Mobile ball-in-hand: drag the ghost cue ball to a clear spot and drop
+  //    it. Placement clears the in-hand state (the banner disappears).
+  const bih = await browser.newPage();
+  await bih.emulate({
+    viewport: { width: 932, height: 430, isMobile: true, hasTouch: true },
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+  });
+  await bih.goto(`${URL}?preview=ballinhand`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await bih.waitForSelector("canvas", { timeout: 30000 });
+  await sleep(1500);
+  const inHandBefore = await bih.evaluate(() => document.body.innerText.includes("Ball in hand"));
+  const bc = await (await bih.$("canvas")).boundingBox();
+  // Drag from table centre to the empty baulk area (left of the rack) and drop.
+  await bih.touchscreen.touchStart(bc.x + bc.width * 0.5, bc.y + bc.height * 0.5);
+  await bih.touchscreen.touchMove(bc.x + bc.width * 0.28, bc.y + bc.height * 0.5);
+  await bih.touchscreen.touchEnd();
+  await sleep(600);
+  const inHandAfter = await bih.evaluate(() => document.body.innerText.includes("Ball in hand"));
+  check(
+    "mobile: drag places the cue ball (ball-in-hand)",
+    inHandBefore && !inHandAfter,
+    `in-hand before=${inHandBefore}, after=${inHandAfter}`
+  );
+  await bih.screenshot({ path: path.join(ROOT, "docs", "ballinhand-mobile.png") });
 } finally {
   await browser.close();
 }
