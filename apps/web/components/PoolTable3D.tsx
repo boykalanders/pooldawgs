@@ -16,7 +16,6 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture.js";
-import { PointerEventTypes } from "@babylonjs/core/Events/pointerEvents.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 
 import {
@@ -265,8 +264,6 @@ export default function PoolTable3D({
       shadow.addShadowCaster(b);
       balls.push(b);
     }
-    const cueIdxInit = state.balls.length - 1;
-
     // ── Cue stick ──
     const cueRig = new TransformNode("cueRig", scene);
     const stickLen = 1.45;
@@ -303,12 +300,19 @@ export default function PoolTable3D({
     aimLine.isVisible = false;
 
     function setBallPositions(s: TableState) {
-      for (const ball of s.balls) {
-        const m = balls[ball.id];
-        if (!m) continue;
-        styleBall(m, ball, scene);
-        const cueIdx = s.balls.length - 1;
-        if (ball.inHole || (ball.id === cueIdx && s.ballInHand)) {
+      const cueIdx = s.balls.length - 1;
+      // Drive EVERY mesh from the current state: meshes past the variant's ball
+      // count (e.g. snooker's 22 → 8-ball's 16) must be hidden, or stale balls
+      // from the previous rack linger on the table ("fake balls").
+      for (let i = 0; i < balls.length; i++) {
+        const m = balls[i];
+        const ball = s.balls[i];
+        if (!ball) {
+          m.isVisible = false;
+          continue;
+        }
+        styleBall(m, ball, scene); // re-skins when the variant changes
+        if (ball.inHole || (i === cueIdx && s.ballInHand)) {
           m.isVisible = false;
         } else {
           m.isVisible = true;
@@ -319,48 +323,72 @@ export default function PoolTable3D({
     setBallPositions(state);
 
     // ── Pointer → aim / ball-in-hand placement (raycast the cloth) ──
-    function pickTable(): { px: number; py: number } | null {
-      const hit = scene.pick(scene.pointerX, scene.pointerY, (m) => m.name === "cloth");
+    // We deliberately don't camera.attachControl (fixed Golden-Spec camera),
+    // which means Babylon's scene.onPointerObservable never receives events and
+    // scene.pointerX/Y stay stale. So wire DOM pointer listeners directly (like
+    // the 2D canvas) and raycast the cloth from the event's canvas coordinates.
+    let dragging = false;
+    const pickTable = (clientX: number, clientY: number): { px: number; py: number } | null => {
+      const rect = canvas.getBoundingClientRect();
+      const hit = scene.pick(clientX - rect.left, clientY - rect.top, (m) => m.name === "cloth");
       if (!hit?.hit || !hit.pickedPoint) return null;
       return { px: pxX(hit.pickedPoint.x), py: pxY(hit.pickedPoint.z) };
-    }
-    scene.onPointerObservable.add((pi) => {
+    };
+    const onPointerDown = (e: PointerEvent) => {
       const p = propsRef.current;
       if (playing.current || !p.interactive) return;
-      const t = pickTable();
-      if (pi.type === PointerEventTypes.POINTERDOWN) {
-        if (p.state.ballInHand && p.onPlaceCueBall) {
-          placingBall.current = true; // drag the ghost, drop on release
-          if (t) aimTarget.current = { x: t.px, y: t.py };
-          return;
-        }
-        const cue = p.state.balls[cueBallId(p.state)];
-        if (cue.inHole || p.state.gameOver) return;
-        // Mouse: click fires if power preset, else hold to charge.
-        const ev = pi.event as PointerEvent;
-        if (ev.pointerType !== "touch") {
-          if (p.power > 1) shootAtAim.current(p.power);
-          else charging.current = true;
-        }
-      } else if (pi.type === PointerEventTypes.POINTERMOVE) {
-        if (t) aimTarget.current = { x: t.px, y: t.py };
-      } else if (pi.type === PointerEventTypes.POINTERUP) {
-        if (placingBall.current) {
-          placingBall.current = false;
-          const s = p.state;
-          const { x, y } = aimTarget.current;
-          if (s.ballInHand && p.onPlaceCueBall && !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y)) {
-            p.onPlaceCueBall(x, y);
-          }
-          return;
-        }
-        if (charging.current) {
-          charging.current = false;
-          if (p.power > 1) shootAtAim.current(p.power);
-          else p.onPowerChange?.(0);
+      dragging = true;
+      const t = pickTable(e.clientX, e.clientY);
+      if (t) aimTarget.current = { x: t.px, y: t.py };
+      if (p.state.ballInHand && p.onPlaceCueBall) {
+        placingBall.current = true; // drag the ghost, drop on release
+        canvas.setPointerCapture?.(e.pointerId);
+        return;
+      }
+      const cue = p.state.balls[cueBallId(p.state)];
+      if (!cue || cue.inHole || p.state.gameOver) return;
+      // Mouse: click fires if power preset, else hold to charge. Touch: aim only
+      // here (the power slider is the shoot trigger), matching the 2D feel.
+      if (e.pointerType !== "touch") {
+        if (p.power > 1) shootAtAim.current(p.power);
+        else {
+          charging.current = true;
+          canvas.setPointerCapture?.(e.pointerId);
         }
       }
-    });
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      const p = propsRef.current;
+      if (playing.current || !p.interactive) return;
+      // Mouse hover always aims; touch only steers while a finger is down.
+      if (!placingBall.current && e.pointerType === "touch" && !dragging) return;
+      const t = pickTable(e.clientX, e.clientY);
+      if (t) aimTarget.current = { x: t.px, y: t.py };
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      const p = propsRef.current;
+      dragging = false;
+      if (placingBall.current) {
+        placingBall.current = false;
+        const t = pickTable(e.clientX, e.clientY);
+        if (t) aimTarget.current = { x: t.px, y: t.py };
+        const s = p.state;
+        const { x, y } = aimTarget.current;
+        if (s.ballInHand && p.onPlaceCueBall && !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y)) {
+          p.onPlaceCueBall(x, y);
+        }
+        return;
+      }
+      if (charging.current) {
+        charging.current = false;
+        if (p.power > 1) shootAtAim.current(p.power);
+        else p.onPowerChange?.(0);
+      }
+    };
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerUp);
 
     let raf = 0;
     engine.runRenderLoop(() => {
@@ -455,6 +483,10 @@ export default function PoolTable3D({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerUp);
       ro.disconnect();
       engine.dispose();
     };
@@ -509,12 +541,21 @@ function rollBall(mesh: Mesh, nx: number, nz: number): void {
   mesh.rotationQuaternion = q.multiply(mesh.rotationQuaternion ?? Quaternion.Identity());
 }
 
-const styled = new WeakSet<Mesh>();
 function styleBall(mesh: Mesh, ball: BallLike, scene: Scene): void {
-  if (styled.has(mesh)) return;
-  styled.add(mesh);
-  if (!mesh.rotationQuaternion) mesh.rotationQuaternion = Quaternion.Identity();
   const style = ballStyle(ball);
+  // Re-skin only when the look actually changes (variant switch, cue↔object,
+  // etc.). Keying on the visual signature is what fixes snooker balls showing
+  // the previous rack's pool numbers after a mode change.
+  const key = `${style.kind}|${style.color}|${style.number}`;
+  const md = mesh.metadata as { styleKey?: string } | null;
+  if (md && md.styleKey === key) return;
+  const prev = mesh.material as PBRMaterial | null;
+  if (prev) {
+    (prev.albedoTexture as DynamicTexture | null)?.dispose();
+    prev.dispose();
+  }
+  mesh.metadata = { styleKey: key };
+  if (!mesh.rotationQuaternion) mesh.rotationQuaternion = Quaternion.Identity();
   const hue = style.color;
 
   // Bake the look into the sphere texture so the number tumbles as it rolls.
@@ -566,15 +607,39 @@ function buildTable(scene: Scene): void {
   const fullW = TABLE_WIDTH * S;
   const fullH = TABLE_HEIGHT * S;
 
-  // Felt (roughness 0.85, metallic 0).
+  // Felt (roughness 0.85, metallic 0). The cloth uses a baked texture so the
+  // Pool Dawgs dawg-head watermark shows like a real table stencil — the same
+  // /assets/watermark.svg the 2D canvas inks onto its cloth.
   const cloth = MeshBuilder.CreateGround("cloth", { width: playW, height: playH }, scene);
   const feltMat = new PBRMaterial("feltMat", scene);
-  feltMat.albedoColor = Color3.FromHexString("#1a9d68");
   feltMat.metallic = 0;
   feltMat.roughness = 0.85;
+  const feltTex = new DynamicTexture("feltTex", { width: 1024, height: 512 }, scene, true);
+  const fctx = feltTex.getContext() as unknown as CanvasRenderingContext2D;
+  const paintFelt = () => {
+    fctx.fillStyle = "#1a9d68";
+    fctx.fillRect(0, 0, 1024, 512);
+  };
+  paintFelt();
+  feltTex.update();
+  feltMat.albedoTexture = feltTex;
   cloth.material = feltMat;
   cloth.receiveShadows = true;
   cloth.position.y = 0;
+  if (typeof window !== "undefined") {
+    const img = new Image();
+    img.onload = () => {
+      paintFelt();
+      fctx.save();
+      fctx.globalAlpha = 0.16; // faint, like a stencilled crest
+      const w = 380;
+      const h = w * (img.naturalHeight / img.naturalWidth || 0.6);
+      fctx.drawImage(img, (1024 - w) / 2, (512 - h) / 2, w, h);
+      fctx.restore();
+      feltTex.update();
+    };
+    img.src = "/assets/watermark.svg";
+  }
 
   // Wood frame (metallic 0.10, roughness 0.35), kept below the cloth.
   const frame = MeshBuilder.CreateBox("frame", { width: fullW + 0.08, height: 0.12, depth: fullH + 0.08 }, scene);

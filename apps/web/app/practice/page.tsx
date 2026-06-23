@@ -68,6 +68,28 @@ export default function PracticePage() {
     [gameType, reRack]
   );
 
+  // Route shots through the Havok backend (same physics the old /play3d used,
+  // and what the wagered server runs) so the practice feel matches everywhere.
+  // Falls back to the deterministic TS engine until Havok finishes loading.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { initHavok, simulateShotHavok } = await import("@pooldawgs/engine/havok");
+        const { setSimulator } = await import("@pooldawgs/engine");
+        await initHavok();
+        if (alive) setSimulator(simulateShotHavok);
+      } catch (e) {
+        console.error("Havok init failed — using TS engine:", e);
+      }
+    })();
+    return () => {
+      alive = false;
+      // Restore the default TS backend when leaving practice.
+      import("@pooldawgs/engine").then(({ setSimulator }) => setSimulator(null));
+    };
+  }, []);
+
   // Dev hooks via query param: ?preview=win shows the winner popup;
   // ?preview=ballinhand starts with the cue ball in hand (placement testing).
   useEffect(() => {
