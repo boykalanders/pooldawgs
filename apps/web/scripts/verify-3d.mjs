@@ -73,6 +73,8 @@ try {
   await page.mouse.move(box.x + box.width * 0.32, box.y + box.height * 0.32);
   await sleep(600);
   const aimB = await canvas.screenshot();
+  const dbg = await page.evaluate(() => window.__aimDbg ?? null);
+  console.log("  aimDbg:", JSON.stringify(dbg));
   const aimDiff = diffFraction(aimA, aimB);
   check("aim works: cue stick follows the pointer", aimDiff > 0.002, `${(aimDiff * 100).toFixed(2)}% of pixels changed`);
   await page.screenshot({ path: path.join(ROOT, "docs", "play3d-aim2.png") });

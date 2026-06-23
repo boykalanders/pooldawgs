@@ -10,7 +10,7 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
 import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator.js";
 import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js";
-import { Vector3, Color3, Color4, Quaternion } from "@babylonjs/core/Maths/math.js";
+import { Vector3, Color3, Color4, Quaternion, Matrix } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
@@ -328,11 +328,19 @@ export default function PoolTable3D({
     // scene.pointerX/Y stay stale. So wire DOM pointer listeners directly (like
     // the 2D canvas) and raycast the cloth from the event's canvas coordinates.
     let dragging = false;
+    // Map a screen point to a table coordinate by intersecting the camera ray
+    // with the cloth plane (y = 0). This is robust for the orthographic camera
+    // (mesh-picking the cloth proved unreliable) and still works when the
+    // pointer is just off the cloth, so aim never "sticks".
     const pickTable = (clientX: number, clientY: number): { px: number; py: number } | null => {
       const rect = canvas.getBoundingClientRect();
-      const hit = scene.pick(clientX - rect.left, clientY - rect.top, (m) => m.name === "cloth");
-      if (!hit?.hit || !hit.pickedPoint) return null;
-      return { px: pxX(hit.pickedPoint.x), py: pxY(hit.pickedPoint.z) };
+      const ray = scene.createPickingRay(clientX - rect.left, clientY - rect.top, Matrix.Identity(), cam);
+      if (Math.abs(ray.direction.y) < 1e-6) return null;
+      const t = -ray.origin.y / ray.direction.y;
+      if (t < 0) return null;
+      const worldX = ray.origin.x + t * ray.direction.x;
+      const worldZ = ray.origin.z + t * ray.direction.z;
+      return { px: pxX(worldX), py: pxY(worldZ) };
     };
     const onPointerDown = (e: PointerEvent) => {
       const p = propsRef.current;
@@ -359,6 +367,16 @@ export default function PoolTable3D({
     };
     const onPointerMove = (e: PointerEvent) => {
       const p = propsRef.current;
+      const t0 = pickTable(e.clientX, e.clientY);
+      // TEMP DIAGNOSTIC
+      (window as unknown as { __aimDbg?: unknown }).__aimDbg = {
+        moves: (((window as unknown as { __aimDbg?: { moves?: number } }).__aimDbg?.moves ?? 0) as number) + 1,
+        interactive: p.interactive,
+        playing: !!playing.current,
+        pType: e.pointerType,
+        pick: t0,
+        aim: { ...aimTarget.current },
+      };
       if (playing.current || !p.interactive) return;
       // Mouse hover always aims; touch only steers while a finger is down.
       if (!placingBall.current && e.pointerType === "touch" && !dragging) return;
