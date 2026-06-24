@@ -421,6 +421,27 @@ describe("snooker rules", () => {
     expect(black.value).toBe(7);
   });
 
+  it("the middle (side) pocket captures a ball driven into it", () => {
+    const s = snk();
+    const geo = geomFor("snooker");
+    // Clear the rack; drive only the cue straight up into the top-middle pocket.
+    for (const b of s.balls) {
+      if (b.color !== "cue") {
+        b.inHole = true;
+        b.x = 0;
+        b.y = -100;
+      }
+    }
+    const cue = cueBall(s);
+    const mid = geo.HOLES[4]; // top-middle pocket
+    cue.inHole = false;
+    cue.x = mid.x;
+    cue.y = geo.TOP_BORDER_Y + 240; // in the field, below the side pocket
+    s.ballInHand = false;
+    const r = simulateShot(s, { angle: -Math.PI / 2, power: 32 }); // straight up
+    expect(r.events.some((e) => e.type === "pocket" && e.ballId === cue.id)).toBe(true);
+  });
+
   it("potting a red scores 1 and puts you on a colour", () => {
     const s = snk();
     const reds = s.balls.filter((b) => b.color === "red");

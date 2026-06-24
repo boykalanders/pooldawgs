@@ -57,12 +57,18 @@ function buildHoles(
   width: number,
   height: number,
   border: number,
+  ballOrigin: number,
   cornerR: number,
   middleR: number
 ): Hole[] {
   const inset = border + 5; // corner mouth, slightly inside the rail corner
   const midX = width / 2;
-  const topMid = border - 21; // centre pockets sit a touch into the rail
+  // Centre pockets must reach a ball resting at the cushion (its centre is
+  // clamped at border + ballOrigin). Place the centre so that ball sits ~0.78r
+  // inside the mouth — otherwise, with a small radius (snooker), the pocket
+  // ends short of the cushion line and never captures.
+  const clamp = border + ballOrigin;
+  const topMid = clamp - middleR * 0.78;
   return [
     { x: inset, y: inset, radius: cornerR, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT },
     { x: width - inset, y: inset, radius: cornerR, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT },
@@ -118,7 +124,7 @@ export const SNOOKER_GEOM: TableGeometry = {
   TOP_BORDER_Y: SNK_BORDER,
   BOTTOM_BORDER_Y: SNK_H - SNK_BORDER,
   HOLE_RADIUS: SNK_CORNER_R,
-  HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_CORNER_R, SNK_MIDDLE_R),
+  HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_BALL_ORIGIN, SNK_CORNER_R, SNK_MIDDLE_R),
   CUE_BALL_START: { x: SNK_BORDER + Math.round(0.6 * PX_PER_M), y: Math.round(SNK_H / 2) },
   POCKETED_PARK: { x: 0, y: SNK_H + 120 },
 };
