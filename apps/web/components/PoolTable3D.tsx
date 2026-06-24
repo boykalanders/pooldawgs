@@ -365,24 +365,18 @@ export default function PoolTable3D({
         }
       }
     };
-    const onPointerMove = (e: PointerEvent) => {
+    const updateAim = (clientX: number, clientY: number, isTouch: boolean) => {
       const p = propsRef.current;
-      const t0 = pickTable(e.clientX, e.clientY);
-      // TEMP DIAGNOSTIC
-      (window as unknown as { __aimDbg?: unknown }).__aimDbg = {
-        moves: (((window as unknown as { __aimDbg?: { moves?: number } }).__aimDbg?.moves ?? 0) as number) + 1,
-        interactive: p.interactive,
-        playing: !!playing.current,
-        pType: e.pointerType,
-        pick: t0,
-        aim: { ...aimTarget.current },
-      };
       if (playing.current || !p.interactive) return;
       // Mouse hover always aims; touch only steers while a finger is down.
-      if (!placingBall.current && e.pointerType === "touch" && !dragging) return;
-      const t = pickTable(e.clientX, e.clientY);
+      if (!placingBall.current && isTouch && !dragging) return;
+      const t = pickTable(clientX, clientY);
       if (t) aimTarget.current = { x: t.px, y: t.py };
     };
+    const onPointerMove = (e: PointerEvent) => updateAim(e.clientX, e.clientY, e.pointerType === "touch");
+    // Some environments (and headless Chrome) deliver hover as `mousemove`
+    // only, not `pointermove`, which left the aim frozen — handle both.
+    const onMouseMove = (e: MouseEvent) => updateAim(e.clientX, e.clientY, false);
     const onPointerUp = (e: PointerEvent) => {
       const p = propsRef.current;
       dragging = false;
@@ -405,6 +399,7 @@ export default function PoolTable3D({
     };
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("mousemove", onMouseMove);
     window.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
@@ -503,6 +498,7 @@ export default function PoolTable3D({
       window.removeEventListener("resize", onResize);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
       ro.disconnect();

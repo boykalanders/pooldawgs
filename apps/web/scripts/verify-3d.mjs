@@ -73,8 +73,6 @@ try {
   await page.mouse.move(box.x + box.width * 0.32, box.y + box.height * 0.32);
   await sleep(600);
   const aimB = await canvas.screenshot();
-  const dbg = await page.evaluate(() => window.__aimDbg ?? null);
-  console.log("  aimDbg:", JSON.stringify(dbg));
   const aimDiff = diffFraction(aimA, aimB);
   check("aim works: cue stick follows the pointer", aimDiff > 0.002, `${(aimDiff * 100).toFixed(2)}% of pixels changed`);
   await page.screenshot({ path: path.join(ROOT, "docs", "play3d-aim2.png") });
@@ -113,6 +111,27 @@ try {
   await sleep(400);
   await page.screenshot({ path: path.join(ROOT, "docs", "play3d-8ball-again.png") });
   console.log("  back to 8-ball → docs/play3d-8ball-again.png (eyeball: 15 numbered + cue, no reds)");
+
+  // Ball-in-hand: press, drag the ghost to a clear spot, release → placed
+  // (the "Ball in hand" banner clears).
+  const bih = await browser.newPage();
+  await bih.setViewport({ width: 1440, height: 900 });
+  await bih.goto(`${URL}&preview=ballinhand`, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await bih.waitForSelector("canvas", { timeout: 60000 });
+  await sleep(3200);
+  const inHandBefore = await bih.evaluate(() => document.body.innerText.includes("Ball in hand"));
+  const bb = await (await bih.$("canvas")).boundingBox();
+  await bih.mouse.move(bb.x + bb.width * 0.45, bb.y + bb.height * 0.5);
+  await bih.mouse.down();
+  await bih.mouse.move(bb.x + bb.width * 0.3, bb.y + bb.height * 0.42, { steps: 8 });
+  await bih.mouse.up();
+  await sleep(900);
+  const inHandAfter = await bih.evaluate(() => document.body.innerText.includes("Ball in hand"));
+  check(
+    "ball-in-hand: mouse drag places the cue ball",
+    inHandBefore && !inHandAfter,
+    `in-hand before=${inHandBefore}, after=${inHandAfter}`
+  );
 
   if (errors.length) console.log("  page errors:", errors.slice(0, 6).join(" | "));
 } finally {
