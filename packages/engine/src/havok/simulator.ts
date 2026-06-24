@@ -346,10 +346,15 @@ export function simulateShotHavok(
     const spinY = shot.spinY ?? 0; // follow(+)/draw(-)
     const spinX = shot.spinX ?? 0; // english
     const rollRate = speed / R; // natural rolling angular rate
-    // Natural forward roll + extra follow/draw on top of it. Backspin (draw)
-    // can exceed the roll rate so the cue reverses after contact.
+    // A centre-ball hit launches the cue SLIDING (no initial roll); cloth
+    // friction builds forward roll over distance. So a hard, straight hit STUNS
+    // on contact and only carries through once it has rolled far enough — or
+    // when given deliberate follow. Previously the launch forced FULL roll
+    // immediately, so every strong shot followed the object ball into the
+    // pocket (the bug the client hit). Follow(+)/draw(−) ride on top: draw can
+    // exceed the roll rate so the cue reverses after contact.
     const followAxis = new Vector3(diry, 0, -dirx); // forward-roll axis
-    const ang = followAxis.scale(rollRate * (1 + FOLLOW_DRAW_GAIN * spinY));
+    const ang = followAxis.scale(rollRate * FOLLOW_DRAW_GAIN * spinY);
     ang.y = rollRate * ENGLISH_GAIN * spinX; // english about vertical
     cueBody.setAngularVelocity(ang);
   }

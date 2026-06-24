@@ -26,6 +26,12 @@ interface Acc8 {
   won: boolean;
   scored: boolean;
   firstCollision: boolean;
+  /** Was the table "open" (groups undecided) at the start of this shot?
+   *  Captured lazily on the first pocket. */
+  openStart?: boolean;
+  /** Object-ball colours potted while the table was open — used to assign the
+   *  group in resolve(). Potting BOTH colours leaves the table open. */
+  openPotted: Set<BallColor>;
 }
 
 // id → { color, number } matches apps/web ball art (solids 1–7, 8, stripes 9–15).
@@ -104,6 +110,7 @@ export const eightBall: GameRules<Acc8> = {
     won: false,
     scored: false,
     firstCollision: true,
+    openPotted: new Set<BallColor>(),
   }),
 
   onBallsCollide(state, acc, b1, b2) {
@@ -134,36 +141,39 @@ export const eightBall: GameRules<Acc8> = {
 
   onPocket(state, acc, ball) {
     const turn = state.turn;
-    const other = ((turn + 1) % 2) as PlayerIndex;
-    let currentColor = state.playerColors[turn];
+    const currentColor = state.playerColors[turn];
+    if (acc.openStart === undefined) acc.openStart = currentColor === null;
 
-    if (currentColor === null) {
-      if (ball.color === "red" || ball.color === "yellow") {
-        state.playerColors[turn] = ball.color;
-        state.playerColors[other] = ball.color === "red" ? "yellow" : "red";
-        currentColor = ball.color;
+    // Open table: the group is NOT decided yet, so potting EITHER colour is
+    // legal — and potting both in one shot is NOT a foul (the player's group is
+    // resolved after the shot). We only judge the cue/black here; the group is
+    // assigned in resolve(). This is the rule the user flagged as missing.
+    if (acc.openStart) {
+      if (ball.color === "cue") {
+        acc.foul = true; // scratch is always a foul
       } else if (ball.color === "black") {
-        acc.won = true;
+        acc.won = true; // potting the 8 with the table open = loss
         acc.foul = true;
-      } else if (ball.color === "cue") {
-        acc.foul = true;
+      } else if (ball.color === "red" || ball.color === "yellow") {
+        acc.openPotted.add(ball.color);
+        acc.scored = true; // a legal pot — keep the turn
       }
+      return;
     }
 
-    if (currentColor !== null && currentColor === ball.color) {
+    // Groups already assigned — original logic.
+    if (currentColor === ball.color) {
       acc.scored = true;
     } else if (ball.color === "cue") {
       // Scratch — always just a foul (opponent gets ball-in-hand). It NEVER
       // ends the frame on its own: even after clearing your group you still
       // have to pot the black, so the black being on the table means the game
       // continues. (The fork wrongly ended the frame here.)
-      if (currentColor !== null) acc.foul = true;
+      acc.foul = true;
     } else if (ball.color === "black") {
-      if (currentColor !== null) {
-        if (!allPocketed(state, currentColor)) acc.foul = true;
-        acc.won = true;
-      }
-    } else if (currentColor !== null) {
+      if (!allPocketed(state, currentColor!)) acc.foul = true;
+      acc.won = true;
+    } else {
       acc.foul = true; // potted an opponent ball
     }
   },
@@ -173,6 +183,15 @@ export const eightBall: GameRules<Acc8> = {
     const other = ((turn + 1) % 2) as PlayerIndex;
 
     if (acc.firstCollision) acc.foul = true; // never touched a ball
+
+    // Open-table group assignment: if the shooter potted exactly ONE colour
+    // (and didn't foul), that becomes their group. Potting both colours leaves
+    // the table open for the next decision — and crucially is not a foul.
+    if (acc.openStart && !acc.foul && acc.openPotted.size === 1) {
+      const color = acc.openPotted.values().next().value as BallColor;
+      state.playerColors[turn] = color;
+      state.playerColors[other] = color === "red" ? "yellow" : "red";
+    }
 
     if (acc.won) {
       const winner = acc.foul ? other : turn;
