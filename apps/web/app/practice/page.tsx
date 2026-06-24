@@ -47,6 +47,10 @@ export default function PracticePage() {
   // Frames won across re-racks.
   const [frames, setFrames] = useState<[number, number]>([0, 0]);
   const pendingEndState = useRef<TableState | null>(null);
+  // The shot's outcome is applied only when the replay (and the ball dropping
+  // into the pocket) finishes, so the foul / score message shows AFTER the ball
+  // is in the hole, not the instant the shot is taken.
+  const pendingOutcome = useRef<{ gameOver: boolean; winner: number | null; foul: boolean; note?: string } | null>(null);
 
   const reRack = useCallback(
     (type: GameType = gameType) => {
@@ -113,20 +117,13 @@ export default function PracticePage() {
       try {
         const result = simulateShot(state, shot);
         pendingEndState.current = result.endState;
+        pendingOutcome.current = result.outcome;
+        setMessage(null); // clear during the shot; the result shows after it lands
         setAnimation({
           fromState: state,
           shot,
           key: stateHash(result.endState) + result.steps,
         });
-        if (result.outcome.gameOver) {
-          setMessage(null);
-          if (result.outcome.winner !== null) {
-            const winner = result.outcome.winner;
-            setFrames((f) => (winner === 0 ? [f[0] + 1, f[1]] : [f[0], f[1] + 1]));
-          }
-        } else {
-          setMessage(result.outcome.note ?? null);
-        }
       } catch (e) {
         setMessage(e instanceof Error ? e.message : "Illegal shot");
       }
@@ -151,6 +148,20 @@ export default function PracticePage() {
       pendingEndState.current = null;
     }
     setAnimation(null);
+    // Now that the ball has finished dropping, surface the outcome: the foul /
+    // points message, or tally a won frame.
+    const outcome = pendingOutcome.current;
+    pendingOutcome.current = null;
+    if (outcome) {
+      if (outcome.gameOver) {
+        if (outcome.winner !== null) {
+          const winner = outcome.winner;
+          setFrames((f) => (winner === 0 ? [f[0] + 1, f[1]] : [f[0], f[1] + 1]));
+        }
+      } else {
+        setMessage(outcome.note ?? null);
+      }
+    }
   }, []);
 
   const turnLabel = (() => {
@@ -181,7 +192,7 @@ export default function PracticePage() {
       statusText={turnLabel}
       banner={
         state.ballInHand && !state.gameOver
-          ? "Ball in hand — drag the cue ball to a clear spot to place it"
+          ? "Foul! Ball in hand — drag the cue ball to a clear spot to place it"
           : message
       }
       centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}

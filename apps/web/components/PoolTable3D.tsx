@@ -48,11 +48,15 @@ import { ballStyle, type BallLike } from "@/lib/balls";
 // component is re-keyed on gameType in GameShell, so a fresh scene is built
 // with the correct geometry whenever the variant changes.
 const S = 1 / PX_PER_M;
+// Render balls a hair smaller than the physics collision radius (BALL_RADIUS)
+// so two balls resting one diameter apart show a clean gap instead of visually
+// touching/overlapping at the camera angle.
+const BALL_VIS = 0.94;
 let RG: TableGeometry = geomFor("8ball");
-let R = RG.BALL_RADIUS * S; // ball radius (world metres)
+let R = RG.BALL_RADIUS * S * BALL_VIS; // ball radius (world metres, visual)
 function setRenderGeom(gameType: TableState["gameType"]): void {
   RG = geomFor(gameType);
-  R = RG.BALL_RADIUS * S;
+  R = RG.BALL_RADIUS * S * BALL_VIS;
 }
 const wx = (px: number) => (px - RG.TABLE_WIDTH / 2) * S;
 const wz = (py: number) => (RG.TABLE_HEIGHT / 2 - py) * S;
@@ -310,11 +314,27 @@ export default function PoolTable3D({
     );
     stick.rotation.z = Math.PI / 2; // lay along the rig's X axis
     stick.parent = cueRig;
+    stick.renderingGroupId = 1; // always drawn on top of the rails/balls
     shadow.addShadowCaster(stick);
+    // Premium two-tone cue: polished maple shaft → dark walnut butt with a gold
+    // joint band, baked along the length so it reads like a real cue.
+    const cueTex = new DynamicTexture("cueTex", { width: 16, height: 256 }, scene, true);
+    const cctx = cueTex.getContext() as unknown as CanvasRenderingContext2D;
+    const cueGrad = cctx.createLinearGradient(0, 0, 0, 256);
+    cueGrad.addColorStop(0.0, "#e9d6ab"); // tip end — pale maple
+    cueGrad.addColorStop(0.6, "#d8b984"); // maple shaft
+    cueGrad.addColorStop(0.7, "#d6af3a"); // gold joint band
+    cueGrad.addColorStop(0.74, "#2c1a10"); // butt
+    cueGrad.addColorStop(1.0, "#1c100a"); // butt cap
+    cctx.fillStyle = cueGrad;
+    cctx.fillRect(0, 0, 16, 256);
+    cueTex.update();
     const stickMat = new PBRMaterial("stickMat", scene);
-    stickMat.albedoColor = Color3.FromHexString("#1a120b");
-    stickMat.metallic = 0.2;
-    stickMat.roughness = 0.4;
+    stickMat.albedoTexture = cueTex;
+    stickMat.metallic = 0.1;
+    stickMat.roughness = 0.3;
+    stickMat.clearCoat.isEnabled = true;
+    stickMat.clearCoat.intensity = 0.5;
     stick.material = stickMat;
     const tipMat = new PBRMaterial("tipMat", scene);
     tipMat.albedoColor = Color3.FromHexString("#c9a227");
@@ -325,6 +345,7 @@ export default function PoolTable3D({
     ferrule.rotation.z = Math.PI / 2;
     ferrule.parent = cueRig;
     ferrule.material = tipMat;
+    ferrule.renderingGroupId = 1; // on top with the stick
     cueRig.setEnabled(false);
 
     // ── Aim guide line on the cloth ──
@@ -450,7 +471,14 @@ export default function PoolTable3D({
       }
       return best;
     };
-    const DROP_MS = 300;
+    // Pocket-drop phases (real-world feel): the ball drops into the pocket
+    // mouth, RATTLES around the jaws for ~0.6 s (decaying jitter), then sinks
+    // out of sight and vanishes.
+    const DROP_IN_MS = 170; // fall into the pocket mouth
+    const RATTLE_MS = 620; // bounce around the jaws
+    const SINK_MS = 170; // drop out of sight
+    const DROP_TOTAL = DROP_IN_MS + RATTLE_MS + SINK_MS;
+    const REST_Y = R * 0.4; // nestled in the pocket but still visible
     const advanceDrops = (now: number) => {
       for (const [id, d] of drops) {
         const m = balls[id];
@@ -458,19 +486,41 @@ export default function PoolTable3D({
           drops.delete(id);
           continue;
         }
-        const t = Math.min(1, (now - d.startedAt) / DROP_MS);
-        const e = t * t; // ease-in: accelerate as it falls in
-        m.isVisible = true;
-        m.position.x = d.x0 + (d.hx - d.x0) * e;
-        m.position.z = d.z0 + (d.hz - d.z0) * e;
-        m.position.y = R - R * 2.4 * e; // sink through the cloth into the well
-        const sc = 1 - 0.5 * t;
-        m.scaling.set(sc, sc, sc);
-        if (t >= 1) {
+        const age = now - d.startedAt;
+        if (age >= DROP_TOTAL) {
           m.isVisible = false;
           m.scaling.set(1, 1, 1);
           m.position.y = R;
           drops.delete(id);
+          continue;
+        }
+        m.isVisible = true;
+        if (age < DROP_IN_MS) {
+          // 1) roll/fall into the pocket mouth.
+          const t = age / DROP_IN_MS;
+          const e = t * t;
+          m.position.x = d.x0 + (d.hx - d.x0) * e;
+          m.position.z = d.z0 + (d.hz - d.z0) * e;
+          m.position.y = R + (REST_Y - R) * e;
+          m.scaling.set(1, 1, 1);
+        } else if (age < DROP_IN_MS + RATTLE_MS) {
+          // 2) rattle around the jaws — multi-frequency, decaying amplitude.
+          const rt = (age - DROP_IN_MS) / RATTLE_MS; // 0..1
+          const decay = 1 - rt;
+          const amp = R * 0.45 * decay;
+          const ph = age * 0.05;
+          m.position.x = d.hx + (Math.cos(ph * 2.1) + 0.4 * Math.cos(ph * 5.7)) * amp;
+          m.position.z = d.hz + (Math.sin(ph * 2.6) + 0.4 * Math.sin(ph * 6.3)) * amp;
+          m.position.y = REST_Y + Math.abs(Math.sin(ph * 3.4)) * R * 0.22 * decay;
+          m.scaling.set(1, 1, 1);
+        } else {
+          // 3) sink out of sight and shrink away.
+          const st = (age - DROP_IN_MS - RATTLE_MS) / SINK_MS;
+          m.position.x = d.hx;
+          m.position.z = d.hz;
+          m.position.y = REST_Y + (-R * 1.6 - REST_Y) * st;
+          const sc = 1 - 0.85 * st;
+          m.scaling.set(sc, sc, sc);
         }
       }
     };
@@ -780,7 +830,13 @@ function buildTable(scene: Scene): void {
   const feltTex = new DynamicTexture("feltTex", { width: 1024, height: 512 }, scene, true);
   const fctx = feltTex.getContext() as unknown as CanvasRenderingContext2D;
   const paintFelt = () => {
-    fctx.fillStyle = "#1a9d68";
+    // Tournament cloth with a soft radial vignette — brighter under the lights,
+    // deeper green toward the cushions for a premium sense of depth.
+    const g = fctx.createRadialGradient(512, 256, 120, 512, 256, 640);
+    g.addColorStop(0, "#1fb178");
+    g.addColorStop(0.7, "#149a68");
+    g.addColorStop(1, "#0c6b47");
+    fctx.fillStyle = g;
     fctx.fillRect(0, 0, 1024, 512);
   };
   paintFelt();
@@ -804,25 +860,32 @@ function buildTable(scene: Scene): void {
     img.src = "/assets/watermark.svg";
   }
 
-  // Wood frame (metallic 0.10, roughness 0.35), kept below the cloth.
-  const frame = MeshBuilder.CreateBox("frame", { width: fullW + 0.08, height: 0.12, depth: fullH + 0.08 }, scene);
-  frame.position.y = -0.07;
+  // Polished mahogany frame (lacquered: clearcoat over a deep red-brown), below
+  // the cloth and apron of the table.
+  const frame = MeshBuilder.CreateBox("frame", { width: fullW + 0.1, height: 0.14, depth: fullH + 0.1 }, scene);
+  frame.position.y = -0.08;
   const woodMat = new PBRMaterial("woodMat", scene);
-  woodMat.albedoColor = Color3.FromHexString("#2a160c");
-  woodMat.metallic = 0.1;
-  woodMat.roughness = 0.35;
+  woodMat.albedoColor = Color3.FromHexString("#3a1c10");
+  woodMat.metallic = 0.12;
+  woodMat.roughness = 0.32;
+  woodMat.clearCoat.isEnabled = true;
+  woodMat.clearCoat.intensity = 0.5;
+  woodMat.clearCoat.roughness = 0.25;
   frame.material = woodMat;
   frame.receiveShadows = true;
 
-  // Wood rails (raised) + gold trim caps.
+  // Lacquered mahogany rails + gold trim caps.
   const railMat = new PBRMaterial("railMat", scene);
-  railMat.albedoColor = Color3.FromHexString("#3a2412");
-  railMat.metallic = 0.1;
-  railMat.roughness = 0.35;
+  railMat.albedoColor = Color3.FromHexString("#4a2415");
+  railMat.metallic = 0.12;
+  railMat.roughness = 0.28;
+  railMat.clearCoat.isEnabled = true;
+  railMat.clearCoat.intensity = 0.6;
+  railMat.clearCoat.roughness = 0.2;
   const goldMat = new PBRMaterial("goldMat", scene);
-  goldMat.albedoColor = Color3.FromHexString("#d6af3a");
+  goldMat.albedoColor = Color3.FromHexString("#e3c14e");
   goldMat.metallic = 1;
-  goldMat.roughness = 0.2;
+  goldMat.roughness = 0.18;
   goldMat.emissiveColor = Color3.FromHexString("#2e2208"); // reads gold without an HDRI
 
   const rt = RG.BORDER_SIZE * S * 0.8;
@@ -841,6 +904,33 @@ function buildTable(scene: Scene): void {
     const lip = MeshBuilder.CreateBox("lip", { width: w * 0.99, height: 0.012, depth: d * 0.99 }, scene);
     lip.position.set(x, 0.05, z);
     lip.material = goldMat;
+  }
+
+  // Diamond sights — the classic mother-of-pearl inlays on the rail caps that
+  // signal a premium table. 6 along each long rail (3 either side of the centre
+  // pocket), 3 along each short rail.
+  const sightMat = new PBRMaterial("sightMat", scene);
+  sightMat.albedoColor = Color3.FromHexString("#efe6cf");
+  sightMat.metallic = 0.15;
+  sightMat.roughness = 0.3;
+  sightMat.clearCoat.isEnabled = true;
+  sightMat.clearCoat.intensity = 0.7;
+  const ds = Math.min(fullW, fullH) * 0.014;
+  const placeDiamond = (px: number, pz: number) => {
+    const dia = MeshBuilder.CreateBox("sight", { width: ds, height: 0.004, depth: ds }, scene);
+    dia.position.set(px, 0.058, pz);
+    dia.rotation.y = Math.PI / 4;
+    dia.material = sightMat;
+  };
+  const longInsetZ = fullH / 2 - rt * 0.62;
+  const shortInsetX = fullW / 2 - rt * 0.62;
+  for (const fx of [-3 / 8, -2 / 8, -1 / 8, 1 / 8, 2 / 8, 3 / 8]) {
+    placeDiamond(fullW * fx, longInsetZ);
+    placeDiamond(fullW * fx, -longInsetZ);
+  }
+  for (const fz of [-1 / 4, 0, 1 / 4]) {
+    placeDiamond(shortInsetX, fullH * fz);
+    placeDiamond(-shortInsetX, fullH * fz);
   }
 
   // Pockets: dark wells + gold rims.
