@@ -88,6 +88,11 @@ export interface ShotAnimation {
   fromState: TableState;
   shot: ShotInput;
   key: string;
+  /** Pre-simulated replay from the SAME simulation that produced the applied
+   *  end state, so the replay can't diverge from where the balls settle (Havok
+   *  isn't bit-identical run-to-run). When omitted the renderer simulates. */
+  frames?: Frame[];
+  events?: ShotEvent[];
 }
 export interface PoolTable3DHandle {
   shootNow(power: number): boolean;
@@ -205,18 +210,26 @@ export default function PoolTable3D({
     };
   }, []);
 
-  // Start replay when a new animation arrives — simulate to frames once.
+  // Start replay when a new animation arrives. Prefer the frames carried with
+  // the animation (the SAME simulation that produced the applied end state) so
+  // the replay can't diverge from it; only simulate here if none were supplied.
   useEffect(() => {
     if (!animation) return;
     if (playing.current?.key === animation.key) return;
     try {
-      const r = simulateShot(cloneState(animation.fromState), animation.shot, {
-        recordFrames: true,
-        frameStride: FRAME_STRIDE,
-      });
+      let frames = animation.frames;
+      let events = animation.events;
+      if (!frames) {
+        const r = simulateShot(cloneState(animation.fromState), animation.shot, {
+          recordFrames: true,
+          frameStride: FRAME_STRIDE,
+        });
+        frames = r.frames ?? [];
+        events = r.events;
+      }
       playing.current = {
-        frames: r.frames ?? [],
-        events: r.events,
+        frames: frames ?? [],
+        events: events ?? [],
         eventIdx: 0,
         startedAt: performance.now(),
         key: animation.key,

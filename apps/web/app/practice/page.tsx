@@ -115,7 +115,11 @@ export default function PracticePage() {
   const shoot = useCallback(
     (shot: ShotInput) => {
       try {
-        const result = simulateShot(state, shot);
+        // Simulate ONCE, recording the replay frames. The renderer replays
+        // these exact frames, so the on-screen settle matches the end state we
+        // apply at animation end — no post-shot "jump" (the Havok backend isn't
+        // bit-identical run-to-run, so a separate replay sim would diverge).
+        const result = simulateShot(state, shot, { recordFrames: true, frameStride: 2 });
         pendingEndState.current = result.endState;
         pendingOutcome.current = result.outcome;
         setMessage(null); // clear during the shot; the result shows after it lands
@@ -123,6 +127,8 @@ export default function PracticePage() {
           fromState: state,
           shot,
           key: stateHash(result.endState) + result.steps,
+          frames: result.frames,
+          events: result.events,
         });
       } catch (e) {
         setMessage(e instanceof Error ? e.message : "Illegal shot");

@@ -84,6 +84,13 @@ export interface ShotAnimation {
   shot: ShotInput;
   /** Changes whenever a new animation should play. */
   key: string;
+  /** Pre-simulated replay from the SAME simulation that produced the applied
+   *  end state. Provided so the replay can't diverge from where the balls
+   *  actually settle (the Havok backend isn't bit-identical run-to-run on its
+   *  reused world, so re-simulating here would make balls jump at the end).
+   *  When omitted the renderer simulates the shot itself. */
+  frames?: Frame[];
+  events?: import("@pooldawgs/engine").ShotEvent[];
 }
 
 export interface PoolCanvasHandle {
@@ -242,16 +249,24 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     if (!animation) return;
     if (playing.current?.key === animation.key) return;
     try {
-      const result = simulateShot(cloneState(animation.fromState), animation.shot, {
-        recordFrames: true,
-        frameStride: FRAME_STRIDE,
-      });
+      // Prefer the frames carried with the animation (single source of truth);
+      // only simulate here if a caller didn't supply them.
+      let frames = animation.frames;
+      let events = animation.events;
+      if (!frames) {
+        const result = simulateShot(cloneState(animation.fromState), animation.shot, {
+          recordFrames: true,
+          frameStride: FRAME_STRIDE,
+        });
+        frames = result.frames ?? [];
+        events = result.events;
+      }
       playing.current = {
-        frames: result.frames ?? [],
+        frames: frames ?? [],
         index: 0,
         startedAt: performance.now(),
         key: animation.key,
-        events: result.events,
+        events: events ?? [],
         eventIdx: 0,
         frameStride: FRAME_STRIDE,
       };
