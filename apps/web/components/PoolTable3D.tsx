@@ -12,6 +12,10 @@ import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator.
 import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js";
 import { Vector3, Color3, Color4, Quaternion, Matrix } from "@babylonjs/core/Maths/math.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
+// Side-effect: registers Scene.pick / Scene.createPickingRay. Without it the
+// tree-shaken build leaves them undefined and every cloth raycast throws, which
+// silently broke aim and ball-in-hand placement.
+import "@babylonjs/core/Culling/ray.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
@@ -367,24 +371,10 @@ export default function PoolTable3D({
     };
     const updateAim = (clientX: number, clientY: number, isTouch: boolean) => {
       const p = propsRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const ray = scene.createPickingRay(clientX - rect.left, clientY - rect.top, Matrix.Identity(), cam);
-      const t = pickTable(clientX, clientY);
-      (window as unknown as { __aim2?: unknown }).__aim2 = {
-        n: (((window as unknown as { __aim2?: { n?: number } }).__aim2?.n ?? 0) as number) + 1,
-        interactive: p.interactive,
-        playing: !!playing.current,
-        placing: placingBall.current,
-        isTouch,
-        dirY: ray.direction.y,
-        oriY: ray.origin.y,
-        pick: t,
-        rectW: rect.width,
-        rectH: rect.height,
-      };
       if (playing.current || !p.interactive) return;
       // Mouse hover always aims; touch only steers while a finger is down.
       if (!placingBall.current && isTouch && !dragging) return;
+      const t = pickTable(clientX, clientY);
       if (t) aimTarget.current = { x: t.px, y: t.py };
     };
     const onPointerMove = (e: PointerEvent) => updateAim(e.clientX, e.clientY, e.pointerType === "touch");
