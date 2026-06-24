@@ -202,7 +202,16 @@ export default function GameShell({
             title="Menu"
           />
           {menuOpen && (
-            <div className="absolute left-0 top-[3.25rem] z-30 w-52 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
+            <>
+              {/* Mobile: dim, near-transparent backdrop so the menu reads as a
+                  popup; tap anywhere outside to dismiss. (Desktop keeps the
+                  plain anchored dropdown.) */}
+              <div
+                className="fixed inset-0 z-20 hidden bg-black/30 backdrop-blur-[1px] touch:block"
+                onClick={() => setMenuOpen(false)}
+                aria-hidden
+              />
+              <div className="absolute left-0 top-[3.25rem] z-30 w-52 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
               <button
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
                 onClick={() => {
@@ -281,7 +290,8 @@ export default function GameShell({
                   <IconWallet className="h-4 w-4" /> Wallet
                 </button>
               </div>
-            </div>
+              </div>
+            </>
           )}
         </div>
 
