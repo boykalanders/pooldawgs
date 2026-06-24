@@ -111,6 +111,9 @@ export default function GameShell({
   const [muted, setMuted] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  // Mobile-only game-type picker (the desktop bottom-bar chips are hidden on
+  // phones), anchored to a rail button below Aim.
+  const [gameMenuOpen, setGameMenuOpen] = useState(false);
   // Collapse the desktop bottom bar (balance / mode chips / status / pot) to
   // give the pool table more room — toggled from the top-left menu.
   const [barCollapsed, setBarCollapsed] = useState(false);
@@ -346,6 +349,48 @@ export default function GameShell({
             onClick={() => setShowGuide((v) => !v)}
             title="Toggle the aim guide"
           />
+          {/* Game-type switch — phones only (desktop uses the bottom-bar chips,
+              which are hidden on touch). Tapping opens a small picker. */}
+          {onSelectGameType && (
+            <div className="relative hidden touch:block">
+              <RailButton
+                label="Game"
+                icon={
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={GAME_BALL[state.gameType]} alt="" className="h-5 w-5" draggable={false} />
+                }
+                active={gameMenuOpen}
+                onClick={() => setGameMenuOpen((v) => !v)}
+                title="Change game type"
+              />
+              {gameMenuOpen && (
+                <div className="absolute left-full top-0 z-30 ml-2 w-36 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
+                  {(
+                    [
+                      ["8ball", "8 Ball"],
+                      ["9ball", "9 Ball"],
+                      ["snooker", "Snooker"],
+                    ] as const
+                  ).map(([type, label]) => (
+                    <button
+                      key={type}
+                      className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm transition hover:bg-gold/10 ${
+                        state.gameType === type ? "bg-gold/10 text-gold-bright" : "text-cream"
+                      }`}
+                      onClick={() => {
+                        setGameMenuOpen(false);
+                        onSelectGameType(type);
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={GAME_BALL[type]} alt="" className="h-4 w-4" draggable={false} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="mt-auto">
             <SpinControl value={spin} onChange={setSpin} disabled={!interactive} />
           </div>
@@ -720,4 +765,11 @@ const GAME_LABEL: Record<GameType, string> = {
   "8ball": "Pool Dawgs 8-ball",
   "9ball": "Pool Dawgs 9-ball",
   snooker: "Pool Dawgs snooker",
+};
+
+/** Representative ball icon per variant (matches the bottom-bar mode chips). */
+const GAME_BALL: Record<GameType, string> = {
+  "8ball": "/assets/balls/ball-8.svg",
+  "9ball": "/assets/balls/ball-9.svg",
+  snooker: "/assets/balls/ball-3.svg",
 };
