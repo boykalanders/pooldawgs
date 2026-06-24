@@ -102,6 +102,7 @@ export const eightBall: GameRules<Acc8> = {
       playerColors: [null, null],
       scores: [0, 0],
       onColor: false,
+      broken: false,
     };
   },
 
@@ -184,10 +185,17 @@ export const eightBall: GameRules<Acc8> = {
 
     if (acc.firstCollision) acc.foul = true; // never touched a ball
 
-    // Open-table group assignment: if the shooter potted exactly ONE colour
-    // (and didn't foul), that becomes their group. Potting both colours leaves
-    // the table open for the next decision — and crucially is not a foul.
-    if (acc.openStart && !acc.foul && acc.openPotted.size === 1) {
+    // The break shot never assigns a group — the table is always open right
+    // after the break (standard 8-ball). Mark the frame as broken so groups can
+    // be decided from the next shot on.
+    const wasBreak = !state.broken;
+    state.broken = true;
+
+    // Open-table group assignment (POST-break only): if the shooter potted
+    // exactly ONE colour and didn't foul, that becomes their group. Potting
+    // both colours — or potting on the break — leaves the table open, and is
+    // not a foul.
+    if (!wasBreak && acc.openStart && !acc.foul && acc.openPotted.size === 1) {
       const color = acc.openPotted.values().next().value as BallColor;
       state.playerColors[turn] = color;
       state.playerColors[other] = color === "red" ? "yellow" : "red";

@@ -11,11 +11,8 @@
 // ball-in-hand. Nomination, free balls and "play-again" requests are out of
 // scope (documented).
 
-import {
-  BORDER_SIZE,
-  TABLE_HEIGHT,
-  TABLE_WIDTH,
-} from "../constants.js";
+import { PX_PER_M } from "../constants.js";
+import { SNOOKER_GEOM } from "../geometry.js";
 import type {
   BallColor,
   BallState,
@@ -34,25 +31,37 @@ import {
   respot,
 } from "./shared.js";
 
-const CENTER_Y = TABLE_HEIGHT / 2; // 412.5
-// A touching triangle: columns step by diameter·cos30° (≈33), balls within a
-// column step by a full diameter (BALL_SIZE = 38) plus a hair so no two reds
-// overlap. RED_STEP_Y MUST be ≥ BALL_SIZE — that was the racking bug.
-const RED_STEP_X = 34;
-const RED_STEP_Y = 39;
-const REDS_APEX_X = 1052;
+// Snooker spots derived from the real snooker table (geometry.ts SNOOKER_GEOM)
+// and standard proportions, laid out in landscape with the baulk on the LEFT.
+const SG = SNOOKER_GEOM;
+const M = (metres: number) => metres * PX_PER_M;
+const CENTER_X = SG.TABLE_WIDTH / 2;
+const CENTER_Y = SG.TABLE_HEIGHT / 2;
+const BAULK_X = SG.LEFT_BORDER_X + M(0.737); // baulk line, 0.737 m off the cushion
+const D_RADIUS = M(0.292); // the "D"
+const PINK_X = (CENTER_X + SG.RIGHT_BORDER_X) / 2; // midway centre→top cushion
+const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
+
+// A touching triangle: columns step by diameter·cos30°, balls within a column
+// by a full diameter (+1 px) so no two reds overlap. RED_STEP_Y MUST be ≥ the
+// ball diameter — that was the historical racking bug.
+// Pad a touch over the touching-triangle minimum so rounding never creates a
+// sub-diameter gap (the diagonal between adjacent columns must exceed BALL_SIZE).
+const RED_STEP_X = Math.round(SG.BALL_SIZE * 0.92);
+const RED_STEP_Y = SG.BALL_SIZE + 3;
+const REDS_APEX_X = PINK_X + SG.BALL_SIZE + 2; // apex just behind the pink
 
 /** Colour spots laid out for our landscape table (baulk on the left). */
 const COLOURS: ReadonlyArray<{ color: BallColor; value: number; x: number; y: number }> = [
-  { color: "yellow", value: 2, x: 360, y: 525 },
-  { color: "green", value: 3, x: 360, y: 300 },
-  { color: "brown", value: 4, x: 360, y: 412 },
-  { color: "blue", value: 5, x: 750, y: 412 },
-  { color: "pink", value: 6, x: 1010, y: 412 },
-  { color: "black", value: 7, x: 1320, y: 412 },
+  { color: "yellow", value: 2, x: BAULK_X, y: CENTER_Y + D_RADIUS },
+  { color: "green", value: 3, x: BAULK_X, y: CENTER_Y - D_RADIUS },
+  { color: "brown", value: 4, x: BAULK_X, y: CENTER_Y },
+  { color: "blue", value: 5, x: CENTER_X, y: CENTER_Y },
+  { color: "pink", value: 6, x: PINK_X, y: CENTER_Y },
+  { color: "black", value: 7, x: BLACK_X, y: CENTER_Y },
 ];
 
-const CUE_START = { x: 300, y: 470 };
+const CUE_START = { x: BAULK_X - M(0.06), y: CENTER_Y + M(0.13) };
 
 function buildReds(): Array<{ x: number; y: number }> {
   const reds: Array<{ x: number; y: number }> = [];
@@ -240,6 +249,6 @@ export const snooker: GameRules<FactsAcc> = {
 };
 
 // Re-export geometry so the renderer can match the snooker layout if needed.
-export const SNOOKER_BAULK_X = 360;
-export const SNOOKER_PLAY_LEFT = BORDER_SIZE;
-export const SNOOKER_PLAY_RIGHT = TABLE_WIDTH - BORDER_SIZE;
+export const SNOOKER_BAULK_X = BAULK_X;
+export const SNOOKER_PLAY_LEFT = SG.LEFT_BORDER_X;
+export const SNOOKER_PLAY_RIGHT = SG.RIGHT_BORDER_X;

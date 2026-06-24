@@ -7,24 +7,42 @@ import {
   useRef,
 } from "react";
 import {
-  BALL_SIZE,
-  BORDER_SIZE,
-  HOLES,
   MAX_POWER,
   STEP_MS,
-  TABLE_HEIGHT,
-  TABLE_WIDTH,
   cloneState,
   cueBallId,
+  geomFor,
   isInsideHole,
   isOutsideBorder,
   simulateShot,
   type BallState,
   type Frame,
+  type GameType,
   type ShotInput,
   type TableState,
 } from "@pooldawgs/engine";
 import { ballAssetPath, ballStyle, type BallLike } from "@/lib/balls";
+
+// Geometry is per-variant (snooker's table is bigger / balls smaller). These
+// module-level values are refreshed from the active variant on every render via
+// setRenderGeom2(); all the draw helpers below read them, so the 2D table,
+// pockets and ball sizes follow the variant automatically. Only one PoolCanvas
+// is mounted at a time, so a shared singleton is safe.
+let TABLE_WIDTH = geomFor("8ball").TABLE_WIDTH;
+let TABLE_HEIGHT = geomFor("8ball").TABLE_HEIGHT;
+let BORDER_SIZE = geomFor("8ball").BORDER_SIZE;
+let BALL_SIZE = geomFor("8ball").BALL_SIZE;
+let BALL_RADIUS = geomFor("8ball").BALL_RADIUS;
+let HOLES = geomFor("8ball").HOLES;
+function setRenderGeom2(gameType: GameType): void {
+  const g = geomFor(gameType);
+  TABLE_WIDTH = g.TABLE_WIDTH;
+  TABLE_HEIGHT = g.TABLE_HEIGHT;
+  BORDER_SIZE = g.BORDER_SIZE;
+  BALL_SIZE = g.BALL_SIZE;
+  BALL_RADIUS = g.BALL_RADIUS;
+  HOLES = g.HOLES;
+}
 
 // Sounds from the forked game's assets, cloned per play like the fork does.
 const audioCache = new Map<string, HTMLAudioElement>();
@@ -55,7 +73,6 @@ function getImage(src: string): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
-const BALL_RADIUS = BALL_SIZE / 2;
 /** Replay frame stride (sim steps per recorded frame) and the real-time ms it
  *  represents — derived from the engine's step rate so replays stay in sync
  *  whatever PHYSICS_FPS is set to. */
@@ -115,6 +132,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   },
   ref
 ) {
+  // Refresh the per-variant geometry before any draw/layout/pointer math runs.
+  setRenderGeom2(state.gameType);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: TABLE_WIDTH / 2, y: TABLE_HEIGHT / 2 });
   const charging = useRef(false);

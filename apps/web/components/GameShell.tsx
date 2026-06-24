@@ -119,6 +119,19 @@ export default function GameShell({
   const seenCount = useRef(0);
   const spinActive = spin.x !== 0 || spin.y !== 0;
 
+  // Fullscreen (Golden Spec: "feels like an app" in fullscreen mobile browsers).
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(typeof document !== "undefined" && !!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+  const toggleFullscreen = () => {
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) void document.exitFullscreen?.();
+    else void document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+
   const { openConnectModal } = useConnectModal();
   const { openAccountModal } = useAccountModal();
   const { isConnected } = useAccount();
@@ -156,7 +169,17 @@ export default function GameShell({
 
   return (
     <>
-    <div className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-emerald-deep/85 p-3 shadow-2xl shadow-felt-inset touch:h-[calc(100dvh-2rem)] touch:min-h-0">
+    <div
+      className="relative mx-auto flex h-[calc(100dvh-9.5rem)] min-h-[520px] w-full max-w-[1480px] select-none flex-col rounded-3xl border border-gold-dim/40 bg-emerald-deep/85 shadow-2xl shadow-felt-inset touch:h-[calc(100dvh-2rem)] touch:min-h-0"
+      style={{
+        // Safe-area aware padding so the UI clears notches in fullscreen /
+        // landscape (Golden Spec), and falls back to the normal 0.75rem inset.
+        paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+        paddingRight: "max(0.75rem, env(safe-area-inset-right))",
+        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+        paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
+      }}
+    >
       {/* Logo floats over the table's top rail, like the design. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -186,6 +209,16 @@ export default function GameShell({
               >
                 {muted ? <IconSoundOff className="h-4 w-4" /> : <IconSoundOn className="h-4 w-4" />}
                 {muted ? "Sound: off" : "Sound: on"}
+              </button>
+              <button
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
+                onClick={() => {
+                  setMenuOpen(false);
+                  toggleFullscreen();
+                }}
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-gold">⛶</span>
+                {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
               </button>
               {/* Desktop only: phones already drop the bottom bar. */}
               <button
@@ -321,6 +354,7 @@ export default function GameShell({
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
           {renderer === "3d" ? (
             <PoolTable3D
+              key={`3d-${state.gameType}`} // remount to rebuild for the variant's table size
               apiRef={canvasRef}
               state={state}
               interactive={interactive}

@@ -26,26 +26,19 @@ import { Quaternion } from "@babylonjs/core/Maths/math.vector.js";
 import "@babylonjs/core/Physics/joinedPhysicsEngineComponent.js";
 
 import {
-  BALL_RADIUS,
-  HOLES,
   MAX_POWER,
   MAX_STEPS,
   POWER_EXPONENT,
   PX_PER_M,
   STEP_MS,
-  TABLE_HEIGHT,
-  TABLE_WIDTH,
-  BORDER_SIZE,
-  LEFT_BORDER_X,
-  RIGHT_BORDER_X,
-  TOP_BORDER_Y,
-  BOTTOM_BORDER_Y,
 } from "../constants.js";
+import { G, geomFor, setActiveGeometry, type TableGeometry } from "../geometry.js";
 import { getRules } from "../variants/index.js";
 import type {
   BallState,
   Frame,
   GameRules,
+  GameType,
   ShotEvent,
   ShotInput,
   ShotResult,
@@ -55,7 +48,9 @@ import type {
 // ── unit helpers: engine works in px; Havok world in metres, Y up ──────────
 const M = (px: number) => px / PX_PER_M;
 const PX = (m: number) => m * PX_PER_M;
-const R = M(BALL_RADIUS); // ball radius (m)
+/** Geometry "key" — pool (8/9-ball) and snooker have different table/ball
+ *  sizes, so the Havok world is rebuilt when this changes. */
+const geomKey = (gameType: GameType): string => (gameType === "snooker" ? "snooker" : "pool");
 
 const DT = 1 / 120; // fixed Havok timestep (matches PHYSICS_FPS)
 /** Settle threshold (m/s) — below this a ball is treated as stopped. Kept low
@@ -88,8 +83,16 @@ interface HavokWorld {
   bodyToBall: Map<number, number>;
   /** ordered ball-ball / cushion collisions captured during the current step */
   collisions: Array<{ a: number; b: number } | { rail: number }>;
+  /** uniqueIds of the rail bodies for this world (collision tagging). */
+  railIds: Set<number>;
+  /** "pool" | "snooker" — which geometry this world was built for. */
+  geomKey: string;
+  /** Ball radius (m) for this world's geometry. */
+  R: number;
 }
 
+let havokInstance: unknown = null;
+let nullEngine: NullEngine | null = null;
 let world: HavokWorld | null = null;
 let initPromise: Promise<void> | null = null;
 
@@ -117,46 +120,64 @@ async function loadHavok(): Promise<unknown> {
   return factory({ locateFile: () => browserWasmUrl });
 }
 
-/** Idempotent — builds the static table once and a reusable pool of ball bodies. */
+/** Build the table + ball pool for one variant's geometry. Replaces `world`. */
+function buildWorld(gameType: GameType): void {
+  const geom = geomFor(gameType);
+  const scene = new Scene(nullEngine!);
+  const plugin = new HavokPlugin(true, havokInstance as never);
+  scene.enablePhysics(new Vector3(0, -9.81, 0), plugin);
+
+  const railIds = new Set<number>();
+  buildFloor(scene, geom);
+  buildRails(scene, geom, railIds);
+
+  const collisions: HavokWorld["collisions"] = [];
+  const bodyToBall = new Map<number, number>();
+  const R = M(geom.BALL_RADIUS);
+
+  // Max balls across variants = snooker's 22.
+  const balls: BallBody[] = [];
+  for (let i = 0; i < 22; i++) balls.push(makeBall(scene, R));
+
+  plugin.onCollisionObservable.add((ev) => {
+    if (ev.type !== PhysicsEventType.COLLISION_STARTED) return;
+    const a = bodyToBall.get(ev.collider.transformNode.uniqueId);
+    if (a === undefined) return; // collider must be a tracked ball
+    const otherId = ev.collidedAgainst.transformNode.uniqueId;
+    const b = bodyToBall.get(otherId);
+    if (b !== undefined) collisions.push({ a, b });
+    else if (railIds.has(otherId)) collisions.push({ rail: a });
+  });
+
+  const physicsEngine = scene.getPhysicsEngine()!;
+  world = {
+    scene,
+    step: (dt: number) => physicsEngine._step(dt),
+    balls,
+    bodyToBall,
+    collisions,
+    railIds,
+    geomKey: geomKey(gameType),
+    R,
+  };
+}
+
+/** Swap the Havok world to the variant's geometry when it changes (e.g. the
+ *  bigger snooker table). Rebuilds the scene — cheap and only on a switch. */
+function ensureGeometry(gameType: GameType): void {
+  if (world && world.geomKey === geomKey(gameType)) return;
+  world?.scene.dispose();
+  buildWorld(gameType);
+}
+
+/** Idempotent — loads the WASM once and builds the default (pool) world. */
 export async function initHavok(): Promise<void> {
   if (world) return;
   if (initPromise) return initPromise;
   initPromise = (async () => {
-    const havok = await loadHavok();
-    const engine = new NullEngine();
-    const scene = new Scene(engine);
-    const plugin = new HavokPlugin(true, havok as never);
-    scene.enablePhysics(new Vector3(0, -9.81, 0), plugin);
-
-    buildFloor(scene);
-    buildRails(scene);
-
-    const collisions: HavokWorld["collisions"] = [];
-    const bodyToBall = new Map<number, number>();
-    const railIds = new Set<number>(RAIL_BODY_IDS);
-
-    // Max balls across variants = snooker's 22.
-    const balls: BallBody[] = [];
-    for (let i = 0; i < 22; i++) balls.push(makeBall(scene));
-
-    plugin.onCollisionObservable.add((ev) => {
-      if (ev.type !== PhysicsEventType.COLLISION_STARTED) return;
-      const a = bodyToBall.get(ev.collider.transformNode.uniqueId);
-      if (a === undefined) return; // collider must be a tracked ball
-      const otherId = ev.collidedAgainst.transformNode.uniqueId;
-      const b = bodyToBall.get(otherId);
-      if (b !== undefined) collisions.push({ a, b });
-      else if (railIds.has(otherId)) collisions.push({ rail: a });
-    });
-
-    const physicsEngine = scene.getPhysicsEngine()!;
-    world = {
-      scene,
-      step: (dt: number) => physicsEngine._step(dt),
-      balls,
-      bodyToBall,
-      collisions,
-    };
+    havokInstance = await loadHavok();
+    nullEngine = new NullEngine();
+    buildWorld("8ball");
   })();
   return initPromise;
 }
@@ -165,12 +186,14 @@ export function isHavokReady(): boolean {
   return world !== null;
 }
 
-// GEOMETRIC friction combine (√(a·b)) gives predictable cloth grip: ball↔floor
-// ≈ 0.35 (enough for draw/follow to bite), ball↔rail ≈ 0.19 (clean banks).
-// MINIMUM restitution combine: ball↔floor → 0 (no vertical bounce), ball↔rail
-// → 0.88, ball↔ball → 0.93.
+// GEOMETRIC friction combine (√(a·b)) gives predictable cloth grip: with cloth
+// 0.8 / ball 0.35 the ball↔floor coefficient is ≈ 0.53. Higher than before so a
+// freshly-struck ball grips into a roll quickly instead of gliding a long way —
+// this is what stops the (fast) cue ball sliding noticeably further than the
+// object balls. ball↔rail ≈ 0.19 (clean banks). MINIMUM restitution combine:
+// ball↔floor → 0 (no vertical bounce), ball↔rail → 0.88, ball↔ball → 0.93.
 const clothMaterial = {
-  friction: 0.35,
+  friction: 0.8,
   restitution: 0,
   frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
@@ -190,16 +213,14 @@ const ballMaterial = {
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
 
-const RAIL_BODY_IDS: number[] = [];
-
-function buildFloor(scene: Scene): void {
+function buildFloor(scene: Scene, geom: TableGeometry): void {
   const node = new TransformNode("floor", scene);
-  node.position = new Vector3(M(TABLE_WIDTH) / 2, -0.05, M(TABLE_HEIGHT) / 2);
+  node.position = new Vector3(M(geom.TABLE_WIDTH) / 2, -0.05, M(geom.TABLE_HEIGHT) / 2);
   const body = new PhysicsBody(node, PhysicsMotionType.STATIC, false, scene);
   const shape = new PhysicsShapeBox(
     new Vector3(0, 0, 0),
     Quaternion.Identity(),
-    new Vector3(M(TABLE_WIDTH) + 1, 0.1, M(TABLE_HEIGHT) + 1),
+    new Vector3(M(geom.TABLE_WIDTH) + 1, 0.1, M(geom.TABLE_HEIGHT) + 1),
     scene
   );
   shape.material = clothMaterial;
@@ -207,13 +228,13 @@ function buildFloor(scene: Scene): void {
 }
 
 /** Four cushion walls at the inner border lines (pockets are analytic, below). */
-function buildRails(scene: Scene): void {
-  const h = R * 10; // wall height — tall enough that fast balls can't pop over
-  const t = M(BORDER_SIZE); // wall thickness
-  const left = M(LEFT_BORDER_X);
-  const right = M(RIGHT_BORDER_X);
-  const top = M(TOP_BORDER_Y);
-  const bottom = M(BOTTOM_BORDER_Y);
+function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): void {
+  const h = M(geom.BALL_RADIUS) * 10; // wall height — fast balls can't pop over
+  const t = M(geom.BORDER_SIZE); // wall thickness
+  const left = M(geom.LEFT_BORDER_X);
+  const right = M(geom.RIGHT_BORDER_X);
+  const top = M(geom.TOP_BORDER_Y);
+  const bottom = M(geom.BOTTOM_BORDER_Y);
   const midZ = (top + bottom) / 2;
   const midX = (left + right) / 2;
   const spanZ = bottom - top;
@@ -238,11 +259,11 @@ function buildRails(scene: Scene): void {
     );
     shape.material = railMaterial;
     body.shape = shape;
-    RAIL_BODY_IDS.push(node.uniqueId);
+    railIds.add(node.uniqueId);
   }
 }
 
-function makeBall(scene: Scene): BallBody {
+function makeBall(scene: Scene, R: number): BallBody {
   const node = new TransformNode("ball", scene);
   node.position = new Vector3(0, -1000, 0); // parked until a shot uses it
   const body = new PhysicsBody(node, PhysicsMotionType.DYNAMIC, false, scene);
@@ -265,9 +286,9 @@ function park(b: BallBody): void {
   b.body.setAngularVelocity(Vector3.Zero());
 }
 
-/** Analytic pocket capture (reuses the calibrated HOLES throat gate). */
+/** Analytic pocket capture (reuses the calibrated throat gate, per-variant). */
 function capturedHole(x: number, y: number, vx: number, vy: number): boolean {
-  for (const hole of HOLES) {
+  for (const hole of G.HOLES) {
     const dx = x - hole.x;
     const dy = y - hole.y;
     if (Math.sqrt(dx * dx + dy * dy) >= hole.radius) continue;
@@ -290,7 +311,10 @@ export function simulateShotHavok(
   opts: { recordFrames?: boolean; frameStride?: number } = {}
 ): ShotResult {
   if (!world) throw new Error("Havok not initialised — call initHavok() first");
-  const w = world;
+  ensureGeometry(state.gameType); // rebuild the table for snooker's bigger size
+  setActiveGeometry(state.gameType); // capturedHole() reads G.HOLES
+  const w = world!; // ensureGeometry guarantees a world
+  const R = w.R; // ball radius (m) for this variant's geometry
   const rules: GameRules<unknown> = getRules(state.gameType);
   const turnAcc = rules.createTurn();
   const events: ShotEvent[] = [];

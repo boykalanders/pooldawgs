@@ -63,8 +63,12 @@ export interface TableState {
   gameOver: boolean;
   /** Winning player once gameOver. */
   winner: PlayerIndex | null;
-  /** 8-ball: assigned groups; null until the first pot decides them. */
+  /** 8-ball: assigned groups; null until a pot AFTER the break decides them. */
   playerColors: [BallColor | null, BallColor | null];
+  /** 8-ball: false until the opening break shot has been played. The table is
+   *  always "open" immediately after the break (the break never assigns a
+   *  group), so groups can only be decided from the second shot on. */
+  broken?: boolean;
   /** Scored variants (snooker): running points per player. */
   scores: [number, number];
   /** Snooker: true when the striker is "on a colour" (just potted a red). */

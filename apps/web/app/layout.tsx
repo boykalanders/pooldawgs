@@ -1,12 +1,25 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Providers } from "./providers";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
+import { PWA } from "@/components/PWA";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PoolDawgs — wagered 8-ball for Deputy Dawgs",
+  title: "PoolDawgs — wagered pool for Deputy Dawgs",
   description:
-    "Stake $DDawgs, rack 'em up. Premium 2D pool in the Deputy Dawgs ecosystem.",
+    "Stake $DDawgs, rack 'em up. Premium 3D pool in the Deputy Dawgs ecosystem.",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "PoolDawgs" },
+};
+
+// Golden Spec: mobile-first, fullscreen-friendly. viewport-fit=cover lets the
+// game extend under notches; the safe-area insets (used in the game shell)
+// keep the UI clear of them.
+export const viewport: Viewport = {
+  themeColor: "#0a0e0c",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -22,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Providers>
+          <PWA />
           <SiteHeader />
           <main className="mx-auto w-full max-w-7xl px-4 py-3">{children}</main>
           <SiteFooter />

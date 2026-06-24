@@ -9,6 +9,12 @@ export {
 } from "./physics.js";
 export { getRules } from "./variants/index.js";
 export {
+  geomFor,
+  POOL_GEOM,
+  SNOOKER_GEOM,
+  type TableGeometry,
+} from "./geometry.js";
+export {
   CUE_BALL_ID,
   cueBallId,
   createInitialState,

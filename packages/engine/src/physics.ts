@@ -11,16 +11,11 @@
 // client simulations stay bit-identical.
 
 import {
-  BALL_ORIGIN,
   BALL_RESTITUTION,
-  BALL_SIZE,
-  BOTTOM_BORDER_Y,
   CUSHION_FRICTION,
   CUSHION_RESTITUTION,
   DELTA,
-  HOLES,
   type Hole,
-  LEFT_BORDER_X,
   MAX_POWER,
   MAX_SHOT_SPEED,
   MAX_SUBSTEPS,
@@ -28,20 +23,20 @@ import {
   POCKET_MAGNET_RANGE,
   POCKET_MAGNETISM,
   POCKET_MIN_INWARD,
-  POCKETED_PARK,
   POWER_EXPONENT,
-  RIGHT_BORDER_X,
   ROLL_DECEL,
   STOP_THRESHOLD,
   SUBSTEP_TRAVEL,
-  TOP_BORDER_Y,
   VISCOUS_DRAG,
 } from "./constants.js";
+// Geometry (table size, ball size, pockets) is per-variant; read it from the
+// active-geometry singleton, which the simulator sets per shot.
+import { G } from "./geometry.js";
 import type { BallState, ShotEvent } from "./types.js";
 
 /** Geometric "is this point inside any pocket mouth" — for placement / UI. */
 export function isInsideHole(x: number, y: number): boolean {
-  for (const hole of HOLES) {
+  for (const hole of G.HOLES) {
     const dx = x - hole.x;
     const dy = y - hole.y;
     if (Math.sqrt(dx * dx + dy * dy) < hole.radius) return true;
@@ -51,10 +46,10 @@ export function isInsideHole(x: number, y: number): boolean {
 
 export function isOutsideBorder(x: number, y: number): boolean {
   return (
-    x - BALL_ORIGIN < LEFT_BORDER_X ||
-    x + BALL_ORIGIN > RIGHT_BORDER_X ||
-    y - BALL_ORIGIN < TOP_BORDER_Y ||
-    y + BALL_ORIGIN > BOTTOM_BORDER_Y
+    x - G.BALL_ORIGIN < G.LEFT_BORDER_X ||
+    x + G.BALL_ORIGIN > G.RIGHT_BORDER_X ||
+    y - G.BALL_ORIGIN < G.TOP_BORDER_Y ||
+    y + G.BALL_ORIGIN > G.BOTTOM_BORDER_Y
   );
 }
 
@@ -147,7 +142,7 @@ function collideBalls(
   const dy = n1y - n2y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
-  if (dist >= BALL_SIZE || dist < 1e-9) return;
+  if (dist >= G.BALL_SIZE || dist < 1e-9) return;
 
   const nx = dx / dist;
   const ny = dy / dist;
@@ -170,8 +165,8 @@ function collideBalls(
   const cdx = b1.x - b2.x;
   const cdy = b1.y - b2.y;
   const cdist = Math.sqrt(cdx * cdx + cdy * cdy);
-  if (cdist > 1e-9 && cdist < BALL_SIZE) {
-    const push = (BALL_SIZE - cdist) / 2;
+  if (cdist > 1e-9 && cdist < G.BALL_SIZE) {
+    const push = (G.BALL_SIZE - cdist) / 2;
     b1.x += (cdx / cdist) * push;
     b1.y += (cdy / cdist) * push;
     b2.x -= (cdx / cdist) * push;
@@ -194,7 +189,7 @@ function inwardSpeed(ball: BallState, hole: Hole): number {
  * pocket, which the fork's plain circular hole wrongly swallowed.
  */
 function capturingHole(ball: BallState, x: number, y: number): Hole | null {
-  for (const hole of HOLES) {
+  for (const hole of G.HOLES) {
     const dx = x - hole.x;
     const dy = y - hole.y;
     if (Math.sqrt(dx * dx + dy * dy) >= hole.radius) continue;
@@ -213,7 +208,7 @@ function capturingHole(ball: BallState, x: number, y: number): Hole | null {
  * Subtle by design — players shouldn't notice the assist.
  */
 function applyMagnetism(ball: BallState): void {
-  for (const hole of HOLES) {
+  for (const hole of G.HOLES) {
     const dx = hole.x - ball.x;
     const dy = hole.y - ball.y;
     const d = Math.sqrt(dx * dx + dy * dy);
@@ -244,8 +239,8 @@ function integrateBall(
 
   const hole = capturingHole(ball, newX, newY);
   if (hole) {
-    ball.x = POCKETED_PARK.x;
-    ball.y = POCKETED_PARK.y;
+    ball.x = G.POCKETED_PARK.x;
+    ball.y = G.POCKETED_PARK.y;
     ball.inHole = true;
     ball.vx = 0;
     ball.vy = 0;
@@ -257,26 +252,26 @@ function integrateBall(
 
   // Cushions: normal restitution + tangential friction (spec §3).
   let collision = false;
-  if (newX - BALL_ORIGIN < LEFT_BORDER_X) {
+  if (newX - G.BALL_ORIGIN < G.LEFT_BORDER_X) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
-    ball.x = LEFT_BORDER_X + BALL_ORIGIN;
+    ball.x = G.LEFT_BORDER_X + G.BALL_ORIGIN;
     collision = true;
-  } else if (newX + BALL_ORIGIN > RIGHT_BORDER_X) {
+  } else if (newX + G.BALL_ORIGIN > G.RIGHT_BORDER_X) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
-    ball.x = RIGHT_BORDER_X - BALL_ORIGIN;
+    ball.x = G.RIGHT_BORDER_X - G.BALL_ORIGIN;
     collision = true;
   }
-  if (newY - BALL_ORIGIN < TOP_BORDER_Y) {
+  if (newY - G.BALL_ORIGIN < G.TOP_BORDER_Y) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
-    ball.y = TOP_BORDER_Y + BALL_ORIGIN;
+    ball.y = G.TOP_BORDER_Y + G.BALL_ORIGIN;
     collision = true;
-  } else if (newY + BALL_ORIGIN > BOTTOM_BORDER_Y) {
+  } else if (newY + G.BALL_ORIGIN > G.BOTTOM_BORDER_Y) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
-    ball.y = BOTTOM_BORDER_Y - BALL_ORIGIN;
+    ball.y = G.BOTTOM_BORDER_Y - G.BALL_ORIGIN;
     collision = true;
   }
 

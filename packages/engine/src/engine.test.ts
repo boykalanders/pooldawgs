@@ -10,6 +10,7 @@ import {
   validateShot,
 } from "./world.js";
 import { BALL_SIZE, HOLES, MAX_POWER, TABLE_WIDTH } from "./constants.js";
+import { geomFor } from "./geometry.js";
 import { getRules } from "./variants/index.js";
 import type { BallState, TableState } from "./types.js";
 
@@ -26,19 +27,23 @@ function clearExcept(state: TableState, keep: number[] = []): void {
   }
 }
 
-/** Place obj + cue collinear toward the bott-right corner; return the aim. */
+/** Place obj + cue collinear toward the bottom-right corner of the CURRENT
+ *  variant's table; return the aim. Offsets are along the pocket throat so the
+ *  three points stay collinear at any table size (pool unchanged: corner is
+ *  (1435,762) → obj (1380,718), cue (1300,655) as before). */
 function setupCornerPot(state: TableState, obj: BallState): number {
-  obj.x = 1380;
-  obj.y = 718;
+  const corner = geomFor(state.gameType).HOLES[3];
+  obj.x = corner.x - 55;
+  obj.y = corner.y - 44;
   obj.inHole = false;
   obj.moving = false;
   const cue = cueBall(state);
-  cue.x = 1300;
-  cue.y = 655;
+  cue.x = corner.x - 135;
+  cue.y = corner.y - 107;
   cue.inHole = false;
   cue.moving = false;
   state.ballInHand = false;
-  return Math.atan2(BR_CORNER.y - cue.y, BR_CORNER.x - cue.x);
+  return Math.atan2(corner.y - cue.y, corner.x - cue.x);
 }
 
 describe("racks", () => {
@@ -49,7 +54,7 @@ describe("racks", () => {
       for (let i = 0; i < balls.length; i++) {
         for (let j = i + 1; j < balls.length; j++) {
           const d = Math.hypot(balls[i].x - balls[j].x, balls[i].y - balls[j].y);
-          expect(d, `${gt}: balls ${i} & ${j} overlap`).toBeGreaterThanOrEqual(BALL_SIZE);
+          expect(d, `${gt}: balls ${i} & ${j} overlap`).toBeGreaterThanOrEqual(geomFor(gt).BALL_SIZE);
         }
       }
     }
@@ -172,8 +177,9 @@ describe("8-ball rules", () => {
     expect(result.outcome.ballInHand).toBe(true);
   });
 
-  it("first potted colour assigns groups and you continue", () => {
+  it("first potted colour assigns groups and you continue (post-break)", () => {
     const state = createInitialState();
+    state.broken = true; // groups are only decided after the break
     const red = state.balls.find((b) => b.color === "red")!;
     const angle = setupCornerPot(state, red);
     const result = simulateShot(state, { angle, power: 42 });
@@ -228,6 +234,64 @@ describe("8-ball rules", () => {
     expect(res.ballInHand).toBe(true);
     expect(res.nextTurn).toBe(1);
     expect(state.balls.find((b) => b.color === "black")!.inHole).toBe(false);
+  });
+
+  it("the break never assigns a group, even on a single-colour pot (table stays open)", () => {
+    const rules = getRules("8ball");
+    const state = createInitialState("8ball"); // broken: false → this is the break
+    const cue = state.balls[cueBallId(state)];
+    const red = state.balls.find((b) => b.color === "red")!;
+    const acc = rules.createTurn();
+
+    rules.onBallsCollide(state, acc, cue, red);
+    red.inHole = true;
+    rules.onPocket(state, acc, red);
+
+    const res = rules.resolve(state, acc);
+    expect(res.foul).toBe(false);
+    expect(res.nextTurn).toBe(0); // potted on the break ⇒ continue
+    expect(state.playerColors[0]).toBe(null); // break NEVER decides the group
+    expect(state.broken).toBe(true);
+  });
+
+  it("open table (post-break): potting BOTH colours in one shot is NOT a foul (stays open)", () => {
+    const rules = getRules("8ball");
+    const state = createInitialState("8ball");
+    state.broken = true; // simulate a shot after the break
+    const cue = state.balls[cueBallId(state)];
+    const red = state.balls.find((b) => b.color === "red")!;
+    const yellow = state.balls.find((b) => b.color === "yellow")!;
+    const acc = rules.createTurn();
+
+    rules.onBallsCollide(state, acc, cue, red); // any first contact is legal when open
+    red.inHole = true;
+    rules.onPocket(state, acc, red);
+    yellow.inHole = true;
+    rules.onPocket(state, acc, yellow);
+
+    const res = rules.resolve(state, acc);
+    expect(res.foul).toBe(false); // potting both colours is not a foul
+    expect(res.nextTurn).toBe(0); // legal pot ⇒ shoot again
+    expect(state.playerColors[0]).toBe(null); // mixed pot ⇒ groups undecided (not "first ball")
+  });
+
+  it("open table (post-break): potting a single colour assigns that group", () => {
+    const rules = getRules("8ball");
+    const state = createInitialState("8ball");
+    state.broken = true; // groups can only be decided after the break
+    const cue = state.balls[cueBallId(state)];
+    const red = state.balls.find((b) => b.color === "red")!;
+    const acc = rules.createTurn();
+
+    rules.onBallsCollide(state, acc, cue, red);
+    red.inHole = true;
+    rules.onPocket(state, acc, red);
+
+    const res = rules.resolve(state, acc);
+    expect(res.foul).toBe(false);
+    expect(res.nextTurn).toBe(0);
+    expect(state.playerColors[0]).toBe("red");
+    expect(state.playerColors[1]).toBe("yellow");
   });
 
   it("potting the black with balls remaining loses", () => {

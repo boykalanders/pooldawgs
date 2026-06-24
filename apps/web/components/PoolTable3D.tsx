@@ -20,37 +20,44 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture.js";
+import { RawCubeTexture } from "@babylonjs/core/Materials/Textures/rawCubeTexture.js";
+import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 
 import {
-  TABLE_WIDTH,
-  TABLE_HEIGHT,
-  BORDER_SIZE,
-  HOLES,
   PX_PER_M,
-  BALL_RADIUS,
-  BALL_SIZE,
   MAX_POWER,
   STEP_MS,
   cloneState,
   cueBallId,
+  geomFor,
   isInsideHole,
   isOutsideBorder,
   simulateShot,
   type Frame,
   type ShotEvent,
   type ShotInput,
+  type TableGeometry,
   type TableState,
 } from "@pooldawgs/engine";
 import { ballStyle, type BallLike } from "@/lib/balls";
 
 // ── px (engine) ↔ metres (world), origin at table centre, Y up ─────────────
+// Geometry is per-variant (snooker's table is bigger and its balls smaller),
+// so these are set from the active variant at mount via setRenderGeom(). The
+// component is re-keyed on gameType in GameShell, so a fresh scene is built
+// with the correct geometry whenever the variant changes.
 const S = 1 / PX_PER_M;
-const wx = (px: number) => (px - TABLE_WIDTH / 2) * S;
-const wz = (py: number) => (TABLE_HEIGHT / 2 - py) * S;
-const pxX = (worldX: number) => worldX / S + TABLE_WIDTH / 2;
-const pxY = (worldZ: number) => TABLE_HEIGHT / 2 - worldZ / S;
-const R = BALL_RADIUS * S;
+let RG: TableGeometry = geomFor("8ball");
+let R = RG.BALL_RADIUS * S; // ball radius (world metres)
+function setRenderGeom(gameType: TableState["gameType"]): void {
+  RG = geomFor(gameType);
+  R = RG.BALL_RADIUS * S;
+}
+const wx = (px: number) => (px - RG.TABLE_WIDTH / 2) * S;
+const wz = (py: number) => (RG.TABLE_HEIGHT / 2 - py) * S;
+const pxX = (worldX: number) => worldX / S + RG.TABLE_WIDTH / 2;
+const pxY = (worldZ: number) => RG.TABLE_HEIGHT / 2 - worldZ / S;
 
 const FRAME_STRIDE = 2;
 const FRAME_MS = STEP_MS * FRAME_STRIDE;
@@ -67,10 +74,10 @@ const SOLID = "#f5efe0";
 const CAM_ALPHA = -Math.PI / 2; // -90°
 const CAM_BETA = 0.56; // ≈32° from vertical (≈58° elevation)
 const CAM_RADIUS = 5.0;
-// Half-extents of the framed region (metres). Aspect-fit keeps the table fully
-// visible at ~75% occupancy on both desktop and mobile-landscape.
-const ORTHO_HALF_W = 1.62;
-const ORTHO_HALF_H = 0.86;
+// Framing margin over the table's world size (the bigger snooker table is
+// auto-fit because the bounds derive from RG at render time).
+const FRAME_MARGIN_W = 1.12;
+const FRAME_MARGIN_H = 1.3;
 
 // Re-export so callers (GameShell) can share one ShotAnimation type.
 export interface ShotAnimation {
@@ -129,7 +136,10 @@ export default function PoolTable3D({
 }: PoolTable3DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** Aim target in engine px (where the cue is pointed). */
-  const aimTarget = useRef({ x: TABLE_WIDTH * 0.7, y: TABLE_HEIGHT / 2 });
+  const aimTarget = useRef({
+    x: geomFor(state.gameType).TABLE_WIDTH * 0.7,
+    y: geomFor(state.gameType).TABLE_HEIGHT / 2,
+  });
   const charging = useRef(false);
   const placingBall = useRef(false);
   const keysDown = useRef(new Set<string>());
@@ -216,6 +226,7 @@ export default function PoolTable3D({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    setRenderGeom(state.gameType); // select this variant's table/ball size
     const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, antialias: true });
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.03, 0.04, 0.035, 1);
@@ -227,16 +238,24 @@ export default function PoolTable3D({
     cam.minZ = 0.1;
     cam.maxZ = 100;
     // Fixed during gameplay — no orbit (premium feel). (No attachControl.)
+    // Aiming-camera ease (Golden Spec): 0 = idle main camera, 1 = "leaned in"
+    // while the player charges a shot (subtle zoom + steeper tilt, ~250ms).
+    let camAim = 0;
     const applyOrtho = () => {
       const aspect = (canvas.clientWidth || 16) / (canvas.clientHeight || 9);
-      let halfW = ORTHO_HALF_W;
-      let halfH = ORTHO_HALF_H;
-      if (aspect > ORTHO_HALF_W / ORTHO_HALF_H) halfW = halfH * aspect;
-      else halfH = halfW / aspect;
-      cam.orthoLeft = -halfW;
-      cam.orthoRight = halfW;
-      cam.orthoTop = halfH;
-      cam.orthoBottom = -halfH;
+      // Frame the actual (per-variant) table: its world half-width, and its
+      // half-depth foreshortened by the camera tilt, each with a margin.
+      const needW = ((RG.TABLE_WIDTH * S) / 2) * FRAME_MARGIN_W;
+      const needH = ((RG.TABLE_HEIGHT * S) / 2) * Math.cos(CAM_BETA) * FRAME_MARGIN_H;
+      let halfW = needW;
+      let halfH = needH;
+      if (needW / needH < aspect) halfW = needH * aspect;
+      else halfH = needW / aspect;
+      const zoom = 1 - 0.08 * camAim; // ease ~8% closer while aiming
+      cam.orthoLeft = -halfW * zoom;
+      cam.orthoRight = halfW * zoom;
+      cam.orthoTop = halfH * zoom;
+      cam.orthoBottom = -halfH * zoom;
     };
     applyOrtho();
 
@@ -256,6 +275,11 @@ export default function PoolTable3D({
     shadow.usePercentageCloserFiltering = true;
     shadow.blurScale = 2;
 
+    // Dark-studio image-based environment (Golden Spec HDRI), generated in code
+    // so no .hdr asset ships. Gives the gold trim and the clearcoat balls real
+    // reflections (a bright overhead "softbox", dark walls, warm accent band).
+    buildStudioEnv(scene);
+
     buildTable(scene);
 
     // ── Balls ──
@@ -268,6 +292,14 @@ export default function PoolTable3D({
       shadow.addShadowCaster(b);
       balls.push(b);
     }
+
+    // Pocket-drop tweens: ballId → state. When a ball is potted we sink its
+    // mesh into the pocket well (toward the hole centre, down, shrinking)
+    // instead of snapping it invisible — the "ball goes into the hole" look.
+    const drops = new Map<
+      number,
+      { x0: number; z0: number; hx: number; hz: number; startedAt: number }
+    >();
     // ── Cue stick ──
     const cueRig = new TransformNode("cueRig", scene);
     const stickLen = 1.45;
@@ -310,6 +342,7 @@ export default function PoolTable3D({
       // from the previous rack linger on the table ("fake balls").
       for (let i = 0; i < balls.length; i++) {
         const m = balls[i];
+        if (drops.has(i)) continue; // a pocket-drop tween owns this mesh
         const ball = s.balls[i];
         if (!ball) {
           m.isVisible = false;
@@ -407,11 +440,57 @@ export default function PoolTable3D({
     window.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
+    // Pocket centres in world space (per-variant), for the drop tween target.
+    const holeWorlds = RG.HOLES.map((h) => ({ x: wx(h.x), z: wz(h.y) }));
+    const nearestHole = (x: number, z: number) => {
+      let best = { x: 0, z: 0, d: Infinity };
+      for (const h of holeWorlds) {
+        const d = (h.x - x) ** 2 + (h.z - z) ** 2;
+        if (d < best.d) best = { x: h.x, z: h.z, d };
+      }
+      return best;
+    };
+    const DROP_MS = 300;
+    const advanceDrops = (now: number) => {
+      for (const [id, d] of drops) {
+        const m = balls[id];
+        if (!m) {
+          drops.delete(id);
+          continue;
+        }
+        const t = Math.min(1, (now - d.startedAt) / DROP_MS);
+        const e = t * t; // ease-in: accelerate as it falls in
+        m.isVisible = true;
+        m.position.x = d.x0 + (d.hx - d.x0) * e;
+        m.position.z = d.z0 + (d.hz - d.z0) * e;
+        m.position.y = R - R * 2.4 * e; // sink through the cloth into the well
+        const sc = 1 - 0.5 * t;
+        m.scaling.set(sc, sc, sc);
+        if (t >= 1) {
+          m.isVisible = false;
+          m.scaling.set(1, 1, 1);
+          m.position.y = R;
+          drops.delete(id);
+        }
+      }
+    };
+
     let raf = 0;
     engine.runRenderLoop(() => {
-      applyOrtho(); // keep the table framed even before ResizeObserver settles
       const p = propsRef.current;
       const now = performance.now();
+      // Aiming camera: lean in while charging a shot, ease back when idle.
+      const aiming01 =
+        !playing.current &&
+        p.interactive &&
+        !p.state.gameOver &&
+        !p.state.ballInHand &&
+        (charging.current || keysDown.current.has("w") || p.power > 1)
+          ? 1
+          : 0;
+      camAim += (aiming01 - camAim) * 0.16; // ~250ms ease at 60fps
+      cam.beta = CAM_BETA - 0.05 * camAim; // a touch more top-down when aiming
+      applyOrtho(); // keep the table framed even before ResizeObserver settles
 
       // Power charging (hold-click + W/S), mirrors the 2D canvas.
       const dt = lastTick.current ? Math.min(now - lastTick.current, 100) : 16;
@@ -434,8 +513,20 @@ export default function PoolTable3D({
         while (anim.eventIdx < anim.events.length && anim.events[anim.eventIdx].step <= simStep) {
           const e = anim.events[anim.eventIdx++];
           if (e.type === "ballsCollide") playSound("/assets/sounds/balls-collide.wav", 0.35, p.muted);
-          else if (e.type === "pocket") playSound("/assets/sounds/hole.wav", 0.5, p.muted);
-          else if (e.type === "cushion") playSound("/assets/sounds/side.wav", 0.15, p.muted);
+          else if (e.type === "pocket") {
+            playSound("/assets/sounds/hole.wav", 0.5, p.muted);
+            const m = balls[e.ballId];
+            if (m && !drops.has(e.ballId)) {
+              const hole = nearestHole(m.position.x, m.position.z);
+              drops.set(e.ballId, {
+                x0: m.position.x,
+                z0: m.position.z,
+                hx: hole.x,
+                hz: hole.z,
+                startedAt: now,
+              });
+            }
+          } else if (e.type === "cushion") playSound("/assets/sounds/side.wav", 0.15, p.muted);
         }
         cueRig.setEnabled(false);
         aimLine.isVisible = false;
@@ -487,6 +578,7 @@ export default function PoolTable3D({
           if (m) m.visibility = 1;
         }
       }
+      advanceDrops(now); // run pocket-drop tweens in both branches
       scene.render();
     });
 
@@ -526,7 +618,7 @@ function overlapsBall(state: TableState, x: number, y: number): boolean {
   const cue = cueBallId(state);
   for (const ball of state.balls) {
     if (ball.id === cue || ball.inHole) continue;
-    if (Math.hypot(x - ball.x, y - ball.y) < BALL_SIZE) return true;
+    if (Math.hypot(x - ball.x, y - ball.y) < RG.BALL_SIZE) return true;
   }
   return false;
 }
@@ -619,11 +711,64 @@ function styleBall(mesh: Mesh, ball: BallLike, scene: Scene): void {
   mesh.material = mat;
 }
 
+/** Procedural "dark studio" cube environment for PBR reflections — a bright
+ *  soft overhead light, a dark floor, and dark walls with a warm accent band.
+ *  Built from raw pixels so no external HDR asset is required. */
+function buildStudioEnv(scene: Scene): void {
+  const N = 128;
+  const faces: ArrayBufferView[] = [];
+  for (let f = 0; f < 6; f++) {
+    const buf = new Uint8Array(N * N * 4);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const i = (y * N + x) * 4;
+        let r: number, g: number, b: number;
+        if (f === 2) {
+          // +Y top: soft circular key light (the "softbox").
+          const dx = (x - N / 2) / (N / 2);
+          const dy = (y - N / 2) / (N / 2);
+          const k = Math.max(0, 1 - (dx * dx + dy * dy));
+          r = 58 + 180 * k;
+          g = 60 + 178 * k;
+          b = 64 + 170 * k;
+        } else if (f === 3) {
+          r = 11; // -Y floor: dark
+          g = 13;
+          b = 15;
+        } else {
+          // Walls: lighter at the top, with a faint warm accent band.
+          const v = y / (N - 1);
+          const base = 56 + (16 - 56) * v;
+          const warm = Math.max(0, 1 - Math.abs(v - 0.16) * 6) * 16;
+          r = base + warm;
+          g = base + warm * 0.78;
+          b = base + warm * 0.4;
+        }
+        buf[i] = Math.min(255, Math.round(r));
+        buf[i + 1] = Math.min(255, Math.round(g));
+        buf[i + 2] = Math.min(255, Math.round(b));
+        buf[i + 3] = 255;
+      }
+    }
+    faces.push(buf);
+  }
+  const env = new RawCubeTexture(
+    scene,
+    faces,
+    N,
+    Constants.TEXTUREFORMAT_RGBA,
+    Constants.TEXTURETYPE_UNSIGNED_INT,
+    true // generate mipmaps for smoother reflections on glossy surfaces
+  );
+  scene.environmentTexture = env;
+  scene.environmentIntensity = 0.55;
+}
+
 function buildTable(scene: Scene): void {
-  const playW = (TABLE_WIDTH - 2 * BORDER_SIZE) * S;
-  const playH = (TABLE_HEIGHT - 2 * BORDER_SIZE) * S;
-  const fullW = TABLE_WIDTH * S;
-  const fullH = TABLE_HEIGHT * S;
+  const playW = (RG.TABLE_WIDTH - 2 * RG.BORDER_SIZE) * S;
+  const playH = (RG.TABLE_HEIGHT - 2 * RG.BORDER_SIZE) * S;
+  const fullW = RG.TABLE_WIDTH * S;
+  const fullH = RG.TABLE_HEIGHT * S;
 
   // Felt (roughness 0.85, metallic 0). The cloth uses a baked texture so the
   // Pool Dawgs dawg-head watermark shows like a real table stencil — the same
@@ -680,7 +825,7 @@ function buildTable(scene: Scene): void {
   goldMat.roughness = 0.2;
   goldMat.emissiveColor = Color3.FromHexString("#2e2208"); // reads gold without an HDRI
 
-  const rt = BORDER_SIZE * S * 0.8;
+  const rt = RG.BORDER_SIZE * S * 0.8;
   const rails: Array<[number, number, number, number]> = [
     [0, fullH / 2 - rt / 2, fullW, rt],
     [0, -fullH / 2 + rt / 2, fullW, rt],
@@ -703,7 +848,7 @@ function buildTable(scene: Scene): void {
   holeMat.albedoColor = new Color3(0.02, 0.02, 0.03);
   holeMat.metallic = 0;
   holeMat.roughness = 0.9;
-  for (const hole of HOLES) {
+  for (const hole of RG.HOLES) {
     const r = hole.radius * S * 0.92;
     const cyl = MeshBuilder.CreateCylinder("hole", { diameter: r * 2, height: 0.05, tessellation: 28 }, scene);
     cyl.position.set(wx(hole.x), 0.002, wz(hole.y));

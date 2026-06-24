@@ -1,6 +1,5 @@
 import {
   BACK_SPIN,
-  BALL_SIZE,
   MAX_POWER,
   MAX_STEPS,
   SIDE_ENGLISH,
@@ -9,6 +8,7 @@ import {
   SPIN_TRANSFER,
   TOP_SPIN,
 } from "./constants.js";
+import { G, setActiveGeometry } from "./geometry.js";
 import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.js";
 import { getRules } from "./variants/index.js";
 import type {
@@ -49,6 +49,7 @@ export function cloneState(state: TableState): TableState {
     playerColors: [state.playerColors[0], state.playerColors[1]],
     scores: [state.scores[0], state.scores[1]],
     onColor: state.onColor,
+    broken: state.broken,
   };
 }
 
@@ -127,6 +128,7 @@ export function simulateShot(
   if (!valid.ok) throw new Error(`illegal shot: ${valid.reason}`);
 
   const next = cloneState(state);
+  setActiveGeometry(next.gameType); // select this variant's table/ball geometry
   const rules: GameRules<unknown> = getRules(next.gameType);
   const turnAcc = rules.createTurn();
   const events: ShotEvent[] = [];
@@ -252,6 +254,7 @@ export function placeCueBall(
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     return { ok: false, reason: "invalid position" };
   }
+  setActiveGeometry(state.gameType); // border/hole/overlap checks are per-variant
   if (isOutsideBorder(x, y)) return { ok: false, reason: "outside borders" };
   if (isInsideHole(x, y)) return { ok: false, reason: "inside a pocket" };
 
@@ -260,7 +263,7 @@ export function placeCueBall(
     if (ball.id === cueIdx || ball.inHole) continue;
     const dx = x - ball.x;
     const dy = y - ball.y;
-    if (Math.sqrt(dx * dx + dy * dy) < BALL_SIZE) {
+    if (Math.sqrt(dx * dx + dy * dy) < G.BALL_SIZE) {
       return { ok: false, reason: "overlaps another ball" };
     }
   }

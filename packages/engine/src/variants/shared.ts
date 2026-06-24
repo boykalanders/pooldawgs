@@ -1,4 +1,4 @@
-import { BALL_SIZE } from "../constants.js";
+import { G } from "../geometry.js";
 import type { BallState, TableState } from "../types.js";
 
 /** Per-shot facts recorded by the variant-agnostic observers. */
@@ -55,11 +55,11 @@ export function respot(state: TableState, ball: BallState): void {
       (o) =>
         o.id !== ball.id &&
         !o.inHole &&
-        Math.sqrt((o.x - px) ** 2 + (o.y - hy) ** 2) < BALL_SIZE
+        Math.sqrt((o.x - px) ** 2 + (o.y - hy) ** 2) < G.BALL_SIZE
     );
   let guard = 0;
   while (occupied(x) && guard < 40) {
-    x += BALL_SIZE;
+    x += G.BALL_SIZE;
     guard++;
   }
   ball.x = x;
