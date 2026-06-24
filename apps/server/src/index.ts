@@ -1,6 +1,8 @@
 import { setSimulator } from "@pooldawgs/engine";
 import { initHavok, simulateShotHavok } from "@pooldawgs/engine/havok";
 import { loadConfig } from "./config.js";
+import { createPersistence } from "./db/persistence.js";
+import { LeaderboardStore } from "./leaderboard.js";
 import { createPoolDawgsServer } from "./server.js";
 
 const config = loadConfig();
@@ -19,7 +21,14 @@ async function main() {
     console.log("Physics backend: built-in TS engine");
   }
 
-  const server = createPoolDawgsServer(config);
+  // Persistent leaderboard: Postgres if configured + reachable, else SQLite.
+  // Load the saved rows so the ranking survives restarts; the chain indexer
+  // then resumes from the saved block (or backfills from the deploy block).
+  const persistence = await createPersistence(config);
+  const leaderboard = new LeaderboardStore(persistence);
+  await leaderboard.load();
+
+  const server = createPoolDawgsServer(config, undefined, undefined, leaderboard);
   server.httpServer.listen(config.port, () => {
     console.log(
       `PoolDawgs server on :${config.port} ` +

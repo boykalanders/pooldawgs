@@ -72,16 +72,42 @@ export function startChainListener(
     }
   }
 
+  async function refreshStats(): Promise<void> {
+    try {
+      const [games, wagered, burned] = await contract.platformStats();
+      leaderboard.setChainStats({
+        games: Number(games),
+        totalWagered: wagered.toString(),
+        totalBurned: burned.toString(),
+      });
+    } catch {
+      // Older contract without platformStats(): keep the derived figures.
+    }
+  }
+
   async function poll(): Promise<void> {
     if (stopped) return;
     try {
       const head = await provider.getBlockNumber();
-      if (next < 0) next = Math.max(0, head - BACKFILL_BLOCKS);
+      if (next < 0) {
+        // Resume from the persisted cursor; else backfill the FULL history from
+        // the contract's deploy block; else (no deploy block set) the recent
+        // window so a fresh dev server still shows something.
+        const cursor = leaderboard.getCursor();
+        next =
+          cursor != null
+            ? cursor + 1
+            : config.contractDeployBlock > 0
+              ? config.contractDeployBlock
+              : Math.max(0, head - BACKFILL_BLOCKS);
+      }
       while (next <= head) {
         const to = Math.min(next + MAX_SPAN - 1, head);
         await scan(next, to);
+        leaderboard.setCursor(to); // persist progress so restarts resume here
         next = to + 1;
       }
+      await refreshStats();
     } catch (e) {
       console.error("[chain] poll error:", e instanceof Error ? e.message : e);
     }

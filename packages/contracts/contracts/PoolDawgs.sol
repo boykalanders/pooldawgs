@@ -96,6 +96,16 @@ contract PoolDawgs is
     ///         unlocks play — no contract change to add a future game's NFT.
     address public registry;
 
+    /// @notice Lifetime platform aggregates for the leaderboard stats panel
+    ///         (GAMES PLAYED / TOTAL WAGERED / BURNED). Incremented on every
+    ///         settlement so the panel is read straight from the chain — no
+    ///         trust in the backend. Appended at the END of storage to keep the
+    ///         proxy upgrade layout safe. They count from this upgrade forward;
+    ///         seedPlatformTotals() can set the pre-upgrade history once.
+    uint256 public totalGamesFinished;
+    uint256 public totalWageredWei; // sum of pots (both stakes) of finished games
+    uint256 public totalBurnedWei; // sum of the 10% burn cut of finished games
+
     bytes32 private constant RESULT_TYPEHASH =
         keccak256("Result(string gameId,address winner)");
 
@@ -231,8 +241,40 @@ contract PoolDawgs is
         g.isCompleted = true;
         g.winner = winner;
         completedAt[gameId] = block.timestamp;
+        _recordSettlement(g.stake);
 
         emit GameFinished(gameId, winner, _winnerShare(g.stake));
+    }
+
+    /// @dev Bump the on-chain platform aggregates for one settled game.
+    function _recordSettlement(uint256 stake) private {
+        uint256 pot = stake * 2;
+        totalGamesFinished += 1;
+        totalWageredWei += pot;
+        totalBurnedWei += (pot * BURN_PERCENT) / 100;
+    }
+
+    /// @notice Lifetime platform totals, read straight from the chain for the
+    ///         leaderboard stats panel: (games played, total wagered, burned).
+    function platformStats()
+        external
+        view
+        returns (uint256 games, uint256 wagered, uint256 burned)
+    {
+        return (totalGamesFinished, totalWageredWei, totalBurnedWei);
+    }
+
+    /// @notice One-time owner seed of the pre-upgrade history (summed off-chain
+    ///         from past GameFinished events). Only callable while the totals
+    ///         are still zero, so it can never rewrite live figures.
+    function seedPlatformTotals(uint256 games, uint256 wagered, uint256 burned)
+        external
+        onlyOwner
+    {
+        require(totalGamesFinished == 0 && totalWageredWei == 0 && totalBurnedWei == 0, "already set");
+        totalGamesFinished = games;
+        totalWageredWei = wagered;
+        totalBurnedWei = burned;
     }
 
     /// @notice Winner pulls 80% of the pot; 10% goes to the company wallet,
@@ -278,6 +320,7 @@ contract PoolDawgs is
         g.rewardClaimed = true;
         completedAt[gameId] = block.timestamp;
         playerPaid[gameId][msg.sender] = true;
+        _recordSettlement(g.stake);
 
         uint256 pot = g.stake * 2;
         uint256 share = _winnerShare(g.stake);

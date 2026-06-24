@@ -474,9 +474,9 @@ export default function PoolTable3D({
     // Pocket-drop phases (real-world feel): the ball drops into the pocket
     // mouth, RATTLES around the jaws for ~0.6 s (decaying jitter), then sinks
     // out of sight and vanishes.
-    const DROP_IN_MS = 170; // fall into the pocket mouth
-    const RATTLE_MS = 620; // bounce around the jaws
-    const SINK_MS = 170; // drop out of sight
+    const DROP_IN_MS = 150; // fall into the pocket mouth
+    const RATTLE_MS = 180; // a couple of quick jaw rattles (~0.18s, 2–3 shakes)
+    const SINK_MS = 150; // drop out of sight
     const DROP_TOTAL = DROP_IN_MS + RATTLE_MS + SINK_MS;
     const REST_Y = R * 0.4; // nestled in the pocket but still visible
     const advanceDrops = (now: number) => {
@@ -504,14 +504,14 @@ export default function PoolTable3D({
           m.position.y = R + (REST_Y - R) * e;
           m.scaling.set(1, 1, 1);
         } else if (age < DROP_IN_MS + RATTLE_MS) {
-          // 2) rattle around the jaws — multi-frequency, decaying amplitude.
+          // 2) a couple of quick jaw rattles — ~2–3 shakes, decaying fast.
           const rt = (age - DROP_IN_MS) / RATTLE_MS; // 0..1
           const decay = 1 - rt;
-          const amp = R * 0.45 * decay;
-          const ph = age * 0.05;
-          m.position.x = d.hx + (Math.cos(ph * 2.1) + 0.4 * Math.cos(ph * 5.7)) * amp;
-          m.position.z = d.hz + (Math.sin(ph * 2.6) + 0.4 * Math.sin(ph * 6.3)) * amp;
-          m.position.y = REST_Y + Math.abs(Math.sin(ph * 3.4)) * R * 0.22 * decay;
+          const ph = (age - DROP_IN_MS) * 0.09; // ~2.6 oscillations over 0.18s
+          const amp = R * 0.32 * decay;
+          m.position.x = d.hx + Math.cos(ph) * amp;
+          m.position.z = d.hz + Math.sin(ph) * amp * 0.7;
+          m.position.y = REST_Y + Math.abs(Math.sin(ph)) * R * 0.12 * decay;
           m.scaling.set(1, 1, 1);
         } else {
           // 3) sink out of sight and shrink away.
@@ -830,14 +830,33 @@ function buildTable(scene: Scene): void {
   const feltTex = new DynamicTexture("feltTex", { width: 1024, height: 512 }, scene, true);
   const fctx = feltTex.getContext() as unknown as CanvasRenderingContext2D;
   const paintFelt = () => {
-    // Tournament cloth with a soft radial vignette — brighter under the lights,
-    // deeper green toward the cushions for a premium sense of depth.
-    const g = fctx.createRadialGradient(512, 256, 120, 512, 256, 640);
-    g.addColorStop(0, "#1fb178");
-    g.addColorStop(0.7, "#149a68");
-    g.addColorStop(1, "#0c6b47");
+    // Tournament cloth: a vivid green with a soft radial vignette (brighter
+    // under the lights, deeper at the cushions) plus a faint woven nap so it
+    // reads as real felt rather than a flat fill.
+    const g = fctx.createRadialGradient(512, 256, 110, 512, 256, 660);
+    g.addColorStop(0, "#23c184");
+    g.addColorStop(0.65, "#159f6a");
+    g.addColorStop(1, "#0a6442");
     fctx.fillStyle = g;
     fctx.fillRect(0, 0, 1024, 512);
+    // Woven nap — fine threads in both directions, very faint.
+    fctx.save();
+    fctx.globalAlpha = 0.05;
+    fctx.strokeStyle = "#063e29";
+    for (let y = 0; y < 512; y += 3) {
+      fctx.beginPath();
+      fctx.moveTo(0, y);
+      fctx.lineTo(1024, y);
+      fctx.stroke();
+    }
+    fctx.globalAlpha = 0.03;
+    for (let x = 0; x < 1024; x += 3) {
+      fctx.beginPath();
+      fctx.moveTo(x, 0);
+      fctx.lineTo(x, 512);
+      fctx.stroke();
+    }
+    fctx.restore();
   };
   paintFelt();
   feltTex.update();
@@ -889,21 +908,33 @@ function buildTable(scene: Scene): void {
   goldMat.emissiveColor = Color3.FromHexString("#2e2208"); // reads gold without an HDRI
 
   const rt = RG.BORDER_SIZE * S * 0.8;
-  const rails: Array<[number, number, number, number]> = [
-    [0, fullH / 2 - rt / 2, fullW, rt],
-    [0, -fullH / 2 + rt / 2, fullW, rt],
-    [fullW / 2 - rt / 2, 0, rt, fullH],
-    [-fullW / 2 + rt / 2, 0, rt, fullH],
-  ];
-  for (const [x, z, w, d] of rails) {
+  // Cushion segments leave real openings at the pockets (cut at the corners and
+  // split at the centre pockets), like an actual table — not one continuous box.
+  const cr = RG.HOLE_RADIUS * S; // corner pocket radius (world)
+  const mr = (RG.HOLES[4]?.radius ?? RG.HOLE_RADIUS) * S; // centre pocket radius
+  const cg = cr * 1.5; // gap cut from each rail end (corner pocket)
+  const mg = mr * 1.4; // half-gap at the centre pocket
+  const halfW = fullW / 2;
+  const halfH = fullH / 2;
+  const makeRail = (cx: number, cz: number, w: number, d: number) => {
     const rail = MeshBuilder.CreateBox("rail", { width: w, height: 0.06, depth: d }, scene);
-    rail.position.set(x, 0.022, z);
+    rail.position.set(cx, 0.022, cz);
     rail.material = railMat;
     rail.receiveShadows = true;
-    // Thin gold inner lip.
     const lip = MeshBuilder.CreateBox("lip", { width: w * 0.99, height: 0.012, depth: d * 0.99 }, scene);
-    lip.position.set(x, 0.05, z);
+    lip.position.set(cx, 0.05, cz);
     lip.material = goldMat;
+  };
+  // Top & bottom long rails: two segments each (corner gaps + centre gap).
+  const longSegLen = halfW - cg - mg; // length of each half-rail segment
+  for (const z of [halfH - rt / 2, -halfH + rt / 2]) {
+    makeRail(-(mg + longSegLen / 2), z, longSegLen, rt); // left half
+    makeRail(mg + longSegLen / 2, z, longSegLen, rt); // right half
+  }
+  // Left & right short rails: single segment, cut at both corners.
+  const shortLen = fullH - 2 * cg;
+  for (const x of [halfW - rt / 2, -halfW + rt / 2]) {
+    makeRail(x, 0, rt, shortLen);
   }
 
   // Diamond sights — the classic mother-of-pearl inlays on the rail caps that
@@ -933,18 +964,37 @@ function buildTable(scene: Scene): void {
     placeDiamond(-shortInsetX, fullH * fz);
   }
 
-  // Pockets: dark wells + gold rims.
-  const holeMat = new PBRMaterial("holeMat", scene);
-  holeMat.albedoColor = new Color3(0.02, 0.02, 0.03);
-  holeMat.metallic = 0;
-  holeMat.roughness = 0.9;
+  // Pockets: a recessed dark throat with a leather liner and a gold trim ring —
+  // a real cut opening in the cloth (now framed by the rail gaps), not a disc.
+  const wellMat = new PBRMaterial("wellMat", scene);
+  wellMat.albedoColor = new Color3(0.012, 0.012, 0.016);
+  wellMat.metallic = 0;
+  wellMat.roughness = 0.95;
+  const leatherMat = new PBRMaterial("leatherMat", scene);
+  leatherMat.albedoColor = Color3.FromHexString("#1c1208");
+  leatherMat.metallic = 0;
+  leatherMat.roughness = 0.6;
+  leatherMat.clearCoat.isEnabled = true;
+  leatherMat.clearCoat.intensity = 0.3;
   for (const hole of RG.HOLES) {
-    const r = hole.radius * S * 0.92;
-    const cyl = MeshBuilder.CreateCylinder("hole", { diameter: r * 2, height: 0.05, tessellation: 28 }, scene);
-    cyl.position.set(wx(hole.x), 0.002, wz(hole.y));
-    cyl.material = holeMat;
-    const rim = MeshBuilder.CreateTorus("rim", { diameter: r * 2.05, thickness: r * 0.16, tessellation: 28 }, scene);
-    rim.position.set(wx(hole.x), 0.03, wz(hole.y));
-    rim.material = goldMat;
+    const r = hole.radius * S;
+    const hx = wx(hole.x);
+    const hz = wz(hole.y);
+    // Deep throat the ball drops into (well below the cloth).
+    const well = MeshBuilder.CreateCylinder("well", { diameter: r * 1.9, height: 0.16, tessellation: 32 }, scene);
+    well.position.set(hx, -0.07, hz);
+    well.material = wellMat;
+    // Dark mouth flush with the cloth so the opening reads as cut into the felt.
+    const mouth = MeshBuilder.CreateCylinder("mouth", { diameter: r * 2, height: 0.008, tessellation: 32 }, scene);
+    mouth.position.set(hx, 0.005, hz);
+    mouth.material = wellMat;
+    // Leather pocket liner around the mouth.
+    const liner = MeshBuilder.CreateTorus("liner", { diameter: r * 2.16, thickness: r * 0.42, tessellation: 32 }, scene);
+    liner.position.set(hx, 0.016, hz);
+    liner.material = leatherMat;
+    // Thin gold trim ring (luxury accent).
+    const ring = MeshBuilder.CreateTorus("ring", { diameter: r * 2.4, thickness: r * 0.12, tessellation: 32 }, scene);
+    ring.position.set(hx, 0.024, hz);
+    ring.material = goldMat;
   }
 }

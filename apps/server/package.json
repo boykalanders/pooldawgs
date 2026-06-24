@@ -14,6 +14,7 @@
     "@pooldawgs/shared": "workspace:*",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.4",
+    "pg": "^8.22.0",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

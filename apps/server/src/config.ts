@@ -17,6 +17,15 @@ export interface ServerConfig {
   dataDir: string;
   /** Authoritative physics: "havok" (real 3D physics) or "ts" (built-in). */
   physicsBackend: "havok" | "ts";
+  /** PostgreSQL connection string for the persistent leaderboard. When set and
+   *  reachable it's used; otherwise the server falls back to SQLite. */
+  databaseUrl: string | null;
+  /** SQLite file path for the leaderboard fallback (and default in dev). */
+  sqlitePath: string;
+  /** Block the PoolDawgs contract was deployed at — the indexer backfills the
+   *  full leaderboard history from here on startup (0 = scan from genesis,
+   *  which most RPCs reject, so set this for a real deployment). */
+  contractDeployBlock: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -36,5 +45,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     chainEnabled: Boolean(rpcUrl && contractAddress),
     dataDir: env.DATA_DIR || process.cwd(),
     physicsBackend: env.PHYSICS_BACKEND === "ts" ? "ts" : "havok",
+    databaseUrl: env.DATABASE_URL || null,
+    sqlitePath: env.SQLITE_PATH || `${env.DATA_DIR || process.cwd()}/leaderboard.db`,
+    contractDeployBlock: Number(env.CONTRACT_DEPLOY_BLOCK) || 0,
   };
 }

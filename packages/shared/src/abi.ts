@@ -154,6 +154,29 @@ export const POOL_DAWGS_ABI = [
     ],
     outputs: [],
   },
+  // ── platform stats (read straight from the chain for the leaderboard) ──
+  {
+    type: "function",
+    name: "platformStats",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "games", type: "uint256" },
+      { name: "wagered", type: "uint256" },
+      { name: "burned", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "seedPlatformTotals",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "games", type: "uint256" },
+      { name: "wagered", type: "uint256" },
+      { name: "burned", type: "uint256" },
+    ],
+    outputs: [],
+  },
   // ── events ──
   {
     type: "event",

@@ -37,9 +37,11 @@ const roomChannel = (gameId: string) => `game:${gameId}`;
 export function createPoolDawgsServer(
   config: ServerConfig,
   relayer: Relayer = createRelayer(config),
-  chainReader: ChainReader = createChainReader(config)
+  chainReader: ChainReader = createChainReader(config),
+  // Built (with persistence) and pre-loaded by the caller; defaults to an
+  // ephemeral in-memory store for tests/dev.
+  leaderboard: LeaderboardStore = new LeaderboardStore()
 ): PoolDawgsServer {
-  const leaderboard = new LeaderboardStore();
   const profiles = new ProfileStore(config.dataDir);
 
   // Accept the configured origins PLUS any localhost / 127.0.0.1 origin (any

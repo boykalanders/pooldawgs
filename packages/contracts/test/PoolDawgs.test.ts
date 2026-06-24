@@ -98,6 +98,25 @@ describe("PoolDawgs", () => {
       );
     });
 
+    it("tracks on-chain platform totals (games / wagered / burned) on finish", async () => {
+      let s = await pool.platformStats();
+      expect(s.games).to.equal(0n);
+      await createAndJoin();
+      await pool.connect(owner).finishGame(GAME_ID, p1.address);
+      s = await pool.platformStats();
+      expect(s.games).to.equal(1n);
+      expect(s.wagered).to.equal(POT);
+      expect(s.burned).to.equal(BURN_SHARE);
+    });
+
+    it("owner can seed pre-upgrade totals once, then not overwrite", async () => {
+      await pool.connect(owner).seedPlatformTotals(5n, POT * 5n, BURN_SHARE * 5n);
+      expect((await pool.platformStats()).games).to.equal(5n);
+      await expect(
+        pool.connect(owner).seedPlatformTotals(1n, 1n, 1n)
+      ).to.be.revertedWith("already set");
+    });
+
     it("only the winner can claim", async () => {
       await createAndJoin();
       await pool.connect(owner).finishGame(GAME_ID, p1.address);
