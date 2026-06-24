@@ -8,7 +8,9 @@
     "node:local": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy-local.ts --network localhost",
     "deploy:sepolia": "hardhat run scripts/deploy-sepolia.ts --network sepolia",
-    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet"
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
+    "upgrade:pooldawgs:sepolia": "hardhat run scripts/upgrade-pooldawgs.ts --network sepolia",
+    "upgrade:pooldawgs:mainnet": "hardhat run scripts/upgrade-pooldawgs.ts --network mainnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
