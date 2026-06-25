@@ -48,10 +48,12 @@ import { ballStyle, type BallLike } from "@/lib/balls";
 // component is re-keyed on gameType in GameShell, so a fresh scene is built
 // with the correct geometry whenever the variant changes.
 const S = 1 / PX_PER_M;
-// Render balls a hair smaller than the physics collision radius (BALL_RADIUS)
-// so two balls resting one diameter apart show a clean gap instead of visually
-// touching/overlapping at the camera angle.
-const BALL_VIS = 0.94;
+// Render balls a hair LARGER than the physics collision radius so the rack reads
+// as a tight, touching triangle (the engine racks balls ~1px apart for solver
+// stability, which otherwise shows as gaps). Safe now that the camera is
+// straight top-down — there's no perspective foreshortening to make tangent
+// balls look overlapped.
+const BALL_VIS = 1.02;
 let RG: TableGeometry = geomFor("8ball");
 let R = RG.BALL_RADIUS * S * BALL_VIS; // ball radius (world metres, visual)
 function setRenderGeom(gameType: TableState["gameType"]): void {
@@ -69,14 +71,12 @@ const CHARGE_PER_MS = MAX_POWER / 1600;
 const KEY_POWER_PER_MS = MAX_POWER / 1200;
 const SOLID = "#f5efe0";
 
-// Camera/Layout Golden Spec v1.0. NOTE: the spec's "beta 72°" reads as 72° of
-// ELEVATION (Miniclip-style steep top-down); Babylon's beta is measured from
-// the +Y up-axis, so a literal 72° points nearly edge-on and squashes the
-// table. We use ~32° from vertical (≈58° elevation) for the intended premium
-// 3/4 look, and frame the table at ~75% occupancy. Centralised here for easy
-// tuning when the exact preferred angle is dialled in.
-const CAM_ALPHA = -Math.PI / 2; // -90°
-const CAM_BETA = 0.56; // ≈32° from vertical (≈58° elevation)
+// Camera/Layout. Straight TOP-DOWN view (client preference — "no angle"), so the
+// table reads flat like the 2D board. Babylon's beta is measured from the +Y
+// up-axis; a tiny non-zero beta (0.02 rad ≈ 1°) avoids the ArcRotateCamera
+// straight-down singularity while looking, to the eye, perfectly overhead.
+const CAM_ALPHA = -Math.PI / 2; // -90° (keeps the long axis horizontal)
+const CAM_BETA = 0.02; // ≈ straight down (top-down, no perceptible angle)
 const CAM_RADIUS = 5.0;
 // Framing margin over the table's world size (the bigger snooker table is
 // auto-fit because the bounds derive from RG at render time). Tightened a touch
@@ -583,7 +583,8 @@ export default function PoolTable3D({
           ? 1
           : 0;
       camAim += (aiming01 - camAim) * 0.16; // ~250ms ease at 60fps
-      cam.beta = CAM_BETA - 0.05 * camAim; // a touch more top-down when aiming
+      // No tilt on charge — the view stays straight top-down (camAim only drives
+      // the subtle zoom in applyOrtho).
       applyOrtho(); // keep the table framed even before ResizeObserver settles
 
       // Power charging (hold-click + W/S), mirrors the 2D canvas.

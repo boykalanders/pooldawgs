@@ -34,12 +34,12 @@ const GAME_NAME: Record<GameType, string> = {
  */
 export default function PracticePage() {
   const router = useRouter();
-  // Default to the 3D table; ?view=2d forces the classic 2D canvas.
+  // Default to the 2D table (client preference); ?view=3d opens the 3D table.
   const [view, setView] = useState<"2d" | "3d">(() =>
     typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("view") === "2d"
-      ? "2d"
-      : "3d"
+    new URLSearchParams(window.location.search).get("view") === "3d"
+      ? "3d"
+      : "2d"
   );
   const [gameType, setGameType] = useState<GameType>("8ball");
   // Graphics quality — start from a fixed default (no SSR/hydration mismatch),
