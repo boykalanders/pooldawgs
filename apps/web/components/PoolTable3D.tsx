@@ -280,7 +280,7 @@ export default function PoolTable3D({
       let halfH = needH;
       if (needW / needH < aspect) halfW = needH * aspect;
       else halfH = needW / aspect;
-      const zoom = 1 - 0.11 * camAim; // ease ~11% closer while aiming (lean-in)
+      const zoom = 1 - 0.06 * camAim; // ease ~6% closer while aiming (subtle lean-in)
       cam.orthoLeft = -halfW * zoom;
       cam.orthoRight = halfW * zoom;
       cam.orthoTop = halfH * zoom;
