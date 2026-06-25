@@ -43,7 +43,10 @@ import {
 
 export interface ShellPlayer {
   name: string;
+  /** Token balance line (e.g. "2,450.00 $DDAWGS"), shown without an icon. */
   detail?: string;
+  /** Frames/games won — shown as 🏆 N below the balance. */
+  wins?: number;
   badge?: string;
   avatarSrc?: string;
   connected?: boolean;
@@ -345,6 +348,7 @@ export default function GameShell({
         <PlayerCard
           name={players[0].name}
           detail={players[0].detail}
+          wins={players[0].wins}
           badge={players[0].badge}
           avatarSrc={players[0].avatarSrc}
           gameType={state.gameType}
@@ -361,6 +365,7 @@ export default function GameShell({
         <PlayerCard
           name={players[1].name}
           detail={players[1].detail}
+          wins={players[1].wins}
           badge={players[1].badge}
           avatarSrc={players[1].avatarSrc}
           gameType={state.gameType}

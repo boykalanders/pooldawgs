@@ -5,8 +5,10 @@ import { ballAssetByNumber } from "@/lib/balls";
 
 interface PlayerCardProps {
   name: string;
-  /** Sub-line under the tracker (balance, address, …). */
+  /** Token balance line (e.g. "2,450.00 $DDAWGS") — shown without an icon. */
   detail?: string;
+  /** Frames/games won — shown as 🏆 N under the balance. */
+  wins?: number;
   badge?: string;
   /** Portrait image (cropped from the client's UI kit / NFT art later). */
   avatarSrc?: string;
@@ -21,13 +23,13 @@ interface PlayerCardProps {
   flip?: boolean;
 }
 
-/** Top-bar player cluster. Desktop: framed portrait beside the name / tracker /
- *  balance. Mobile: a compact vertical chip — avatar, then the $DDAWGS amount,
- *  then the score / pocketed-ball tracker — so the cards stay narrow and the
- *  table gets more room. The player on turn gets the design's red glowing frame. */
+/** Top-bar player cluster: a framed portrait beside a vertical stat column —
+ *  name, $DDAWGS balance, frames-won (🏆), and the group / score tracker. The
+ *  player on turn gets the design's red glowing frame. */
 export default function PlayerCard({
   name,
   detail,
+  wins,
   badge,
   avatarSrc,
   gameType,
@@ -46,7 +48,7 @@ export default function PlayerCard({
 
   const avatar = (
     <div
-      className={`relative h-16 w-[60px] shrink-0 overflow-visible rounded-lg border-2 touch:h-11 touch:w-10 ${
+      className={`relative h-16 w-[60px] shrink-0 overflow-visible rounded-lg border-2 touch:h-12 touch:w-11 ${
         isTurn
           ? "border-red-600 shadow-[0_0_14px_rgba(220,38,38,0.6)]"
           : "border-gold/70 shadow-gold-glow"
@@ -75,11 +77,10 @@ export default function PlayerCard({
     </div>
   );
 
-  // The score / pocketed-ball tracker (snooker score · 8-ball group balls ·
-  // 9-ball note). On mobile this sits UNDER the amount (order-3).
+  // Group (8-ball pocketed balls) / Score (snooker) tracker.
   const tracker =
     gameType === "snooker" ? (
-      <span className="rounded-md bg-black/60 px-3 py-0.5 font-mono text-lg font-bold text-gold-bright touch:px-2 touch:text-sm">
+      <span className="rounded-md bg-black/60 px-2 py-0.5 font-mono text-base font-bold text-gold-bright touch:text-sm">
         {score}
       </span>
     ) : gameType === "8ball" ? (
@@ -112,49 +113,33 @@ export default function PlayerCard({
       <span className="text-[9px] uppercase tracking-widest text-amber-100/40">rotation — lowest ball first</span>
     );
 
-  // Info column. Flex so the children can be re-ordered per breakpoint:
-  //   desktop → name, tracker, amount   (unchanged design)
-  //   mobile  → name, amount, tracker   (amount under avatar; score/balls under amount)
+  // Vertical stat column beside the avatar: name → balance → 🏆 wins → tracker.
   const info = (
-    <div
-      className={`flex min-w-0 flex-col touch:items-center touch:text-center ${
-        flip ? "desktop:items-end desktop:text-right" : ""
-      }`}
-    >
-      <p className="order-1 truncate font-display text-base font-bold text-amber-50 touch:text-[11px] touch:leading-tight">
-        {name}
-      </p>
+    <div className={`flex min-w-0 flex-col gap-0.5 ${flip ? "items-end text-right" : ""}`}>
+      <p className="truncate font-display text-base font-bold text-amber-50 touch:text-xs">{name}</p>
       {detail && (
-        <p
-          className={`order-3 mt-1 flex items-center gap-1 truncate text-xs font-semibold text-gold-bright touch:order-2 touch:mt-0.5 touch:justify-center touch:text-[10px] ${
-            flip ? "desktop:justify-end" : ""
-          }`}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/token.svg" alt="" className="h-3.5 w-3.5 touch:h-3 touch:w-3" draggable={false} />
-          {detail}
-        </p>
+        <p className="truncate text-xs font-semibold text-gold-bright touch:text-[10px]">{detail}</p>
       )}
-      <div
-        className={`order-2 mt-1 flex touch:order-3 touch:mt-0.5 touch:justify-center ${
-          flip ? "desktop:justify-end" : ""
-        }`}
-      >
-        {tracker}
-      </div>
+      {wins != null && (
+        <p className="text-xs font-semibold text-amber-100/80 touch:text-[10px]">🏆 {wins}</p>
+      )}
+      <div className={`mt-0.5 flex ${flip ? "justify-end" : ""}`}>{tracker}</div>
     </div>
   );
 
   return (
-    <div
-      className={`flex items-center gap-3 px-1 py-1 touch:flex-col touch:gap-0.5 ${
-        flip ? "justify-end" : ""
-      }`}
-    >
-      {/* Avatar is first in the DOM (so it's on top on the mobile column); the
-          desktop flip mirrors it to the right via order. */}
-      <div className={flip ? "desktop:order-2" : ""}>{avatar}</div>
-      {info}
+    <div className={`flex items-center gap-3 px-1 py-1 touch:gap-2 ${flip ? "justify-end" : ""}`}>
+      {flip ? (
+        <>
+          {info}
+          {avatar}
+        </>
+      ) : (
+        <>
+          {avatar}
+          {info}
+        </>
+      )}
     </div>
   );
 }

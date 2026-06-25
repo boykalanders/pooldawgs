@@ -201,8 +201,8 @@ export default function PracticePage() {
     <GameShell
       state={state}
       players={[
-        { ...PLAYERS[0], detail: `2,450.00 $DDAWGS · 🏆 ${frames[0]}`, badge: "42" },
-        { ...PLAYERS[1], detail: `1,980.50 $DDAWGS · 🏆 ${frames[1]}`, badge: "38" },
+        { ...PLAYERS[0], detail: "2,450.00 $DDAWGS", wins: frames[0], badge: "42" },
+        { ...PLAYERS[1], detail: "1,980.50 $DDAWGS", wins: frames[1], badge: "38" },
       ]}
       interactive={!state.gameOver}
       potLabel="250.00 $DDAWGS"
