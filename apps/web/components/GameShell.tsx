@@ -351,10 +351,6 @@ export default function GameShell({
           wins={players[0].wins}
           badge={players[0].badge}
           avatarSrc={players[0].avatarSrc}
-          gameType={state.gameType}
-          group={state.playerColors[0] as BallColor | null}
-          score={state.scores[0]}
-          state={state}
           isTurn={!state.gameOver && state.turn === 0}
           connected={players[0].connected ?? true}
         />
@@ -368,10 +364,6 @@ export default function GameShell({
           wins={players[1].wins}
           badge={players[1].badge}
           avatarSrc={players[1].avatarSrc}
-          gameType={state.gameType}
-          group={state.playerColors[1] as BallColor | null}
-          score={state.scores[1]}
-          state={state}
           isTurn={!state.gameOver && state.turn === 1}
           connected={players[1].connected ?? true}
           flip
@@ -552,6 +544,26 @@ export default function GameShell({
             />
           )}
 
+          {/* Group / score tags, vertical on the table's side rails — player 1
+              on the left, player 2 on the right (pointer-events-none so they
+              never block aiming). */}
+          <div className="pointer-events-none absolute left-0.5 top-1/2 z-10 -translate-y-1/2">
+            <SideTracker
+              gameType={state.gameType}
+              group={state.playerColors[0] as BallColor | null}
+              score={state.scores[0]}
+              state={state}
+            />
+          </div>
+          <div className="pointer-events-none absolute right-0.5 top-1/2 z-10 -translate-y-1/2">
+            <SideTracker
+              gameType={state.gameType}
+              group={state.playerColors[1] as BallColor | null}
+              score={state.scores[1]}
+              state={state}
+            />
+          </div>
+
           {clockExpiresAt != null && !state.gameOver && (
             <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
               <ShotClock expiresAt={clockExpiresAt} />
@@ -704,6 +716,61 @@ function CueBallIcon() {
     <span className="relative inline-block h-5 w-5 rounded-full bg-[#f5efe0] shadow-inner">
       <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-red-800 bg-red-600" />
     </span>
+  );
+}
+
+/** The group / score tag shown vertically on a table side rail: 8-ball — the
+ *  player's group balls stacked top-to-bottom (lit when potted); snooker — the
+ *  running score; 9-ball — nothing (rotation has no per-player set). */
+function SideTracker({
+  gameType,
+  group,
+  score,
+  state,
+}: {
+  gameType: GameType;
+  group: BallColor | null;
+  score: number;
+  state: TableState;
+}) {
+  if (gameType === "snooker") {
+    return (
+      <span className="rounded-md bg-black/55 px-1.5 py-1 font-mono text-base font-bold text-gold-bright shadow touch:text-sm">
+        {score}
+      </span>
+    );
+  }
+  if (gameType !== "8ball") return null;
+  if (group === null) {
+    return (
+      <span className="rounded-full bg-black/45 px-1 py-2 text-[8px] uppercase tracking-widest text-amber-100/50 [writing-mode:vertical-rl]">
+        no group yet
+      </span>
+    );
+  }
+  const balls = state.balls.filter((b) => b.color === group).sort((a, b) => a.number - b.number);
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-full bg-black/45 px-1 py-1.5">
+      {balls.map((b) =>
+        b.inHole ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={b.id}
+            src={ballAssetByNumber(b.number)}
+            alt={`${b.number} pocketed`}
+            title={`${b.number} pocketed`}
+            className="h-4 w-4 touch:h-3.5 touch:w-3.5"
+            draggable={false}
+          />
+        ) : (
+          <span
+            key={b.id}
+            className="h-4 w-4 rounded-full border border-black/60 bg-[#16120e] touch:h-3.5 touch:w-3.5"
+            title="still on the table"
+          />
+        )
+      )}
+    </div>
   );
 }
 
