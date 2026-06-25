@@ -351,6 +351,10 @@ export default function GameShell({
           wins={players[0].wins}
           badge={players[0].badge}
           avatarSrc={players[0].avatarSrc}
+          gameType={state.gameType}
+          group={state.playerColors[0] as BallColor | null}
+          score={state.scores[0]}
+          state={state}
           isTurn={!state.gameOver && state.turn === 0}
           connected={players[0].connected ?? true}
         />
@@ -364,6 +368,10 @@ export default function GameShell({
           wins={players[1].wins}
           badge={players[1].badge}
           avatarSrc={players[1].avatarSrc}
+          gameType={state.gameType}
+          group={state.playerColors[1] as BallColor | null}
+          score={state.scores[1]}
+          state={state}
           isTurn={!state.gameOver && state.turn === 1}
           connected={players[1].connected ?? true}
           flip
@@ -544,22 +552,20 @@ export default function GameShell({
             />
           )}
 
-          {/* Group / score tags, vertical on the table's side rails — player 1
-              on the left, player 2 on the right (pointer-events-none so they
-              never block aiming). */}
-          <div className="pointer-events-none absolute left-0.5 top-1/2 z-10 -translate-y-1/2">
+          {/* 8-ball group tags, vertical on the table's side rails — MOBILE only
+              (desktop keeps them in the player card). Player 1 left, player 2
+              right; pointer-events-none so they never block aiming. */}
+          <div className="pointer-events-none absolute left-0.5 top-1/2 z-10 hidden -translate-y-1/2 touch:block">
             <SideTracker
               gameType={state.gameType}
               group={state.playerColors[0] as BallColor | null}
-              score={state.scores[0]}
               state={state}
             />
           </div>
-          <div className="pointer-events-none absolute right-0.5 top-1/2 z-10 -translate-y-1/2">
+          <div className="pointer-events-none absolute right-0.5 top-1/2 z-10 hidden -translate-y-1/2 touch:block">
             <SideTracker
               gameType={state.gameType}
               group={state.playerColors[1] as BallColor | null}
-              score={state.scores[1]}
               state={state}
             />
           </div>
@@ -719,38 +725,30 @@ function CueBallIcon() {
   );
 }
 
-/** The group / score tag shown vertically on a table side rail: 8-ball — the
- *  player's group balls stacked top-to-bottom (lit when potted); snooker — the
- *  running score; 9-ball — nothing (rotation has no per-player set). */
+/** 8-ball group tag shown vertically on a table side rail (MOBILE only) — the
+ *  player's group balls stacked top-to-bottom, lit when potted. Snooker's score
+ *  and 9-ball's rotation note live in the player card instead, so this renders
+ *  nothing for them. Sized big so it reads clearly on a phone. */
 function SideTracker({
   gameType,
   group,
-  score,
   state,
 }: {
   gameType: GameType;
   group: BallColor | null;
-  score: number;
   state: TableState;
 }) {
-  if (gameType === "snooker") {
-    return (
-      <span className="rounded-md bg-black/55 px-1.5 py-1 font-mono text-base font-bold text-gold-bright shadow touch:text-sm">
-        {score}
-      </span>
-    );
-  }
   if (gameType !== "8ball") return null;
   if (group === null) {
     return (
-      <span className="rounded-full bg-black/45 px-1 py-2 text-[8px] uppercase tracking-widest text-amber-100/50 [writing-mode:vertical-rl]">
+      <span className="rounded-full bg-black/45 px-1.5 py-3 text-[10px] uppercase tracking-widest text-amber-100/55 [writing-mode:vertical-rl]">
         no group yet
       </span>
     );
   }
   const balls = state.balls.filter((b) => b.color === group).sort((a, b) => a.number - b.number);
   return (
-    <div className="flex flex-col items-center gap-1 rounded-full bg-black/45 px-1 py-1.5">
+    <div className="flex flex-col items-center gap-1.5 rounded-full bg-black/45 px-1.5 py-2">
       {balls.map((b) =>
         b.inHole ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -759,13 +757,13 @@ function SideTracker({
             src={ballAssetByNumber(b.number)}
             alt={`${b.number} pocketed`}
             title={`${b.number} pocketed`}
-            className="h-4 w-4 touch:h-3.5 touch:w-3.5"
+            className="h-5 w-5"
             draggable={false}
           />
         ) : (
           <span
             key={b.id}
-            className="h-4 w-4 rounded-full border border-black/60 bg-[#16120e] touch:h-3.5 touch:w-3.5"
+            className="h-5 w-5 rounded-full border border-black/60 bg-[#16120e]"
             title="still on the table"
           />
         )
