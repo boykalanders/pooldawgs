@@ -877,13 +877,13 @@ function buildTable(scene: Scene): void {
     // Tournament cloth: a vivid green with a soft radial vignette (brighter
     // under the lights, deeper at the cushions) plus a faint woven nap so it
     // reads as real felt rather than a flat fill.
-    // Rich emerald like the 2D cloth, with only a gentle vignette so the bulk of
-    // the bed reads as one bright, even green (the dark-edged gradient before was
-    // most of why the 3D felt looked muddy next to the 2D table).
-    const g = fctx.createRadialGradient(512, 256, 160, 512, 256, 720);
-    g.addColorStop(0, "#1eae77");
-    g.addColorStop(0.7, "#179765");
-    g.addColorStop(1, "#0f7a50");
+    // Deep tournament green (Simonis-style) with a lit vignette — brighter under
+    // the lamp, deeper toward the cushions — for a rich, professional bed rather
+    // than a flat or neon fill.
+    const g = fctx.createRadialGradient(512, 256, 150, 512, 256, 720);
+    g.addColorStop(0, "#168459");
+    g.addColorStop(0.65, "#0e6a47");
+    g.addColorStop(1, "#0a5036");
     fctx.fillStyle = g;
     fctx.fillRect(0, 0, 1024, 512);
     // Woven nap — fine threads in both directions, very faint.
@@ -908,12 +908,11 @@ function buildTable(scene: Scene): void {
   paintFelt();
   feltTex.update();
   feltMat.albedoTexture = feltTex;
-  // Emissive floor: the studio lighting is deliberately dim (premium, dark
-  // surround) which made the matte cloth render muddy. Letting the felt emit a
-  // share of its own colour keeps it reading as a clean, bright emerald like the
-  // 2D table, while the remaining lit contribution still takes ball shadows.
+  // Emissive floor keeps the matte cloth from going muddy under the dim studio
+  // lighting without washing it out — a modest 0.3 gives a clean but deep,
+  // professional green (the lit contribution still takes ball shadows).
   feltMat.emissiveTexture = feltTex;
-  feltMat.emissiveColor = new Color3(0.45, 0.45, 0.45);
+  feltMat.emissiveColor = new Color3(0.35, 0.35, 0.35);
   cloth.material = feltMat;
   cloth.receiveShadows = true;
   cloth.position.y = 0;

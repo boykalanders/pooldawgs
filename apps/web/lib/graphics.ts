@@ -12,7 +12,9 @@ export interface GraphicsSettings {
   highRes: boolean;
 }
 
-const KEY = "pooldawgs.graphics.v1";
+// v2: default is now "all effects on" everywhere (was reflections-off on phones)
+// — bumping the key so existing visitors pick up the new default.
+const KEY = "pooldawgs.graphics.v2";
 
 /** Coarse "is this a phone/tablet" check (pointer:coarse ≈ touch primary). */
 export function isTouchPrimary(): boolean {
@@ -20,14 +22,13 @@ export function isTouchPrimary(): boolean {
   return window.matchMedia?.("(pointer: coarse)").matches ?? false;
 }
 
-/** Device-aware default: phones get a balanced preset (no expensive env
- *  reflections), desktops get everything on. */
+/** Default: show ALL effects in 3D everywhere (client preference). Users on
+ *  weaker phones can still dial individual effects down via the Quality gear. */
 export function defaultGraphics(): GraphicsSettings {
-  const touch = isTouchPrimary();
   return {
-    reflections: !touch, // off on phones (the priciest visual), on desktop
-    shadows: true, // cheap enough on current phones (client: "most will work")
-    highRes: true, // resolution "up a notch" everywhere (DPR is capped at 2×)
+    reflections: true,
+    shadows: true,
+    highRes: true, // resolution "up a notch" (DPR is capped at 2× for perf)
   };
 }
 
