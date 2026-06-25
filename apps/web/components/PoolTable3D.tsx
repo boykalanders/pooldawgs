@@ -274,13 +274,25 @@ export default function PoolTable3D({
       const aspect = (canvas.clientWidth || 16) / (canvas.clientHeight || 9);
       // Frame the actual (per-variant) table: its world half-width, and its
       // half-depth foreshortened by the camera tilt, each with a margin.
+      // Use the LIVE camera tilt (cam.beta), not the base — while charging the
+      // camera leans steeper, which makes the table taller on screen; framing
+      // off the live beta keeps the whole table in view instead of cropping the
+      // top/bottom.
+      const cosBeta = Math.cos(cam.beta);
       const needW = ((RG.TABLE_WIDTH * S) / 2) * FRAME_MARGIN_W;
-      const needH = ((RG.TABLE_HEIGHT * S) / 2) * Math.cos(CAM_BETA) * FRAME_MARGIN_H;
+      const needH = ((RG.TABLE_HEIGHT * S) / 2) * cosBeta * FRAME_MARGIN_H;
       let halfW = needW;
       let halfH = needH;
       if (needW / needH < aspect) halfW = needH * aspect;
       else halfH = needW / aspect;
-      const zoom = 1 - 0.06 * camAim; // ease ~6% closer while aiming (subtle lean-in)
+      // Subtle 4% lean-in while charging, but CLAMPED so it can never crop the
+      // table: the view may shrink only until the table itself (plus a sliver of
+      // margin) still fits on the tight axis, so the whole table stays visible
+      // even at full charge. (The idle frame's margin is what the zoom eats.)
+      const rawHalfW = (RG.TABLE_WIDTH * S) / 2;
+      const rawHalfH = ((RG.TABLE_HEIGHT * S) / 2) * cosBeta;
+      const minZoom = Math.max((rawHalfW * 1.01) / halfW, (rawHalfH * 1.01) / halfH);
+      const zoom = Math.max(1 - 0.04 * camAim, minZoom);
       cam.orthoLeft = -halfW * zoom;
       cam.orthoRight = halfW * zoom;
       cam.orthoTop = halfH * zoom;
@@ -293,7 +305,7 @@ export default function PoolTable3D({
     dir.position = new Vector3(1.2, 3.2, -1.2);
     dir.intensity = 1.3;
     const fill = new HemisphericLight("fill", new Vector3(0, 1, 0), scene);
-    fill.intensity = 0.85;
+    fill.intensity = 1.0;
     fill.groundColor = new Color3(0.14, 0.18, 0.15);
     const accent = new PointLight("accent", new Vector3(0, 1.6, 0), scene);
     accent.diffuse = Color3.FromHexString("#FFD27A");
@@ -865,10 +877,13 @@ function buildTable(scene: Scene): void {
     // Tournament cloth: a vivid green with a soft radial vignette (brighter
     // under the lights, deeper at the cushions) plus a faint woven nap so it
     // reads as real felt rather than a flat fill.
-    const g = fctx.createRadialGradient(512, 256, 110, 512, 256, 660);
-    g.addColorStop(0, "#23c184");
-    g.addColorStop(0.65, "#159f6a");
-    g.addColorStop(1, "#0a6442");
+    // Rich emerald like the 2D cloth, with only a gentle vignette so the bulk of
+    // the bed reads as one bright, even green (the dark-edged gradient before was
+    // most of why the 3D felt looked muddy next to the 2D table).
+    const g = fctx.createRadialGradient(512, 256, 160, 512, 256, 720);
+    g.addColorStop(0, "#1eae77");
+    g.addColorStop(0.7, "#179765");
+    g.addColorStop(1, "#0f7a50");
     fctx.fillStyle = g;
     fctx.fillRect(0, 0, 1024, 512);
     // Woven nap — fine threads in both directions, very faint.
@@ -893,6 +908,12 @@ function buildTable(scene: Scene): void {
   paintFelt();
   feltTex.update();
   feltMat.albedoTexture = feltTex;
+  // Emissive floor: the studio lighting is deliberately dim (premium, dark
+  // surround) which made the matte cloth render muddy. Letting the felt emit a
+  // share of its own colour keeps it reading as a clean, bright emerald like the
+  // 2D table, while the remaining lit contribution still takes ball shadows.
+  feltMat.emissiveTexture = feltTex;
+  feltMat.emissiveColor = new Color3(0.45, 0.45, 0.45);
   cloth.material = feltMat;
   cloth.receiveShadows = true;
   cloth.position.y = 0;
@@ -901,8 +922,8 @@ function buildTable(scene: Scene): void {
     img.onload = () => {
       paintFelt();
       fctx.save();
-      fctx.globalAlpha = 0.16; // faint, like a stencilled crest
-      const w = 380;
+      fctx.globalAlpha = 0.2; // faint stencilled crest, but readable like the 2D
+      const w = 420;
       const h = w * (img.naturalHeight / img.naturalWidth || 0.6);
       fctx.drawImage(img, (1024 - w) / 2, (512 - h) / 2, w, h);
       fctx.restore();
