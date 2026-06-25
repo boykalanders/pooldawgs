@@ -12,9 +12,9 @@ export interface GraphicsSettings {
   highRes: boolean;
 }
 
-// v2: default is now "all effects on" everywhere (was reflections-off on phones)
-// — bumping the key so existing visitors pick up the new default.
-const KEY = "pooldawgs.graphics.v2";
+// v3: default is now shadows-OFF (clean, like the 2D table) with reflections +
+// high-res on — bumping the key so existing visitors pick up the new default.
+const KEY = "pooldawgs.graphics.v3";
 
 /** Coarse "is this a phone/tablet" check (pointer:coarse ≈ touch primary). */
 export function isTouchPrimary(): boolean {
@@ -22,12 +22,13 @@ export function isTouchPrimary(): boolean {
   return window.matchMedia?.("(pointer: coarse)").matches ?? false;
 }
 
-/** Default: show ALL effects in 3D everywhere (client preference). Users on
- *  weaker phones can still dial individual effects down via the Quality gear. */
+/** Default: shadows OFF for a clean look that matches the 2D table (client
+ *  preference); reflections + high-res stay on for the glossy 3D look. Users can
+ *  switch shadows on via the Quality gear. */
 export function defaultGraphics(): GraphicsSettings {
   return {
     reflections: true,
-    shadows: true,
+    shadows: false, // matches the shadowless 2D table look
     highRes: true, // resolution "up a notch" (DPR is capped at 2× for perf)
   };
 }
