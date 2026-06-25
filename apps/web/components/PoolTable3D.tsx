@@ -79,9 +79,10 @@ const CAM_ALPHA = -Math.PI / 2; // -90°
 const CAM_BETA = 0.56; // ≈32° from vertical (≈58° elevation)
 const CAM_RADIUS = 5.0;
 // Framing margin over the table's world size (the bigger snooker table is
-// auto-fit because the bounds derive from RG at render time).
-const FRAME_MARGIN_W = 1.12;
-const FRAME_MARGIN_H = 1.3;
+// auto-fit because the bounds derive from RG at render time). Tightened a touch
+// so the balls read bigger by default (client: "balls zoomed in a bit").
+const FRAME_MARGIN_W = 1.05;
+const FRAME_MARGIN_H = 1.18;
 
 // Re-export so callers (GameShell) can share one ShotAnimation type.
 export interface ShotAnimation {
@@ -245,6 +246,11 @@ export default function PoolTable3D({
     if (!canvas) return;
     setRenderGeom(state.gameType); // select this variant's table/ball size
     const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, antialias: true });
+    // Render at the device's pixel ratio (capped at 2×) for a crisper picture —
+    // by default Babylon renders at 1× CSS pixels, which looks soft on phones.
+    // Capping keeps high-DPR phones (3×) performant.
+    const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    engine.setHardwareScalingLevel(1 / dpr);
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.03, 0.04, 0.035, 1);
     scene.ambientColor = new Color3(0.3, 0.34, 0.3);
@@ -268,7 +274,7 @@ export default function PoolTable3D({
       let halfH = needH;
       if (needW / needH < aspect) halfW = needH * aspect;
       else halfH = needW / aspect;
-      const zoom = 1 - 0.08 * camAim; // ease ~8% closer while aiming
+      const zoom = 1 - 0.11 * camAim; // ease ~11% closer while aiming (lean-in)
       cam.orthoLeft = -halfW * zoom;
       cam.orthoRight = halfW * zoom;
       cam.orthoTop = halfH * zoom;

@@ -117,6 +117,9 @@ export default function GameShell({
   // Collapse the desktop bottom bar (balance / mode chips / status / pot) to
   // give the pool table more room — toggled from the top-left menu.
   const [barCollapsed, setBarCollapsed] = useState(false);
+  // Immersive mode (phones): hide the top bar + logo so the table fills the
+  // screen. A small floating button restores them. The control rails stay.
+  const [barsHidden, setBarsHidden] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const seenCount = useRef(0);
@@ -188,12 +191,30 @@ export default function GameShell({
       <img
         src="/assets/logo.svg"
         alt="Pool Dawgs"
-        className="pointer-events-none absolute left-1/2 top-2 z-20 h-24 w-auto -translate-x-1/2 drop-shadow-[0_6px_14px_rgba(0,0,0,0.8)] xl:h-28"
+        className={`pointer-events-none absolute left-1/2 top-2 z-20 h-24 w-auto -translate-x-1/2 drop-shadow-[0_6px_14px_rgba(0,0,0,0.8)] xl:h-28 ${
+          barsHidden ? "touch:hidden" : ""
+        }`}
         draggable={false}
       />
 
-      {/* ── top bar ── */}
-      <div className="grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 px-1 pb-2">
+      {/* Immersive mode (phones): floating button to bring the bars back. */}
+      {barsHidden && (
+        <button
+          onClick={() => setBarsHidden(false)}
+          title="Show bars"
+          aria-label="Show bars"
+          className="absolute left-1 top-1 z-30 hidden h-9 w-9 items-center justify-center rounded-lg border border-gold-dim/40 bg-emerald-panel/80 text-gold-bright shadow-lg backdrop-blur-sm touch:flex"
+        >
+          ⤡
+        </button>
+      )}
+
+      {/* ── top bar (hidden in immersive mode on phones) ── */}
+      <div
+        className={`grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 px-1 pb-2 ${
+          barsHidden ? "touch:hidden" : ""
+        }`}
+      >
         <div className="relative">
           <IconButton
             icon={<IconMenu />}
@@ -244,6 +265,18 @@ export default function GameShell({
                   {barCollapsed ? "▴" : "▾"}
                 </span>
                 {barCollapsed ? "Show bottom bar" : "Hide bottom bar (bigger table)"}
+              </button>
+              {/* Touch only: immersive mode — hide the top bar + logo so the
+                  table fills the screen (a floating button restores them). */}
+              <button
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10 desktop:hidden"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setBarsHidden((v) => !v);
+                }}
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-gold">⤢</span>
+                {barsHidden ? "Show bars" : "Hide bars (bigger table)"}
               </button>
               {menuItems.map((item) => (
                 <button
