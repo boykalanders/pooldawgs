@@ -15,6 +15,7 @@ import type { ChatMessage } from "@pooldawgs/shared";
 import Chat from "@/components/Chat";
 import PlayerCard from "@/components/PlayerCard";
 import { ballAssetByNumber, ballStyle } from "@/lib/balls";
+import { graphicsKey, type GraphicsSettings } from "@/lib/graphics";
 import { targetBall, targetLabel, type Target } from "@/lib/target";
 import dynamic from "next/dynamic";
 import PoolCanvas, {
@@ -69,6 +70,10 @@ interface GameShellProps {
   onSelectGameType?: (type: GameType) => void;
   /** "3d" swaps the 2D canvas for the Babylon 3D table (same controls). */
   renderer?: "2d" | "3d";
+  /** Visual-quality settings + setter for the 3D table (gear popup). When
+   *  omitted the gear is hidden (e.g. the 2D-only contexts). */
+  graphics?: GraphicsSettings;
+  onGraphicsChange?: (g: GraphicsSettings) => void;
   animation?: ShotAnimation | null;
   onShoot: (shot: ShotInput) => void;
   onPlaceCueBall: (x: number, y: number) => void;
@@ -96,6 +101,8 @@ export default function GameShell({
   menuItems,
   onSelectGameType,
   renderer = "2d",
+  graphics,
+  onGraphicsChange,
   animation,
   onShoot,
   onPlaceCueBall,
@@ -114,6 +121,8 @@ export default function GameShell({
   // Mobile-only game-type picker (the desktop bottom-bar chips are hidden on
   // phones), anchored to a rail button below Aim.
   const [gameMenuOpen, setGameMenuOpen] = useState(false);
+  // Graphics-quality popup (gear in the left rail; 3D only).
+  const [gfxMenuOpen, setGfxMenuOpen] = useState(false);
   // Collapse the desktop bottom bar (balance / mode chips / status / pot) to
   // give the pool table more room — toggled from the top-left menu.
   const [barCollapsed, setBarCollapsed] = useState(false);
@@ -434,6 +443,50 @@ export default function GameShell({
               )}
             </div>
           )}
+          {/* Graphics quality — gear opens on/off switches for the 3D effects
+              (client: desktop gets per-effect switches). 3D only. */}
+          {renderer === "3d" && graphics && onGraphicsChange && (
+            <div className="relative">
+              <RailButton
+                label="Quality"
+                icon={<span className="text-lg leading-none">⚙</span>}
+                active={gfxMenuOpen}
+                onClick={() => setGfxMenuOpen((v) => !v)}
+                title="Graphics quality"
+              />
+              {gfxMenuOpen && (
+                <div className="absolute left-full top-0 z-30 ml-2 w-48 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
+                  <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-gold/70">
+                    Graphics quality
+                  </div>
+                  {(
+                    [
+                      ["reflections", "Reflections"],
+                      ["shadows", "Shadows"],
+                      ["highRes", "High resolution"],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <button
+                      key={k}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
+                      onClick={() => onGraphicsChange({ ...graphics, [k]: !graphics[k] })}
+                    >
+                      <span>{label}</span>
+                      <span
+                        className={`inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition ${
+                          graphics[k]
+                            ? "justify-end bg-gold/80"
+                            : "justify-start border border-gold-dim/40 bg-emerald-deep"
+                        }`}
+                      >
+                        <span className="h-3 w-3 rounded-full bg-cream shadow" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="mt-auto">
             <SpinControl value={spin} onChange={setSpin} disabled={!interactive} />
           </div>
@@ -442,7 +495,9 @@ export default function GameShell({
         <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
           {renderer === "3d" ? (
             <PoolTable3D
-              key={`3d-${state.gameType}`} // remount to rebuild for the variant's table size
+              // remount to rebuild for the variant's table size and when the
+              // graphics settings change (the scene is built once on mount).
+              key={`3d-${state.gameType}-${graphics ? graphicsKey(graphics) : "def"}`}
               apiRef={canvasRef}
               state={state}
               interactive={interactive}
@@ -455,6 +510,7 @@ export default function GameShell({
               onShoot={handleShoot}
               onPlaceCueBall={onPlaceCueBall}
               onAnimationEnd={onAnimationEnd}
+              graphics={graphics}
             />
           ) : (
             <PoolCanvas

@@ -14,6 +14,7 @@ import {
 import GameShell from "@/components/GameShell";
 import type { ShotAnimation } from "@/components/PoolCanvas";
 import WinnerPopup from "@/components/WinnerPopup";
+import { loadGraphics, saveGraphics, type GraphicsSettings } from "@/lib/graphics";
 
 const PLAYERS = [
   { name: "Deputy Dawg", avatarSrc: "/assets/avatar-deputy.png" },
@@ -41,6 +42,18 @@ export default function PracticePage() {
       : "3d"
   );
   const [gameType, setGameType] = useState<GameType>("8ball");
+  // Graphics quality — start from a fixed default (no SSR/hydration mismatch),
+  // then load the persisted / device-appropriate settings after mount.
+  const [graphics, setGraphics] = useState<GraphicsSettings>({
+    reflections: true,
+    shadows: true,
+    highRes: true,
+  });
+  useEffect(() => setGraphics(loadGraphics()), []);
+  const updateGraphics = useCallback((g: GraphicsSettings) => {
+    setGraphics(g);
+    saveGraphics(g);
+  }, []);
   const [state, setState] = useState<TableState>(() => createInitialState("8ball"));
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -204,6 +217,8 @@ export default function PracticePage() {
       centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}
       onSelectGameType={selectGameType}
       renderer={view}
+      graphics={graphics}
+      onGraphicsChange={updateGraphics}
       menuItems={[
         {
           label: view === "3d" ? "Switch to 2D view" : "Switch to 3D view",

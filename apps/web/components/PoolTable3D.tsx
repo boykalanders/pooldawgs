@@ -113,6 +113,9 @@ interface PoolTable3DProps {
   /** Imperative handle passed as a normal prop (next/dynamic doesn't forward
    *  refs), so GameShell can call shootNow() the same way it does for 2D. */
   apiRef?: MutableRefObject<PoolTable3DHandle | null>;
+  /** Visual-quality gates. The component is re-keyed on these in GameShell, so
+   *  a fresh scene is built when they change. Defaults to everything on. */
+  graphics?: { reflections: boolean; shadows: boolean; highRes: boolean };
 }
 
 // ── sounds (cloned per play, like the fork) ────────────────────────────────
@@ -143,7 +146,9 @@ export default function PoolTable3D({
   onPlaceCueBall,
   onAnimationEnd,
   apiRef,
+  graphics,
 }: PoolTable3DProps) {
+  const gfx = graphics ?? { reflections: true, shadows: true, highRes: true };
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** Aim target in engine px (where the cue is pointed). */
   const aimTarget = useRef({
@@ -248,8 +253,9 @@ export default function PoolTable3D({
     const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, antialias: true });
     // Render at the device's pixel ratio (capped at 2×) for a crisper picture —
     // by default Babylon renders at 1× CSS pixels, which looks soft on phones.
-    // Capping keeps high-DPR phones (3×) performant.
-    const dpr = typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    // Capping keeps high-DPR phones (3×) performant; the High-resolution setting
+    // can drop it back to 1× on weaker hardware.
+    const dpr = gfx.highRes && typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1;
     engine.setHardwareScalingLevel(1 / dpr);
     const scene = new Scene(engine);
     scene.clearColor = new Color4(0.03, 0.04, 0.035, 1);
@@ -294,14 +300,21 @@ export default function PoolTable3D({
     accent.intensity = 0.2;
     accent.range = 8;
 
-    const shadow = new ShadowGenerator(1024, dir);
-    shadow.usePercentageCloserFiltering = true;
-    shadow.blurScale = 2;
+    // Ball shadows on the cloth — toggleable (a meaningful perf lever on phones).
+    const shadow = gfx.shadows ? new ShadowGenerator(1024, dir) : null;
+    if (shadow) {
+      shadow.usePercentageCloserFiltering = true;
+      shadow.blurScale = 2;
+    }
 
     // Dark-studio image-based environment (Golden Spec HDRI), generated in code
     // so no .hdr asset ships. Gives the gold trim and the clearcoat balls real
     // reflections (a bright overhead "softbox", dark walls, warm accent band).
     buildStudioEnv(scene);
+    // Reflections toggle: buildStudioEnv sets environmentIntensity to 0.55 (the
+    // glossy clearcoat look on balls / gold / rails). Dropping it near-matte is
+    // the "reflections off" state — cheaper shading and a flatter, plainer table.
+    scene.environmentIntensity = gfx.reflections ? 0.55 : 0.1;
 
     buildTable(scene);
 
@@ -312,7 +325,7 @@ export default function PoolTable3D({
       b.position.y = R;
       b.isVisible = false;
       b.receiveShadows = false;
-      shadow.addShadowCaster(b);
+      shadow?.addShadowCaster(b);
       balls.push(b);
     }
 
@@ -334,7 +347,7 @@ export default function PoolTable3D({
     stick.rotation.z = Math.PI / 2; // lay along the rig's X axis
     stick.parent = cueRig;
     stick.renderingGroupId = 1; // always drawn on top of the rails/balls
-    shadow.addShadowCaster(stick);
+    shadow?.addShadowCaster(stick);
     // Premium two-tone cue: polished maple shaft → dark walnut butt with a gold
     // joint band, baked along the length so it reads like a real cue.
     const cueTex = new DynamicTexture("cueTex", { width: 16, height: 256 }, scene, true);
