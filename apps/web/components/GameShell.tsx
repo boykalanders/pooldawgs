@@ -223,7 +223,7 @@ export default function GameShell({
 
       {/* ── top bar (hidden in immersive mode on phones) ── */}
       <div
-        className={`grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 px-1 pb-2 ${
+        className={`grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-3 px-1 pb-2 touch:gap-1 touch:pb-0.5 ${
           barsHidden ? "touch:hidden" : ""
         }`}
       >

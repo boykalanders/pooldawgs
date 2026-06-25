@@ -48,7 +48,7 @@ export default function PlayerCard({
 
   const avatar = (
     <div
-      className={`relative h-16 w-[60px] shrink-0 overflow-visible rounded-lg border-2 touch:h-12 touch:w-11 ${
+      className={`relative h-16 w-[60px] shrink-0 overflow-visible rounded-lg border-2 touch:h-9 touch:w-8 ${
         isTurn
           ? "border-red-600 shadow-[0_0_14px_rgba(220,38,38,0.6)]"
           : "border-gold/70 shadow-gold-glow"
@@ -96,7 +96,7 @@ export default function PlayerCard({
                 src={ballAssetByNumber(b.number)}
                 alt={`${b.number} pocketed`}
                 title={`${b.number} pocketed`}
-                className="h-4 w-4 touch:h-3 touch:w-3"
+                className="h-4 w-4 touch:h-2.5 touch:w-2.5"
                 draggable={false}
               />
             ) : (
@@ -114,21 +114,27 @@ export default function PlayerCard({
     );
 
   // Vertical stat column beside the avatar: name → balance → 🏆 wins → tracker.
+  // Kept very tight on mobile so the whole top bar is short and the table gets
+  // the room.
   const info = (
-    <div className={`flex min-w-0 flex-col gap-0.5 ${flip ? "items-end text-right" : ""}`}>
-      <p className="truncate font-display text-base font-bold text-amber-50 touch:text-xs">{name}</p>
+    <div className={`flex min-w-0 flex-col gap-0.5 touch:gap-0 ${flip ? "items-end text-right" : ""}`}>
+      <p className="truncate font-display text-base font-bold leading-tight text-amber-50 touch:text-[10px]">
+        {name}
+      </p>
       {detail && (
-        <p className="truncate text-xs font-semibold text-gold-bright touch:text-[10px]">{detail}</p>
+        <p className="truncate text-xs font-semibold leading-tight text-gold-bright touch:text-[9px]">
+          {detail}
+        </p>
       )}
       {wins != null && (
-        <p className="text-xs font-semibold text-amber-100/80 touch:text-[10px]">🏆 {wins}</p>
+        <p className="text-xs font-semibold leading-tight text-amber-100/80 touch:text-[9px]">🏆 {wins}</p>
       )}
-      <div className={`mt-0.5 flex ${flip ? "justify-end" : ""}`}>{tracker}</div>
+      <div className={`mt-0.5 flex touch:mt-0 ${flip ? "justify-end" : ""}`}>{tracker}</div>
     </div>
   );
 
   return (
-    <div className={`flex items-center gap-3 px-1 py-1 touch:gap-2 ${flip ? "justify-end" : ""}`}>
+    <div className={`flex items-center gap-3 px-1 py-1 touch:gap-1.5 touch:py-0 ${flip ? "justify-end" : ""}`}>
       {flip ? (
         <>
           {info}
