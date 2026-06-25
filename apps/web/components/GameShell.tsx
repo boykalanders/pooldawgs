@@ -16,6 +16,7 @@ import Chat from "@/components/Chat";
 import PlayerCard from "@/components/PlayerCard";
 import { ballAssetByNumber, ballStyle } from "@/lib/balls";
 import { graphicsKey, type GraphicsSettings } from "@/lib/graphics";
+import { setSoundsMuted } from "@/lib/sounds";
 import { targetBall, targetLabel, type Target } from "@/lib/target";
 import dynamic from "next/dynamic";
 import PoolCanvas, {
@@ -136,6 +137,9 @@ export default function GameShell({
   const [unread, setUnread] = useState(0);
   const seenCount = useRef(0);
   const spinActive = spin.x !== 0 || spin.y !== 0;
+
+  // Keep the modal jingles (victory/defeat) in sync with the Sound toggle.
+  useEffect(() => setSoundsMuted(muted), [muted]);
 
   // Fullscreen (Golden Spec: "feels like an app" in fullscreen mobile browsers).
   const [isFullscreen, setIsFullscreen] = useState(false);

@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { playDefeat, playVictory } from "@/lib/sounds";
 
 const CONFETTI_COLORS = ["#e8c547", "#c9a227", "#0b3d2e", "#8e1626", "#f5efe0"];
 
@@ -27,6 +28,14 @@ export default function WinnerPopup({
   actions,
   defeated = false,
 }: EndGameModalProps) {
+  // Play the matching jingle when the modal appears (once). Respects the Sound
+  // toggle via the module-level mute set by GameShell.
+  useEffect(() => {
+    if (defeated) playDefeat();
+    else playVictory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (defeated) {
     return (
       <div
