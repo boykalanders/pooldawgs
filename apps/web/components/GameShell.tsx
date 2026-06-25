@@ -200,7 +200,7 @@ export default function GameShell({
       <img
         src="/assets/logo.svg"
         alt="Pool Dawgs"
-        className={`pointer-events-none absolute left-1/2 top-2 z-20 h-24 w-auto -translate-x-1/2 drop-shadow-[0_6px_14px_rgba(0,0,0,0.8)] xl:h-28 ${
+        className={`pointer-events-none absolute left-1/2 top-2 z-20 h-12 w-auto -translate-x-1/2 drop-shadow-[0_6px_14px_rgba(0,0,0,0.8)] desktop:h-24 xl:h-28 ${
           barsHidden ? "touch:hidden" : ""
         }`}
         draggable={false}
@@ -228,7 +228,11 @@ export default function GameShell({
           <IconButton
             icon={<IconMenu />}
             active={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => {
+              setMenuOpen((v) => !v);
+              setGameMenuOpen(false);
+              setGfxMenuOpen(false);
+            }}
             title="Menu"
           />
           {menuOpen && (
@@ -241,7 +245,7 @@ export default function GameShell({
                 onClick={() => setMenuOpen(false)}
                 aria-hidden
               />
-              <div className="absolute left-0 top-[3.25rem] z-30 w-52 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl">
+              <div className="absolute left-0 top-[3.25rem] z-30 w-52 overflow-hidden rounded-xl border border-gold-dim/40 bg-emerald-panel shadow-2xl touch:grid touch:w-64 touch:grid-cols-2 touch:gap-px">
               <button
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
                 onClick={() => {
@@ -303,8 +307,9 @@ export default function GameShell({
               ))}
 
               {/* Touch only: the bottom nav is hidden on phones to give the
-                  table the whole screen, so its destinations live here. */}
-              <div className="hidden border-t border-gold-dim/20 touch:block">
+                  table the whole screen, so its destinations live here.
+                  `contents` so these flatten into the 2-column grid on mobile. */}
+              <div className="hidden border-t border-gold-dim/20 touch:contents">
                 <Link
                   href="/lobby"
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
@@ -412,7 +417,11 @@ export default function GameShell({
                   <img src={GAME_BALL[state.gameType]} alt="" className="h-5 w-5" draggable={false} />
                 }
                 active={gameMenuOpen}
-                onClick={() => setGameMenuOpen((v) => !v)}
+                onClick={() => {
+                  setGameMenuOpen((v) => !v);
+                  setMenuOpen(false);
+                  setGfxMenuOpen(false);
+                }}
                 title="Change game type"
               />
               {gameMenuOpen && (
@@ -451,7 +460,11 @@ export default function GameShell({
                 label="Quality"
                 icon={<span className="text-lg leading-none">⚙</span>}
                 active={gfxMenuOpen}
-                onClick={() => setGfxMenuOpen((v) => !v)}
+                onClick={() => {
+                  setGfxMenuOpen((v) => !v);
+                  setMenuOpen(false);
+                  setGameMenuOpen(false);
+                }}
                 title="Graphics quality"
               />
               {gfxMenuOpen && (
@@ -492,7 +505,12 @@ export default function GameShell({
           </div>
         </div>
 
-        <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
+        <div
+          className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center"
+          // Aiming uses press-and-hold; suppress the browser right-click / long-
+          // press context menu over the table (it popped up while aiming on mobile).
+          onContextMenu={(e) => e.preventDefault()}
+        >
           {renderer === "3d" ? (
             <PoolTable3D
               // remount to rebuild for the variant's table size and when the
