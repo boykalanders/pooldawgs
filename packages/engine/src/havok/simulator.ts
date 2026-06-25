@@ -191,14 +191,14 @@ export function isHavokReady(): boolean {
   return world !== null;
 }
 
-// GEOMETRIC friction combine (√(a·b)): with cloth 0.5 / ball 0.35 the ball↔floor
-// coefficient is ≈ 0.42. Eased from 0.8 on client feedback so balls roll freely
-// (less "cement/heavy" feel); the small launch roll (LAUNCH_ROLL) keeps the cue
-// from gliding past object balls without needing heavy cloth grip. ball↔rail
-// ≈ 0.19 (clean banks). MINIMUM restitution combine: ball↔floor → 0 (no vertical
-// bounce), ball↔rail → 0.88, ball↔ball → 0.93.
+// GEOMETRIC friction combine (√(a·b)): with cloth 0.38 / ball 0.35 the ball↔floor
+// coefficient is ≈ 0.36. Eased from 0.8 → 0.45 → 0.38 over two rounds of client
+// feedback so balls roll freely (less "cement/heavy" feel); the small launch
+// roll (LAUNCH_ROLL) keeps the cue from gliding past object balls without
+// needing heavy cloth grip. ball↔rail ≈ 0.17 (clean banks). MINIMUM restitution
+// combine: ball↔floor → 0 (no vertical bounce), ball↔rail → 0.88, ball↔ball → 0.93.
 const clothMaterial = {
-  friction: 0.45,
+  friction: 0.38,
   restitution: 0,
   frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
