@@ -61,13 +61,18 @@ const SLEEP_SPEED = M(8);
  *  also keeps per-step travel below the rail thickness (no tunnelling). */
 const MAX_SPEED_MS = 8.5;
 /** Cloth drag — calibrated in scripts/havok-playtest.mjs. Lower = balls carry
- *  further and slow more gently (less "high friction" feel). */
-const LINEAR_DAMPING = 0.28;
+ *  further and slow more gently. Kept near the original (0.28) so banks/rebound
+ *  stay lively (client liked the rebound); the "heavy/cement" feel was mostly
+ *  the cloth FRICTION, eased below. */
+const LINEAR_DAMPING = 0.24;
 /** Low, so cue-ball spin survives the roll to first contact (draw/follow). */
 const ANGULAR_DAMPING = 0.3;
 /** Spin authority: multiples of the natural rolling rate (v/R) at full spin. */
 const FOLLOW_DRAW_GAIN = 2.0;
 const ENGLISH_GAIN = 1.5;
+/** Small initial forward roll on a centre-ball hit so the cue grips into a roll
+ *  (doesn't glide far past object balls) without the old full-roll over-follow. */
+const LAUNCH_ROLL = 0.3;
 
 interface BallBody {
   node: TransformNode;
@@ -186,14 +191,14 @@ export function isHavokReady(): boolean {
   return world !== null;
 }
 
-// GEOMETRIC friction combine (√(a·b)) gives predictable cloth grip: with cloth
-// 0.8 / ball 0.35 the ball↔floor coefficient is ≈ 0.53. Higher than before so a
-// freshly-struck ball grips into a roll quickly instead of gliding a long way —
-// this is what stops the (fast) cue ball sliding noticeably further than the
-// object balls. ball↔rail ≈ 0.19 (clean banks). MINIMUM restitution combine:
-// ball↔floor → 0 (no vertical bounce), ball↔rail → 0.88, ball↔ball → 0.93.
+// GEOMETRIC friction combine (√(a·b)): with cloth 0.5 / ball 0.35 the ball↔floor
+// coefficient is ≈ 0.42. Eased from 0.8 on client feedback so balls roll freely
+// (less "cement/heavy" feel); the small launch roll (LAUNCH_ROLL) keeps the cue
+// from gliding past object balls without needing heavy cloth grip. ball↔rail
+// ≈ 0.19 (clean banks). MINIMUM restitution combine: ball↔floor → 0 (no vertical
+// bounce), ball↔rail → 0.88, ball↔ball → 0.93.
 const clothMaterial = {
-  friction: 0.8,
+  friction: 0.45,
   restitution: 0,
   frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
@@ -370,15 +375,14 @@ export function simulateShotHavok(
     const spinY = shot.spinY ?? 0; // follow(+)/draw(-)
     const spinX = shot.spinX ?? 0; // english
     const rollRate = speed / R; // natural rolling angular rate
-    // A centre-ball hit launches the cue SLIDING (no initial roll); cloth
-    // friction builds forward roll over distance. So a hard, straight hit STUNS
-    // on contact and only carries through once it has rolled far enough — or
-    // when given deliberate follow. Previously the launch forced FULL roll
-    // immediately, so every strong shot followed the object ball into the
-    // pocket (the bug the client hit). Follow(+)/draw(−) ride on top: draw can
-    // exceed the roll rate so the cue reverses after contact.
+    // The cue launches with a SMALL amount of forward roll (LAUNCH_ROLL) rather
+    // than pure slide. Pure slide on the (now lower) cloth friction let the cue
+    // glide too far past object balls; a touch of initial roll makes it grip
+    // and behave like the other balls without bringing back the full-roll
+    // over-follow. Follow(+)/draw(−) ride on top: draw can exceed the roll rate
+    // so the cue still reverses after contact.
     const followAxis = new Vector3(diry, 0, -dirx); // forward-roll axis
-    const ang = followAxis.scale(rollRate * FOLLOW_DRAW_GAIN * spinY);
+    const ang = followAxis.scale(rollRate * (LAUNCH_ROLL + FOLLOW_DRAW_GAIN * spinY));
     ang.y = rollRate * ENGLISH_GAIN * spinX; // english about vertical
     cueBody.setAngularVelocity(ang);
   }
