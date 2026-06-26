@@ -158,6 +158,14 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     frameStride: number;
   } | null>(null);
 
+  // Pocket FX: when a ball is potted it scales down and drifts toward the table
+  // centre, then vanishes (instead of snapping away). `lastVisible` tracks each
+  // ball's last on-table spot so the drop starts from the pocket it fell into.
+  const pocketFx = useRef<{
+    drops: Map<number, { startedAt: number; x0: number; y0: number }>;
+    lastVisible: Map<number, { x: number; y: number }>;
+  }>({ drops: new Map(), lastVisible: new Map() });
+
   // Keep latest props in refs so the single rAF loop sees fresh values.
   const propsRef = useRef({
     state,
@@ -270,6 +278,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
         eventIdx: 0,
         frameStride: FRAME_STRIDE,
       };
+      pocketFx.current.drops.clear();
+      pocketFx.current.lastVisible.clear();
     } catch {
       playing.current = null; // bad animation input — just draw the end state
       propsRef.current.onAnimationEnd?.();
@@ -285,7 +295,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     let raf = 0;
     const loop = (now: number) => {
       updateInputPower(now);
-      drawScene(ctx, propsRef.current, mouse.current, playing);
+      drawScene(ctx, propsRef.current, mouse.current, playing, pocketFx);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -451,15 +461,44 @@ function drawScene(
     events: import("@pooldawgs/engine").ShotEvent[];
     eventIdx: number;
     frameStride: number;
-  } | null>
+  } | null>,
+  pocketFx: React.MutableRefObject<{
+    drops: Map<number, { startedAt: number; x0: number; y0: number }>;
+    lastVisible: Map<number, { x: number; y: number }>;
+  }>
 ) {
   const { state } = props;
   drawTable(ctx);
 
+  const now = performance.now();
+  const POCKET_FX_MS = 300; // scale-down + drift to centre (client spec)
+  const cx = TABLE_WIDTH / 2;
+  const cy = TABLE_HEIGHT / 2;
+  // Render the in-flight pocket drops: each potted ball scales toward nothing
+  // while drifting toward the table centre, then is removed.
+  const drawDrops = () => {
+    for (const [id, d] of pocketFx.current.drops) {
+      const age = now - d.startedAt;
+      if (age >= POCKET_FX_MS) {
+        pocketFx.current.drops.delete(id);
+        continue;
+      }
+      const f = age / POCKET_FX_MS;
+      const e = 1 - (1 - f) * (1 - f); // ease-out
+      const x = d.x0 + (cx - d.x0) * e * 0.5; // drift up to halfway to centre
+      const y = d.y0 + (cy - d.y0) * e * 0.5;
+      const sc = Math.max(0.001, 1 - e); // shrink to (almost) nothing
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(sc, sc);
+      drawBall(ctx, 0, 0, state.balls[id]);
+      ctx.restore();
+    }
+  };
+
   const anim = playing.current;
   if (anim) {
-    const elapsed = performance.now() - anim.startedAt;
-    anim.index = Math.min(anim.frames.length - 1, Math.floor(elapsed / FRAME_MS));
+    anim.index = Math.min(anim.frames.length - 1, Math.floor((now - anim.startedAt) / FRAME_MS));
 
     // Fire the fork's sounds as the replay crosses each simulation event.
     const simStep = anim.index * anim.frameStride;
@@ -469,6 +508,11 @@ function drawScene(
         playSound("/assets/sounds/balls-collide.wav", 0.35, props.muted);
       } else if (event.type === "pocket") {
         playSound("/assets/sounds/hole.wav", 0.5, props.muted);
+        // Kick off the scale-down/drift drop from the ball's last on-table spot.
+        const lv = pocketFx.current.lastVisible.get(event.ballId);
+        if (lv && !pocketFx.current.drops.has(event.ballId)) {
+          pocketFx.current.drops.set(event.ballId, { startedAt: now, x0: lv.x, y0: lv.y });
+        }
       } else if (event.type === "cushion") {
         playSound("/assets/sounds/side.wav", 0.15, props.muted);
       }
@@ -478,9 +522,11 @@ function drawScene(
     if (frame) {
       for (const fb of frame.balls) {
         if (!fb.visible) continue;
+        pocketFx.current.lastVisible.set(fb.id, { x: fb.x, y: fb.y });
         drawBall(ctx, fb.x, fb.y, state.balls[fb.id]);
       }
     }
+    drawDrops();
     if (anim.index >= anim.frames.length - 1) {
       playing.current = null;
       props.onAnimationEnd?.();
@@ -496,6 +542,7 @@ function drawScene(
     if (ball.id === cueIdx && state.ballInHand) continue;
     drawBall(ctx, ball.x, ball.y, ball);
   }
+  drawDrops(); // finish any pocket FX still running after the replay ended
 
   drawOverlay(ctx, props, mouse);
 }

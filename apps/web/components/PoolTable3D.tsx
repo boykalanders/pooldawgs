@@ -515,13 +515,13 @@ export default function PoolTable3D({
       }
       return best;
     };
-    // Pocket-drop phases (real-world feel): the ball drops into the pocket
-    // mouth, RATTLES around the jaws for ~0.6 s (decaying jitter), then sinks
-    // out of sight and vanishes.
-    const DROP_IN_MS = 150; // fall into the pocket mouth
-    const RATTLE_MS = 180; // a couple of quick jaw rattles (~0.18s, 2–3 shakes)
-    const SINK_MS = 150; // drop out of sight
-    const DROP_TOTAL = DROP_IN_MS + RATTLE_MS + SINK_MS;
+    // Pocket-drop phases (client spec): fall into the pocket mouth, a SHORT
+    // 0.1 s rattle, then scale down over 0.3 s while drifting toward the table
+    // centre (origin) and vanishing.
+    const DROP_IN_MS = 120; // fall into the pocket mouth
+    const RATTLE_MS = 100; // brief jaw rattle — ~0.1 s, a shake or two
+    const SCALE_MS = 300; // scale-down + drift to centre (0.3 s)
+    const DROP_TOTAL = DROP_IN_MS + RATTLE_MS + SCALE_MS;
     const REST_Y = R * 0.4; // nestled in the pocket but still visible
     const advanceDrops = (now: number) => {
       for (const [id, d] of drops) {
@@ -548,22 +548,24 @@ export default function PoolTable3D({
           m.position.y = R + (REST_Y - R) * e;
           m.scaling.set(1, 1, 1);
         } else if (age < DROP_IN_MS + RATTLE_MS) {
-          // 2) a couple of quick jaw rattles — ~2–3 shakes, decaying fast.
+          // 2) a brief jaw rattle — ~0.1 s, a shake or two, decaying fast.
           const rt = (age - DROP_IN_MS) / RATTLE_MS; // 0..1
           const decay = 1 - rt;
-          const ph = (age - DROP_IN_MS) * 0.09; // ~2.6 oscillations over 0.18s
-          const amp = R * 0.32 * decay;
+          const ph = (age - DROP_IN_MS) * 0.12; // ~2 quick oscillations over 0.1s
+          const amp = R * 0.18 * decay;
           m.position.x = d.hx + Math.cos(ph) * amp;
           m.position.z = d.hz + Math.sin(ph) * amp * 0.7;
-          m.position.y = REST_Y + Math.abs(Math.sin(ph)) * R * 0.12 * decay;
+          m.position.y = REST_Y;
           m.scaling.set(1, 1, 1);
         } else {
-          // 3) sink out of sight and shrink away.
-          const st = (age - DROP_IN_MS - RATTLE_MS) / SINK_MS;
-          m.position.x = d.hx;
-          m.position.z = d.hz;
-          m.position.y = REST_Y + (-R * 1.6 - REST_Y) * st;
-          const sc = 1 - 0.85 * st;
+          // 3) scale down over 0.3 s while drifting toward the table centre
+          //    (origin), then vanish.
+          const st = (age - DROP_IN_MS - RATTLE_MS) / SCALE_MS;
+          const e = 1 - (1 - st) * (1 - st); // ease-out
+          m.position.x = d.hx + (0 - d.hx) * e * 0.5; // drift halfway to centre
+          m.position.z = d.hz + (0 - d.hz) * e * 0.5;
+          m.position.y = REST_Y;
+          const sc = Math.max(0.001, 1 - e);
           m.scaling.set(sc, sc, sc);
         }
       }

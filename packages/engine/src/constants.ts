@@ -126,17 +126,18 @@ const SQRT1_2 = Math.SQRT1_2;
 /** Corners are fed by two rails — a generous cone (spec §6: 8°, widened for
  *  the fork's coarser geometry so legitimate cut pots still drop). */
 const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
-/** Centre pockets get a tight cone (spec §6: 6°) — this is what rejects the
- *  rail-skimmers the fork wrongly captured. */
-const SIDE_ACCEPT = Math.cos((26 * Math.PI) / 180);
+/** Centre pockets get a tighter cone than corners — this is what rejects the
+ *  rail-skimmers the fork wrongly captured. Widened a touch (26° → 31°) on
+ *  client feedback that the middle pocket felt too narrow. */
+const SIDE_ACCEPT = Math.cos((31 * Math.PI) / 180);
 
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top left
   { x: 1435, y: 62, radius: HOLE_RADIUS, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top right
   { x: 62, y: 762, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom left
   { x: 1435, y: 762, radius: HOLE_RADIUS, tx: SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom right
-  { x: 750, y: 36, radius: 52, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
-  { x: 750, y: 789, radius: 52, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
+  { x: 750, y: 36, radius: 56, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
+  { x: 750, y: 789, radius: 56, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
 ];
 
 /** Minimum inward speed (px/s) to be captured — rejects a ball that has all
