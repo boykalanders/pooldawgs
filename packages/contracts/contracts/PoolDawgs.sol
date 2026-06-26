@@ -538,6 +538,8 @@ contract PoolDawgs is
         return (stake * 2 * WINNER_PERCENT) / 100 / 2;
     }
 
-    // Reduced from 40 → 39 when chessDawgsNFT was added (one new slot).
-    uint256[38] private __gap;
+    // Storage gap, shrunk by one for every state var added so the layout stays
+    // upgrade-safe: 40 → 39 (chessDawgsNFT) → 38 (registry) → 35 (the three
+    // platform counters: totalGamesFinished / totalWageredWei / totalBurnedWei).
+    uint256[35] private __gap;
 }
