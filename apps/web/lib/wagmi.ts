@@ -31,7 +31,7 @@ const transports = {
 // a valid one we use RainbowKit's full wallet list (incl. mobile/QR); without
 // it we fall back to injected (MetaMask) + Coinbase so the app still works —
 // otherwise WalletConnect throws "projectId must be 32 characters long".
-const hasWalletConnect = /^[0-9a-f]{32}$/i.test(WALLETCONNECT_PROJECT_ID);
+export const hasWalletConnect = /^[0-9a-f]{32}$/i.test(WALLETCONNECT_PROJECT_ID);
 
 export const wagmiConfig = hasWalletConnect
   ? getDefaultConfig({

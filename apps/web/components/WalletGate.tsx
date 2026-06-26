@@ -18,6 +18,7 @@ import {
   POOLDAWGS_NFT_ADDRESS,
 } from "@/lib/env";
 import { log } from "@/lib/log";
+import { hasWalletConnect } from "@/lib/wagmi";
 
 /**
  * Play gate. A wallet may enter if the PoolDawgs contract's `ownsNFT` is true —
@@ -88,6 +89,13 @@ export default function WalletGate({ children }: { children: ReactNode }) {
           <span className="text-gold">{NETWORK_NAME}</span>.
         </p>
         <ConnectButton />
+        {!hasWalletConnect && (
+          <p className="mt-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/80">
+            ⚠ Mobile wallets are unavailable — WalletConnect isn&rsquo;t configured.
+            Set <code className="text-amber-100">NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID</code> to a
+            valid Reown project id and redeploy.
+          </p>
+        )}
       </div>
     );
   }
