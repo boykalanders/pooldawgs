@@ -14,7 +14,7 @@
   <circle cx="50" cy="50" r="48" fill="url(#g)"/>
   
   <circle cx="50" cy="50" r="21" fill="#f7f2e4"/>
-  <text x="50" y="51" font-family="Georgia, 'Times New Roman', serif" font-size="26" font-weight="bold" fill="#16120e" text-anchor="middle" dominant-baseline="central">6</text>
+  <text x="50" y="51" font-family="Helvetica, Futura, serif" font-size="26" font-weight="800" fill="#16120e" text-anchor="middle" dominant-baseline="central">6</text>
   <circle cx="50" cy="50" r="48" fill="url(#s)"/>
   <ellipse cx="36" cy="29" rx="16" ry="9" transform="rotate(-32 36 29)" fill="rgba(255,255,255,0.55)"/>
   <circle cx="50" cy="50" r="48" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1.5"/>
