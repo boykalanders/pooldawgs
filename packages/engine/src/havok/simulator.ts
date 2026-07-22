@@ -396,6 +396,16 @@ export function simulateShotHavok(
   // one step ("stick"). Stepping at 1/240 keeps per-step travel under a ball
   // radius, so contacts resolve cleanly. Collisions accumulate across substeps.
   const SUBSTEPS = 2;
+  // Stun assist: a struck cue naturally rolls up over the approach, and a
+  // rolling cue FOLLOWS the object after contact — which reads as the cue
+  // "trailing" the object on an ordinary straight hit. On a shot with no
+  // deliberate follow/draw, kill the cue's forward roll at its first object
+  // contact so it stuns (stops on a full hit, runs the tangent on a cut) like a
+  // clean stun shot. Deliberate follow/draw (spinY) launch with strong spin and
+  // are left untouched, and side english (the angular y-axis) is preserved.
+  const isStunShot = Math.abs(shot.spinY ?? 0) < 0.15;
+  const cueId = next.balls[cueIdx]?.id;
+  let cueRollKilled = false;
   while (moving && steps < MAX_STEPS) {
     w.collisions.length = 0;
     for (let s = 0; s < SUBSTEPS; s++) w.step(DT / SUBSTEPS);
@@ -409,6 +419,14 @@ export function simulateShotHavok(
         const b = next.balls[c.b];
         events.push({ type: "ballsCollide", a: c.a, b: c.b, step: steps });
         if (a && b) rules.onBallsCollide(next, turnAcc, a, b);
+        if (isStunShot && !cueRollKilled && (c.a === cueId || c.b === cueId)) {
+          const cb = w.balls[cueIdx]?.body;
+          if (cb) {
+            const av = cb.getAngularVelocity();
+            cb.setAngularVelocity(new Vector3(0, av.y, 0)); // drop follow-roll, keep english
+          }
+          cueRollKilled = true;
+        }
       }
     }
 
