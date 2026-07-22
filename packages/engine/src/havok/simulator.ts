@@ -70,9 +70,6 @@ const ANGULAR_DAMPING = 0.3;
 /** Spin authority: multiples of the natural rolling rate (v/R) at full spin. */
 const FOLLOW_DRAW_GAIN = 2.0;
 const ENGLISH_GAIN = 1.5;
-/** Small initial forward roll on a centre-ball hit so the cue grips into a roll
- *  (doesn't glide far past object balls) without the old full-roll over-follow. */
-const LAUNCH_ROLL = 0.3;
 
 interface BallBody {
   node: TransformNode;
@@ -375,14 +372,13 @@ export function simulateShotHavok(
     const spinY = shot.spinY ?? 0; // follow(+)/draw(-)
     const spinX = shot.spinX ?? 0; // english
     const rollRate = speed / R; // natural rolling angular rate
-    // The cue launches with a SMALL amount of forward roll (LAUNCH_ROLL) rather
-    // than pure slide. Pure slide on the (now lower) cloth friction let the cue
-    // glide too far past object balls; a touch of initial roll makes it grip
-    // and behave like the other balls without bringing back the full-roll
-    // over-follow. Follow(+)/draw(−) ride on top: draw can exceed the roll rate
-    // so the cue still reverses after contact.
+    // A centre-ball hit launches the cue SLIDING (no initial roll), like real
+    // pool: cloth friction builds the forward roll over distance, so a close /
+    // straight hit STUNS (the cue stops on contact) and only a longer approach
+    // rolls into a follow-through. Deliberate follow(+)/draw(−) ride on top via
+    // spinY (draw exceeds the roll rate so the cue reverses after contact).
     const followAxis = new Vector3(diry, 0, -dirx); // forward-roll axis
-    const ang = followAxis.scale(rollRate * (LAUNCH_ROLL + FOLLOW_DRAW_GAIN * spinY));
+    const ang = followAxis.scale(rollRate * FOLLOW_DRAW_GAIN * spinY);
     ang.y = rollRate * ENGLISH_GAIN * spinX; // english about vertical
     cueBody.setAngularVelocity(ang);
   }
@@ -394,9 +390,15 @@ export function simulateShotHavok(
   // momentary zero-velocity at a cushion rebound or ball-ball contact would
   // end the shot mid-bounce.
   const SETTLE_STREAK = 10;
+  // Sub-step the solver: at a single 1/120 step a max-power ball (8.5 m/s) moves
+  // ~7 cm — more than a ball diameter — so on contact it penetrated deeply and
+  // the solver ejected the pair (visible "jump") or couldn't separate them in
+  // one step ("stick"). Stepping at 1/240 keeps per-step travel under a ball
+  // radius, so contacts resolve cleanly. Collisions accumulate across substeps.
+  const SUBSTEPS = 2;
   while (moving && steps < MAX_STEPS) {
     w.collisions.length = 0;
-    w.step(DT);
+    for (let s = 0; s < SUBSTEPS; s++) w.step(DT / SUBSTEPS);
 
     // Emit collisions captured this step, in order, and feed the rules.
     for (const c of w.collisions) {
