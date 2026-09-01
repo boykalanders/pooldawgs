@@ -697,8 +697,9 @@ function drawAimGuide(
 const CUE_AXIS = 0.5;
 const CUE_TILT = 0;
 
-/** The client's traced cue (stick.svg), laid along the aim and centred on the
- *  aim line; a vector cue is drawn as a fallback until the SVG has loaded. */
+/** The client's cue stick photo (stick.png, trimmed to its content box — see
+ *  scripts/crop-stick.mjs), laid along the aim and centred on the aim line;
+ *  a vector cue is drawn as a fallback until it's loaded. */
 function drawCueStick(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -711,7 +712,7 @@ function drawCueStick(
   const tipX = cx - Math.cos(angle) * pullback;
   const tipY = cy - Math.sin(angle) * pullback;
 
-  const stickImg = getImage("/assets/stick.svg");
+  const stickImg = getImage("/assets/pooldawgs_ico/stick-trim.png");
   if (stickImg) {
     // Image points butt→tip left-to-right; lay it along the aim behind the cue
     // ball, offset vertically so the cue's axis (CUE_AXIS) lands on the aim line.

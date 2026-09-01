@@ -400,18 +400,30 @@ export default function GameShell({
         <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
           <RailButton
             label="Cues"
+            fill
             icon={
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/assets/pooldawgs_ico/cues_ico.png" alt="" className="h-5 w-5" draggable={false} />
+              <img
+                src="/assets/pooldawgs_ico/cues_ico.png"
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             }
             disabled
             title="Cue skins — coming soon"
           />
           <RailButton
             label="Spin"
+            fill
             icon={
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/assets/pooldawgs_ico/spin_ico.png" alt="" className="h-5 w-5" draggable={false} />
+              <img
+                src="/assets/pooldawgs_ico/spin_ico.png"
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             }
             active={spinActive}
             onClick={() => setSpin({ x: 0, y: 0 })}
@@ -419,9 +431,15 @@ export default function GameShell({
           />
           <RailButton
             label="Aim"
+            fill
             icon={
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/assets/pooldawgs_ico/aim_ico.png" alt="" className="h-5 w-5" draggable={false} />
+              <img
+                src="/assets/pooldawgs_ico/aim_ico.png"
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             }
             active={showGuide}
             onClick={() => setShowGuide((v) => !v)}
@@ -826,7 +844,9 @@ function IconButton({
   );
 }
 
-/** Vertical rail button — icon over a tiny label. */
+/** Vertical rail button — icon over a tiny label. With `fill`, the icon
+ *  covers the whole button edge-to-edge and the text label is dropped (the
+ *  branded icon art already carries its own label). */
 function RailButton({
   label,
   icon,
@@ -834,6 +854,7 @@ function RailButton({
   disabled,
   active,
   title,
+  fill,
 }: {
   label: string;
   icon: ReactNode;
@@ -841,6 +862,7 @@ function RailButton({
   disabled?: boolean;
   active?: boolean;
   title?: string;
+  fill?: boolean;
 }) {
   return (
     <button
@@ -848,13 +870,24 @@ function RailButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`${railBase} w-full flex-col gap-1 py-2.5 touch:gap-0.5 touch:py-1.5 ${railTone(active)}`}
+      aria-label={fill ? label : undefined}
+      className={`${railBase} w-full ${
+        fill
+          ? "aspect-square overflow-hidden p-0"
+          : "flex-col gap-1 py-2.5 touch:gap-0.5 touch:py-1.5"
+      } ${railTone(active)}`}
     >
-      <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
-      {label && (
-        <span className="text-[8px] font-semibold uppercase leading-none tracking-[0.14em] touch:hidden">
-          {label}
-        </span>
+      {fill ? (
+        icon
+      ) : (
+        <>
+          <span className="flex h-5 w-5 items-center justify-center">{icon}</span>
+          {label && (
+            <span className="text-[8px] font-semibold uppercase leading-none tracking-[0.14em] touch:hidden">
+              {label}
+            </span>
+          )}
+        </>
       )}
     </button>
   );
@@ -912,12 +945,13 @@ function ModeChip({
       type="button"
       disabled={!selectable}
       onClick={onSelect}
-      className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-4 py-2 font-display text-sm font-bold tracking-wider transition touch:hidden ${
+      aria-label={label}
+      className={`h-11 w-11 shrink-0 touch:hidden overflow-hidden rounded-xl border p-0 transition ${
         active
-          ? "border-gold bg-gold/10 text-gold-bright shadow-gold-glow"
+          ? "border-gold bg-gold/10 shadow-gold-glow"
           : selectable
-            ? "border-gold-dim/30 bg-emerald-panel/60 text-cream/70 hover:border-gold/60 hover:text-gold-bright"
-            : "cursor-not-allowed border-gold-dim/25 bg-emerald-panel/40 text-cream/40"
+            ? "border-gold-dim/30 bg-emerald-panel/60 hover:border-gold/60"
+            : "cursor-not-allowed border-gold-dim/25 bg-emerald-panel/40 opacity-50"
       }`}
       title={selectable ? `Switch to ${label}` : `${label} — coming soon`}
     >
@@ -925,10 +959,9 @@ function ModeChip({
       <img
         src={ballSrc}
         alt=""
-        className={`h-5 w-5 ${active ? "" : "opacity-60"}`}
+        className={`h-full w-full object-cover ${active ? "" : "opacity-70"}`}
         draggable={false}
       />
-      {label}
     </button>
   );
 }

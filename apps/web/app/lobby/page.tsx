@@ -34,12 +34,6 @@ import {
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
-/** 8-ball and 9-ball share a pool table; snooker gets its own felt. */
-const GAME_TYPE_BOARD: Record<GameType, string> = {
-  "8ball": "/assets/pooldawgs_ico/poolboard.png",
-  "9ball": "/assets/pooldawgs_ico/poolboard.png",
-  snooker: "/assets/pooldawgs_ico/snookerboard.png",
-};
 const GAME_TYPE_ICON: Record<GameType, string> = {
   "8ball": "/assets/pooldawgs_ico/8ball.png",
   "9ball": "/assets/pooldawgs_ico/9ball.png",
@@ -268,9 +262,9 @@ function Lobby() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={GAME_TYPE_BOARD[t]}
+                      src={GAME_TYPE_ICON[t]}
                       alt=""
-                      className={`h-12 w-full rounded object-cover ${gameType === t ? "" : "opacity-70"}`}
+                      className={`h-10 w-10 ${gameType === t ? "" : "opacity-70"}`}
                       draggable={false}
                     />
                     {GAME_TYPE_LABEL[t]}
