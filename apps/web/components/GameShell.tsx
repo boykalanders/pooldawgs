@@ -28,19 +28,7 @@ const PoolTable3D = dynamic(() => import("@/components/PoolTable3D"), { ssr: fal
 import PowerSlider from "@/components/PowerSlider";
 import ShotClock from "@/components/ShotClock";
 import SpinControl, { type SpinValue } from "@/components/SpinControl";
-import {
-  IconAim,
-  IconChat,
-  IconCue,
-  IconGift,
-  IconHome,
-  IconMenu,
-  IconSoundOff,
-  IconSoundOn,
-  IconSpin,
-  IconTrophy,
-  IconWallet,
-} from "@/components/icons";
+import { IconSoundOff, IconSoundOn } from "@/components/icons";
 
 export interface ShellPlayer {
   name: string;
@@ -233,7 +221,10 @@ export default function GameShell({
       >
         <div className="relative">
           <IconButton
-            icon={<IconMenu />}
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/assets/pooldawgs_ico/setting_ico.png" alt="" className="h-5 w-5" draggable={false} />
+            }
             active={menuOpen}
             onClick={() => {
               setMenuOpen((v) => !v);
@@ -322,17 +313,20 @@ export default function GameShell({
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
                   onClick={() => setMenuOpen(false)}
                 >
-                  <IconHome className="h-4 w-4" /> Lobby
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/pooldawgs_ico/lobby.png" alt="" className="h-4 w-4" draggable={false} /> Lobby
                 </Link>
                 <Link
                   href="/leaderboard"
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
                   onClick={() => setMenuOpen(false)}
                 >
-                  <IconTrophy className="h-4 w-4" /> Leaderboard
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/pooldawgs_ico/leaderboard.png" alt="" className="h-4 w-4" draggable={false} /> Leaderboard
                 </Link>
                 <span className="flex w-full cursor-not-allowed items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream/40">
-                  <IconGift className="h-4 w-4" /> Rewards — soon
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/pooldawgs_ico/rewards.png" alt="" className="h-4 w-4 opacity-60" draggable={false} /> Rewards — soon
                 </span>
                 <button
                   className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-cream transition hover:bg-gold/10"
@@ -341,7 +335,8 @@ export default function GameShell({
                     isConnected ? openAccountModal?.() : openConnectModal?.();
                   }}
                 >
-                  <IconWallet className="h-4 w-4" /> Wallet
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/assets/pooldawgs_ico/wallet.png" alt="" className="h-4 w-4" draggable={false} /> Wallet
                 </button>
               </div>
               </div>
@@ -383,7 +378,10 @@ export default function GameShell({
 
         <div className="relative justify-self-end">
           <IconButton
-            icon={<IconChat />}
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/assets/pooldawgs_ico/chat_ico.png" alt="" className="h-5 w-5" draggable={false} />
+            }
             active={chatOpen}
             onClick={() => setChatOpen((v) => !v)}
             disabled={!chat}
@@ -400,17 +398,31 @@ export default function GameShell({
       {/* ── main row: rails + table (+ docked chat) ── */}
       <div className="relative flex min-h-0 flex-1 items-stretch gap-2.5">
         <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
-          <RailButton label="Cues" icon={<IconCue />} disabled title="Cue skins — coming soon" />
+          <RailButton
+            label="Cues"
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/assets/pooldawgs_ico/cues_ico.png" alt="" className="h-5 w-5" draggable={false} />
+            }
+            disabled
+            title="Cue skins — coming soon"
+          />
           <RailButton
             label="Spin"
-            icon={<IconSpin />}
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/assets/pooldawgs_ico/spin_ico.png" alt="" className="h-5 w-5" draggable={false} />
+            }
             active={spinActive}
             onClick={() => setSpin({ x: 0, y: 0 })}
             title="Reset cue-ball spin (drag the white ball below to set it)"
           />
           <RailButton
             label="Aim"
-            icon={<IconAim />}
+            icon={
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/assets/pooldawgs_ico/aim_ico.png" alt="" className="h-5 w-5" draggable={false} />
+            }
             active={showGuide}
             onClick={() => setShowGuide((v) => !v)}
             title="Toggle the aim guide"
@@ -628,7 +640,7 @@ export default function GameShell({
         <MoneyPanel title="$DDAWGS balance" value={balanceLabel ?? "—"} icon={<TokenIcon />} plus />
         <ModeChip
           label="8 BALL"
-          ballSrc="/assets/balls/ball-8.svg"
+          ballSrc="/assets/pooldawgs_ico/8ball.png"
           active={state.gameType === "8ball"}
           onSelect={onSelectGameType ? () => onSelectGameType("8ball") : undefined}
         />
@@ -670,13 +682,13 @@ export default function GameShell({
         </div>
         <ModeChip
           label="9 BALL"
-          ballSrc="/assets/balls/ball-9.svg"
+          ballSrc="/assets/pooldawgs_ico/9ball.png"
           active={state.gameType === "9ball"}
           onSelect={onSelectGameType ? () => onSelectGameType("9ball") : undefined}
         />
         <ModeChip
           label="SNOOKER"
-          ballSrc="/assets/balls/ball-3.svg"
+          ballSrc="/assets/pooldawgs_ico/snooker.png"
           active={state.gameType === "snooker"}
           onSelect={onSelectGameType ? () => onSelectGameType("snooker") : undefined}
         />
@@ -723,9 +735,13 @@ export default function GameShell({
 
 function CueBallIcon() {
   return (
-    <span className="relative inline-block h-5 w-5 rounded-full bg-[#f5efe0] shadow-inner">
-      <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-red-800 bg-red-600" />
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/assets/pooldawgs_ico/cue.png"
+      alt=""
+      className="h-5 w-5 rounded-full"
+      draggable={false}
+    />
   );
 }
 
@@ -960,7 +976,7 @@ const GAME_LABEL: Record<GameType, string> = {
 
 /** Representative ball icon per variant (matches the bottom-bar mode chips). */
 const GAME_BALL: Record<GameType, string> = {
-  "8ball": "/assets/balls/ball-8.svg",
-  "9ball": "/assets/balls/ball-9.svg",
-  snooker: "/assets/balls/ball-3.svg",
+  "8ball": "/assets/pooldawgs_ico/8ball.png",
+  "9ball": "/assets/pooldawgs_ico/9ball.png",
+  snooker: "/assets/pooldawgs_ico/snooker.png",
 };

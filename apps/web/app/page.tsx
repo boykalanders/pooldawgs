@@ -68,7 +68,7 @@ export default function HomePage() {
               className="transition hover:scale-105 hover:drop-shadow-[0_0_18px_rgba(201,162,39,0.55)]"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/assets/play-btn.svg" alt="Play — choose your game" className="h-24 w-auto" draggable={false} />
+              <img src="/assets/pooldawgs_ico/play_btn.png" alt="Play — choose your game" className="h-24 w-auto" draggable={false} />
             </Link>
             <Link href="/practice" className="btn-outline text-lg">
               Practice table

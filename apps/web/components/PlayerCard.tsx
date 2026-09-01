@@ -65,11 +65,18 @@ export default function PlayerCard({
       </div>
       {badge && (
         <span
-          className={`absolute -top-2 flex h-6 min-w-6 items-center justify-center rounded-full border border-gold bg-gold-sheen px-1 text-[10px] font-bold text-mahogany-deep shadow ${
-            flip ? "-left-2" : "-right-2"
+          className={`absolute -top-2.5 flex h-7 w-7 items-center justify-center shadow ${
+            flip ? "-left-2.5" : "-right-2.5"
           }`}
         >
-          {badge}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/assets/pooldawgs_ico/star_dawgs_badge.png"
+            alt=""
+            className="absolute inset-0 h-full w-full"
+            draggable={false}
+          />
+          <span className="relative text-[9px] font-bold text-gold-bright">{badge}</span>
         </span>
       )}
       {!connected && (

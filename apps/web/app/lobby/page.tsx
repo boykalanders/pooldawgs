@@ -34,6 +34,18 @@ import {
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
+/** 8-ball and 9-ball share a pool table; snooker gets its own felt. */
+const GAME_TYPE_BOARD: Record<GameType, string> = {
+  "8ball": "/assets/pooldawgs_ico/poolboard.png",
+  "9ball": "/assets/pooldawgs_ico/poolboard.png",
+  snooker: "/assets/pooldawgs_ico/snookerboard.png",
+};
+const GAME_TYPE_ICON: Record<GameType, string> = {
+  "8ball": "/assets/pooldawgs_ico/8ball.png",
+  "9ball": "/assets/pooldawgs_ico/9ball.png",
+  snooker: "/assets/pooldawgs_ico/snooker.png",
+};
+
 export default function LobbyPage() {
   return (
     <WalletGate>
@@ -192,8 +204,14 @@ function Lobby() {
               const mine = game.playerOne === address?.toLowerCase();
               return (
                 <li key={game.gameId} className="panel flex items-center gap-4 px-5 py-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-wood-grain text-lg">
-                    🎱
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-wood-grain">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={GAME_TYPE_ICON[gameTypeFromId(game.gameId)]}
+                      alt=""
+                      className="h-6 w-6"
+                      draggable={false}
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-mono font-semibold text-amber-50">{game.gameId}</p>
@@ -242,12 +260,19 @@ function Lobby() {
                     type="button"
                     onClick={() => setGameType(t)}
                     aria-pressed={gameType === t}
-                    className={`rounded-lg border px-2 py-2 text-sm font-semibold transition ${
+                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-semibold transition ${
                       gameType === t
                         ? "border-gold bg-gold/15 text-gold-bright"
                         : "border-gold-dim/40 bg-mahogany-deep text-amber-100/70 hover:border-gold/60"
                     }`}
                   >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={GAME_TYPE_BOARD[t]}
+                      alt=""
+                      className={`h-12 w-full rounded object-cover ${gameType === t ? "" : "opacity-70"}`}
+                      draggable={false}
+                    />
                     {GAME_TYPE_LABEL[t]}
                   </button>
                 ))}
