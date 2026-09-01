@@ -34,6 +34,9 @@ let BORDER_SIZE = geomFor("8ball").BORDER_SIZE;
 let BALL_SIZE = geomFor("8ball").BALL_SIZE;
 let BALL_RADIUS = geomFor("8ball").BALL_RADIUS;
 let HOLES = geomFor("8ball").HOLES;
+// Branded cloth photo (rail + pockets cropped off, so it's felt-only) — pool
+// and 9-ball share a table, snooker gets its own.
+let FELT_SRC = "/assets/pooldawgs_ico/poolboard-felt.jpg";
 function setRenderGeom2(gameType: GameType): void {
   const g = geomFor(gameType);
   TABLE_WIDTH = g.TABLE_WIDTH;
@@ -42,6 +45,31 @@ function setRenderGeom2(gameType: GameType): void {
   BALL_SIZE = g.BALL_SIZE;
   BALL_RADIUS = g.BALL_RADIUS;
   HOLES = g.HOLES;
+  FELT_SRC =
+    gameType === "snooker"
+      ? "/assets/pooldawgs_ico/snookerboard-felt.jpg"
+      : "/assets/pooldawgs_ico/poolboard-felt.jpg";
+}
+
+/** Draw `img` into the target box scaled to cover it (like CSS
+ *  `object-fit: cover`), centred and clipped — no stretching/distortion. */
+function drawCoverImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  tx: number,
+  ty: number,
+  tw: number,
+  th: number
+) {
+  const scale = Math.max(tw / img.naturalWidth, th / img.naturalHeight);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(tx, ty, tw, th);
+  ctx.clip();
+  ctx.drawImage(img, tx + (tw - dw) / 2, ty + (th - dh) / 2, dw, dh);
+  ctx.restore();
 }
 
 // Sounds from the forked game's assets, cloned per play like the fork does.
@@ -784,26 +812,32 @@ function drawTable(ctx: CanvasRenderingContext2D) {
   drawCornerBrace(ctx, 8, TABLE_HEIGHT - 8, 1, -1);
   drawCornerBrace(ctx, TABLE_WIDTH - 8, TABLE_HEIGHT - 8, -1, -1);
 
-  // Emerald cloth.
-  const cloth = ctx.createRadialGradient(
-    TABLE_WIDTH / 2,
-    TABLE_HEIGHT / 2,
-    100,
-    TABLE_WIDTH / 2,
-    TABLE_HEIGHT / 2,
-    900
-  );
-  cloth.addColorStop(0, "#0e4a38");
-  cloth.addColorStop(1, "#0a382b");
-  ctx.fillStyle = cloth;
-  ctx.fillRect(
-    BORDER_SIZE,
-    BORDER_SIZE,
-    TABLE_WIDTH - 2 * BORDER_SIZE,
-    TABLE_HEIGHT - 2 * BORDER_SIZE
-  );
-
-  drawWatermark(ctx);
+  // Branded cloth photo; a plain emerald gradient is the fallback vector
+  // fill until it's loaded (matches the stick/watermark asset pattern).
+  const clothX = BORDER_SIZE;
+  const clothY = BORDER_SIZE;
+  const clothW = TABLE_WIDTH - 2 * BORDER_SIZE;
+  const clothH = TABLE_HEIGHT - 2 * BORDER_SIZE;
+  const feltImg = getImage(FELT_SRC);
+  if (feltImg) {
+    drawCoverImage(ctx, feltImg, clothX, clothY, clothW, clothH);
+  } else {
+    const cloth = ctx.createRadialGradient(
+      TABLE_WIDTH / 2,
+      TABLE_HEIGHT / 2,
+      100,
+      TABLE_WIDTH / 2,
+      TABLE_HEIGHT / 2,
+      900
+    );
+    cloth.addColorStop(0, "#0e4a38");
+    cloth.addColorStop(1, "#0a382b");
+    ctx.fillStyle = cloth;
+    ctx.fillRect(clothX, clothY, clothW, clothH);
+    // The photo already carries the Pool Dawgs crest — only ink the vector
+    // watermark while it's still loading.
+    drawWatermark(ctx);
+  }
 
   // Baulk line + head spot, subtle.
   ctx.strokeStyle = "rgba(245, 239, 224, 0.1)";

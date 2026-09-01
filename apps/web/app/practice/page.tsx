@@ -220,10 +220,11 @@ export default function PracticePage() {
       graphics={graphics}
       onGraphicsChange={updateGraphics}
       menuItems={[
-        {
-          label: view === "3d" ? "Switch to 2D view" : "Switch to 3D view",
-          onClick: () => setView((v) => (v === "3d" ? "2d" : "3d")),
-        },
+        // 3D toggle hidden for now (client request) — the `view` state, the
+        // ?view=3d query param, and the 3D renderer itself all still work;
+        // only this switcher is hidden. Re-add the entry below to restore it:
+        // { label: view === "3d" ? "Switch to 2D view" : "Switch to 3D view",
+        //   onClick: () => setView((v) => (v === "3d" ? "2d" : "3d")) },
         { label: `Re-rack (${GAME_NAME[gameType]})`, onClick: () => reRack() },
         { label: "Exit to lobby", onClick: () => router.push("/lobby") },
       ]}

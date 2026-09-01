@@ -56,9 +56,16 @@ const S = 1 / PX_PER_M;
 const BALL_VIS = 1.02;
 let RG: TableGeometry = geomFor("8ball");
 let R = RG.BALL_RADIUS * S * BALL_VIS; // ball radius (world metres, visual)
+// Branded cloth photo (rail + pockets cropped off) — pool and 9-ball share a
+// table, snooker gets its own. Mirrors the 2D canvas's FELT_SRC.
+let FELT_SRC = "/assets/pooldawgs_ico/poolboard-felt.jpg";
 function setRenderGeom(gameType: TableState["gameType"]): void {
   RG = geomFor(gameType);
   R = RG.BALL_RADIUS * S * BALL_VIS;
+  FELT_SRC =
+    gameType === "snooker"
+      ? "/assets/pooldawgs_ico/snookerboard-felt.jpg"
+      : "/assets/pooldawgs_ico/poolboard-felt.jpg";
 }
 const wx = (px: number) => (px - RG.TABLE_WIDTH / 2) * S;
 const wz = (py: number) => (RG.TABLE_HEIGHT / 2 - py) * S;
@@ -919,19 +926,36 @@ function buildTable(scene: Scene): void {
   cloth.material = feltMat;
   cloth.receiveShadows = true;
   cloth.position.y = 0;
+  let feltPhotoLoaded = false;
   if (typeof window !== "undefined") {
-    const img = new Image();
-    img.onload = () => {
+    // Fallback crest (procedural gradient + inked watermark) while the
+    // branded felt photo below is still loading.
+    const wmImg = new Image();
+    wmImg.onload = () => {
+      if (feltPhotoLoaded) return; // the real photo already replaced it
       paintFelt();
       fctx.save();
       fctx.globalAlpha = 0.2; // faint stencilled crest, but readable like the 2D
       const w = 420;
-      const h = w * (img.naturalHeight / img.naturalWidth || 0.6);
-      fctx.drawImage(img, (1024 - w) / 2, (512 - h) / 2, w, h);
+      const h = w * (wmImg.naturalHeight / wmImg.naturalWidth || 0.6);
+      fctx.drawImage(wmImg, (1024 - w) / 2, (512 - h) / 2, w, h);
       fctx.restore();
       feltTex.update();
     };
-    img.src = "/assets/watermark.svg";
+    wmImg.src = "/assets/watermark.svg";
+
+    // Branded cloth photo (rail/pockets already cropped off) — the client's
+    // real felt, scaled to cover the texture like CSS object-fit: cover.
+    const feltImg = new Image();
+    feltImg.onload = () => {
+      feltPhotoLoaded = true;
+      const scale = Math.max(1024 / feltImg.naturalWidth, 512 / feltImg.naturalHeight);
+      const dw = feltImg.naturalWidth * scale;
+      const dh = feltImg.naturalHeight * scale;
+      fctx.drawImage(feltImg, (1024 - dw) / 2, (512 - dh) / 2, dw, dh);
+      feltTex.update();
+    };
+    feltImg.src = FELT_SRC;
   }
 
   // Polished mahogany frame (lacquered: clearcoat over a deep red-brown), below
