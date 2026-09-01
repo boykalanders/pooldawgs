@@ -35,9 +35,9 @@ import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
 const GAME_TYPE_ICON: Record<GameType, string> = {
-  "8ball": "/assets/pooldawgs_ico/8ball.png",
-  "9ball": "/assets/pooldawgs_ico/9ball.png",
-  snooker: "/assets/pooldawgs_ico/snooker.png",
+  "8ball": "/assets/pooldawgs_ico/8ball-icon.png",
+  "9ball": "/assets/pooldawgs_ico/9ball-icon.png",
+  snooker: "/assets/pooldawgs_ico/snooker-icon.png",
 };
 
 export default function LobbyPage() {
@@ -203,7 +203,7 @@ function Lobby() {
                     <img
                       src={GAME_TYPE_ICON[gameTypeFromId(game.gameId)]}
                       alt=""
-                      className="h-6 w-6"
+                      className="h-7 w-7 rounded-full object-cover"
                       draggable={false}
                     />
                   </div>
@@ -264,7 +264,7 @@ function Lobby() {
                     <img
                       src={GAME_TYPE_ICON[t]}
                       alt=""
-                      className={`h-10 w-10 ${gameType === t ? "" : "opacity-70"}`}
+                      className={`h-14 w-14 rounded-lg object-cover ${gameType === t ? "" : "opacity-70"}`}
                       draggable={false}
                     />
                     {GAME_TYPE_LABEL[t]}

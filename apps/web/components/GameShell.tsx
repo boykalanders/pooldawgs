@@ -404,7 +404,7 @@ export default function GameShell({
             icon={
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src="/assets/pooldawgs_ico/cues_ico.png"
+                src="/assets/pooldawgs_ico/cues_ico-trim.png"
                 alt=""
                 className="h-full w-full object-cover"
                 draggable={false}
@@ -435,7 +435,7 @@ export default function GameShell({
             icon={
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src="/assets/pooldawgs_ico/aim_ico.png"
+                src="/assets/pooldawgs_ico/aim_ico-trim.png"
                 alt=""
                 className="h-full w-full object-cover"
                 draggable={false}
@@ -453,7 +453,12 @@ export default function GameShell({
                 label="Game"
                 icon={
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={GAME_BALL[state.gameType]} alt="" className="h-5 w-5" draggable={false} />
+                  <img
+                    src={GAME_BALL[state.gameType]}
+                    alt=""
+                    className="h-6 w-6 rounded-full object-cover"
+                    draggable={false}
+                  />
                 }
                 active={gameMenuOpen}
                 onClick={() => {
@@ -483,7 +488,12 @@ export default function GameShell({
                       }}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={GAME_BALL[type]} alt="" className="h-4 w-4" draggable={false} />
+                      <img
+                        src={GAME_BALL[type]}
+                        alt=""
+                        className="h-5 w-5 rounded-full object-cover"
+                        draggable={false}
+                      />
                       {label}
                     </button>
                   ))}
@@ -658,7 +668,7 @@ export default function GameShell({
         <MoneyPanel title="$DDAWGS balance" value={balanceLabel ?? "—"} icon={<TokenIcon />} plus />
         <ModeChip
           label="8 BALL"
-          ballSrc="/assets/pooldawgs_ico/8ball.png"
+          ballSrc="/assets/pooldawgs_ico/8ball-badge.png"
           active={state.gameType === "8ball"}
           onSelect={onSelectGameType ? () => onSelectGameType("8ball") : undefined}
         />
@@ -700,13 +710,13 @@ export default function GameShell({
         </div>
         <ModeChip
           label="9 BALL"
-          ballSrc="/assets/pooldawgs_ico/9ball.png"
+          ballSrc="/assets/pooldawgs_ico/9ball-badge.png"
           active={state.gameType === "9ball"}
           onSelect={onSelectGameType ? () => onSelectGameType("9ball") : undefined}
         />
         <ModeChip
           label="SNOOKER"
-          ballSrc="/assets/pooldawgs_ico/snooker.png"
+          ballSrc="/assets/pooldawgs_ico/snooker-badge.png"
           active={state.gameType === "snooker"}
           onSelect={onSelectGameType ? () => onSelectGameType("snooker") : undefined}
         />
@@ -946,7 +956,7 @@ function ModeChip({
       disabled={!selectable}
       onClick={onSelect}
       aria-label={label}
-      className={`h-11 w-11 shrink-0 touch:hidden overflow-hidden rounded-xl border p-0 transition ${
+      className={`h-14 w-36 shrink-0 touch:hidden overflow-hidden rounded-xl border p-0 transition ${
         active
           ? "border-gold bg-gold/10 shadow-gold-glow"
           : selectable
@@ -1007,9 +1017,11 @@ const GAME_LABEL: Record<GameType, string> = {
   snooker: "Pool Dawgs snooker",
 };
 
-/** Representative ball icon per variant (matches the bottom-bar mode chips). */
+/** Representative ball icon per variant — the ball-only crop (not the wide
+ *  badge with "8 BALL" baked in) since these sit next to their own text
+ *  label already. */
 const GAME_BALL: Record<GameType, string> = {
-  "8ball": "/assets/pooldawgs_ico/8ball.png",
-  "9ball": "/assets/pooldawgs_ico/9ball.png",
-  snooker: "/assets/pooldawgs_ico/snooker.png",
+  "8ball": "/assets/pooldawgs_ico/8ball-icon.png",
+  "9ball": "/assets/pooldawgs_ico/9ball-icon.png",
+  snooker: "/assets/pooldawgs_ico/snooker-icon.png",
 };

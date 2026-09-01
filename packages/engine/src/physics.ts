@@ -46,10 +46,10 @@ export function isInsideHole(x: number, y: number): boolean {
 
 export function isOutsideBorder(x: number, y: number): boolean {
   return (
-    x - G.BALL_ORIGIN < G.LEFT_BORDER_X ||
-    x + G.BALL_ORIGIN > G.RIGHT_BORDER_X ||
-    y - G.BALL_ORIGIN < G.TOP_BORDER_Y ||
-    y + G.BALL_ORIGIN > G.BOTTOM_BORDER_Y
+    x - G.BALL_RADIUS < G.LEFT_BORDER_X ||
+    x + G.BALL_RADIUS > G.RIGHT_BORDER_X ||
+    y - G.BALL_RADIUS < G.TOP_BORDER_Y ||
+    y + G.BALL_RADIUS > G.BOTTOM_BORDER_Y
   );
 }
 
@@ -250,28 +250,30 @@ function integrateBall(
     return;
   }
 
-  // Cushions: normal restitution + tangential friction (spec §3).
+  // Cushions: normal restitution + tangential friction (spec §3). Clamped to
+  // the ball's actual drawn radius, not the old (larger) BALL_ORIGIN — that
+  // mismatch left a visible gap of felt between a resting ball and the rail.
   let collision = false;
-  if (newX - G.BALL_ORIGIN < G.LEFT_BORDER_X) {
+  if (newX - G.BALL_RADIUS < G.LEFT_BORDER_X) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
-    ball.x = G.LEFT_BORDER_X + G.BALL_ORIGIN;
+    ball.x = G.LEFT_BORDER_X + G.BALL_RADIUS;
     collision = true;
-  } else if (newX + G.BALL_ORIGIN > G.RIGHT_BORDER_X) {
+  } else if (newX + G.BALL_RADIUS > G.RIGHT_BORDER_X) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
-    ball.x = G.RIGHT_BORDER_X - G.BALL_ORIGIN;
+    ball.x = G.RIGHT_BORDER_X - G.BALL_RADIUS;
     collision = true;
   }
-  if (newY - G.BALL_ORIGIN < G.TOP_BORDER_Y) {
+  if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
-    ball.y = G.TOP_BORDER_Y + G.BALL_ORIGIN;
+    ball.y = G.TOP_BORDER_Y + G.BALL_RADIUS;
     collision = true;
-  } else if (newY + G.BALL_ORIGIN > G.BOTTOM_BORDER_Y) {
+  } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
-    ball.y = G.BOTTOM_BORDER_Y - G.BALL_ORIGIN;
+    ball.y = G.BOTTOM_BORDER_Y - G.BALL_RADIUS;
     collision = true;
   }
 

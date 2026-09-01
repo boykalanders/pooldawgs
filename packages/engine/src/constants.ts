@@ -20,8 +20,6 @@ export const TABLE_HEIGHT = 825;
 export const BALL_SIZE = 38;
 /** Physical ball radius in px (spec: 28.575 mm). */
 export const BALL_RADIUS = BALL_SIZE / 2;
-/** Half sprite size; used for cushion clamping, as in the fork. */
-export const BALL_ORIGIN = 25;
 export const BORDER_SIZE = 57;
 export const HOLE_RADIUS = 46;
 

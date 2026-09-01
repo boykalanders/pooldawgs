@@ -12,7 +12,6 @@
 // snooker ball is far smaller relative to the cloth (the "finer" snooker feel).
 
 import {
-  BALL_ORIGIN as POOL_BALL_ORIGIN,
   BALL_RADIUS as POOL_BALL_RADIUS,
   BALL_SIZE as POOL_BALL_SIZE,
   BORDER_SIZE as POOL_BORDER_SIZE,
@@ -38,7 +37,6 @@ export interface TableGeometry {
   TABLE_HEIGHT: number;
   BALL_SIZE: number;
   BALL_RADIUS: number;
-  BALL_ORIGIN: number;
   BORDER_SIZE: number;
   LEFT_BORDER_X: number;
   RIGHT_BORDER_X: number;
@@ -63,17 +61,17 @@ function buildHoles(
   width: number,
   height: number,
   border: number,
-  ballOrigin: number,
+  ballRadius: number,
   cornerR: number,
   middleR: number
 ): Hole[] {
   const inset = border + 5; // corner mouth, slightly inside the rail corner
   const midX = width / 2;
   // Centre pockets must reach a ball resting at the cushion (its centre is
-  // clamped at border + ballOrigin). Place the centre so that ball sits ~0.78r
+  // clamped at border + ballRadius). Place the centre so that ball sits ~0.78r
   // inside the mouth — otherwise, with a small radius (snooker), the pocket
   // ends short of the cushion line and never captures.
-  const clamp = border + ballOrigin;
+  const clamp = border + ballRadius;
   const topMid = clamp - middleR * 0.78;
   return [
     { x: inset, y: inset, radius: cornerR, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT },
@@ -91,7 +89,6 @@ export const POOL_GEOM: TableGeometry = {
   TABLE_HEIGHT: POOL_TABLE_HEIGHT,
   BALL_SIZE: POOL_BALL_SIZE,
   BALL_RADIUS: POOL_BALL_RADIUS,
-  BALL_ORIGIN: POOL_BALL_ORIGIN,
   BORDER_SIZE: POOL_BORDER_SIZE,
   LEFT_BORDER_X: POOL_LEFT,
   RIGHT_BORDER_X: POOL_RIGHT,
@@ -113,7 +110,6 @@ const SNK_H = SNK_PLAY_WID + 2 * SNK_BORDER;
 // pool oversize factor so they read at the same on-cloth scale ratio as real.
 const SNK_BALL_SIZE = Math.round(POOL_BALL_SIZE * (52.5 / 57.15)); // ≈ 35 px
 const SNK_BALL_RADIUS = SNK_BALL_SIZE / 2;
-const SNK_BALL_ORIGIN = Math.round(POOL_BALL_ORIGIN * (SNK_BALL_SIZE / POOL_BALL_SIZE));
 // Snooker pockets (86 / 89 mm) are tighter than pool's (115 / 125 mm).
 const SNK_CORNER_R = Math.round(POOL_HOLE_RADIUS * (86 / 115)); // ≈ 34
 const SNK_MIDDLE_R = Math.round(52 * (89 / 125)); // ≈ 37
@@ -123,14 +119,13 @@ export const SNOOKER_GEOM: TableGeometry = {
   TABLE_HEIGHT: SNK_H,
   BALL_SIZE: SNK_BALL_SIZE,
   BALL_RADIUS: SNK_BALL_RADIUS,
-  BALL_ORIGIN: SNK_BALL_ORIGIN,
   BORDER_SIZE: SNK_BORDER,
   LEFT_BORDER_X: SNK_BORDER,
   RIGHT_BORDER_X: SNK_W - SNK_BORDER,
   TOP_BORDER_Y: SNK_BORDER,
   BOTTOM_BORDER_Y: SNK_H - SNK_BORDER,
   HOLE_RADIUS: SNK_CORNER_R,
-  HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_BALL_ORIGIN, SNK_CORNER_R, SNK_MIDDLE_R),
+  HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_BALL_RADIUS, SNK_CORNER_R, SNK_MIDDLE_R),
   CUE_BALL_START: { x: SNK_BORDER + Math.round(0.6 * PX_PER_M), y: Math.round(SNK_H / 2) },
   POCKETED_PARK: { x: 0, y: SNK_H + 120 },
 };

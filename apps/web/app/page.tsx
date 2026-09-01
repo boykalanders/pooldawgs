@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 const VARIANTS = [
-  { ball: "/assets/pooldawgs_ico/8ball.png", label: "8-Ball" },
-  { ball: "/assets/pooldawgs_ico/9ball.png", label: "9-Ball" },
-  { ball: "/assets/pooldawgs_ico/snooker.png", label: "Snooker" },
+  { ball: "/assets/pooldawgs_ico/8ball-icon.png", label: "8-Ball" },
+  { ball: "/assets/pooldawgs_ico/9ball-icon.png", label: "9-Ball" },
+  { ball: "/assets/pooldawgs_ico/snooker-icon.png", label: "Snooker" },
 ];
 
 const FEATURES = [
@@ -56,7 +56,7 @@ export default function HomePage() {
                 className="flex items-center gap-2 rounded-full border border-gold-dim/40 bg-emerald-deep/60 px-4 py-1.5 text-sm font-semibold text-cream/80"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={v.ball} alt="" className="h-5 w-5" draggable={false} />
+                <img src={v.ball} alt="" className="h-6 w-6 rounded-full object-cover" draggable={false} />
                 {v.label}
               </span>
             ))}
