@@ -124,12 +124,14 @@ export interface Hole {
 
 const SQRT1_2 = Math.SQRT1_2;
 /** Corners are fed by two rails — a generous cone (spec §6: 8°, widened for
- *  the fork's coarser geometry so legitimate cut pots still drop). */
-const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
+ *  the fork's coarser geometry so legitimate cut pots still drop). Exported so
+ *  geometry.ts's per-variant buildHoles() (snooker) shares the exact same
+ *  cones instead of re-deriving them and drifting out of sync. */
+export const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
 /** Centre pockets get a tighter cone than corners — this is what rejects the
  *  rail-skimmers the fork wrongly captured. Widened a touch (26° → 31°) on
  *  client feedback that the middle pocket felt too narrow. */
-const SIDE_ACCEPT = Math.cos((31 * Math.PI) / 180);
+export const SIDE_ACCEPT = Math.cos((31 * Math.PI) / 180);
 
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top left

@@ -17,6 +17,7 @@ import {
   BALL_SIZE as POOL_BALL_SIZE,
   BORDER_SIZE as POOL_BORDER_SIZE,
   BOTTOM_BORDER_Y as POOL_BOTTOM,
+  CORNER_ACCEPT,
   CUE_BALL_START as POOL_CUE_START,
   HOLES as POOL_HOLES,
   HOLE_RADIUS as POOL_HOLE_RADIUS,
@@ -24,6 +25,7 @@ import {
   POCKETED_PARK as POOL_PARK,
   PX_PER_M,
   RIGHT_BORDER_X as POOL_RIGHT,
+  SIDE_ACCEPT,
   TABLE_HEIGHT as POOL_TABLE_HEIGHT,
   TABLE_WIDTH as POOL_TABLE_WIDTH,
   TOP_BORDER_Y as POOL_TOP,
@@ -49,8 +51,12 @@ export interface TableGeometry {
 }
 
 const SQRT1_2 = Math.SQRT1_2;
-const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
-const SIDE_ACCEPT = Math.cos((26 * Math.PI) / 180);
+// CORNER_ACCEPT / SIDE_ACCEPT come from constants.ts — snooker's pockets share
+// the same acceptance cones as pool's (previously duplicated here with a stale
+// 26° centre-pocket cone, from before that was widened to 31° on client
+// feedback that the middle pocket felt too narrow; only the pool copy got
+// fixed, so snooker's middle pockets kept rejecting balls that visually
+// looked like clean pots).
 
 /** Build the six pockets for a table of the given size and pocket radii. */
 function buildHoles(
