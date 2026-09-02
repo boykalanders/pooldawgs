@@ -656,13 +656,13 @@ export default function GameShell({
               onRelease={releasePower}
             />
           </div>
-          <RailButton
+          {/* <RailButton
             label="English"
             icon={<CueBallIcon />}
             active={spin.x !== 0}
             onClick={() => setSpin((s) => ({ ...s, x: 0 }))}
             title={`Side english: ${spin.x.toFixed(2)} — drag the white ball sideways to set; click to clear`}
-          />
+          /> */}
         </div>
       </div>
 
