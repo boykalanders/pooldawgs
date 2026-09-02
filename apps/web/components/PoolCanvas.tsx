@@ -34,9 +34,57 @@ let BORDER_SIZE = geomFor("8ball").BORDER_SIZE;
 let BALL_SIZE = geomFor("8ball").BALL_SIZE;
 let BALL_RADIUS = geomFor("8ball").BALL_RADIUS;
 let HOLES = geomFor("8ball").HOLES;
-// Branded cloth photo (rail + pockets cropped off, so it's felt-only) — pool
-// and 9-ball share a table, snooker gets its own.
-let FELT_SRC = "/assets/pooldawgs_ico/poolboard-felt.jpg";
+// Full branded table photo (wood rails, green cushions, gold pockets, crest).
+// Drawn as the whole table surface; the transform below scales/positions the
+// image so its corner pockets land exactly on the engine's corner holes — so
+// the felt, cushion noses and pockets all line up with the physics. The insets
+// were fitted from the pockets in each image (see scratchpad/measure_pockets).
+interface TableSkin {
+  src: string;
+  // ctx.drawImage transform (engine px) placing the photo so its corner pockets
+  // land on the engine corner holes.
+  dx: number;
+  dy: number;
+  dw: number;
+  dh: number;
+  // Decorative margin (engine px) around the play area, revealing the wooden
+  // rails that sit just outside the table bounds. Sized to the photo's wood
+  // outer edge (see scratchpad/measure_wood).
+  ml: number;
+  mr: number;
+  mt: number;
+  mb: number;
+}
+// Fitted so the image's CUSHION NOSES (the felt/cushion boundary — where a ball
+// actually bounces) land on the engine play boundary (BORDER_SIZE inset), not
+// the pockets. Aligning pockets left a ~1-ball gap at the rails. Noses + wood
+// margins measured per image (scratchpad/fit_nose3, measure_wood).
+const POOL_SKIN: TableSkin = {
+  src: "/assets/tables/pool_table.png",
+  dx: -88,
+  dy: -160,
+  dw: 1670,
+  dh: 1187,
+  ml: 33,
+  mr: 39,
+  mt: 26,
+  mb: 64,
+};
+const SNOOKER_SKIN: TableSkin = {
+  src: "/assets/tables/snooker_table.png",
+  dx: -96,
+  dy: -262,
+  dw: 2252,
+  dh: 1687,
+  ml: 27,
+  mr: 34,
+  mt: 19,
+  mb: 53,
+};
+let TABLE_SKIN = POOL_SKIN;
+// The visible canvas window in engine coords: the play area plus the skin's
+// rail margin. Everything is drawn in engine space, shifted by (-x0,-y0).
+let VIEW = { x0: 0, y0: 0, w: geomFor("8ball").TABLE_WIDTH, h: geomFor("8ball").TABLE_HEIGHT };
 function setRenderGeom2(gameType: GameType): void {
   const g = geomFor(gameType);
   TABLE_WIDTH = g.TABLE_WIDTH;
@@ -45,31 +93,14 @@ function setRenderGeom2(gameType: GameType): void {
   BALL_SIZE = g.BALL_SIZE;
   BALL_RADIUS = g.BALL_RADIUS;
   HOLES = g.HOLES;
-  FELT_SRC =
-    gameType === "snooker"
-      ? "/assets/pooldawgs_ico/snookerboard-felt.jpg"
-      : "/assets/pooldawgs_ico/poolboard-felt.jpg";
-}
-
-/** Draw `img` into the target box scaled to cover it (like CSS
- *  `object-fit: cover`), centred and clipped — no stretching/distortion. */
-function drawCoverImage(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  tx: number,
-  ty: number,
-  tw: number,
-  th: number
-) {
-  const scale = Math.max(tw / img.naturalWidth, th / img.naturalHeight);
-  const dw = img.naturalWidth * scale;
-  const dh = img.naturalHeight * scale;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(tx, ty, tw, th);
-  ctx.clip();
-  ctx.drawImage(img, tx + (tw - dw) / 2, ty + (th - dh) / 2, dw, dh);
-  ctx.restore();
+  TABLE_SKIN = gameType === "snooker" ? SNOOKER_SKIN : POOL_SKIN;
+  const s = TABLE_SKIN;
+  VIEW = {
+    x0: -s.ml,
+    y0: -s.mt,
+    w: TABLE_WIDTH + s.ml + s.mr,
+    h: TABLE_HEIGHT + s.mt + s.mb,
+  };
 }
 
 // Sounds from the forked game's assets, cloned per play like the fork does.
@@ -87,8 +118,8 @@ function playSound(src: string, volume: number, muted: boolean | undefined): voi
   void node.play().catch(() => {});
 }
 
-// Lazy image cache for the SVG assets; drawing falls back to vector
-// rendering until an asset has loaded (or if it fails to).
+// Lazy image cache for the PNG ball/table assets; drawing falls back to
+// vector rendering until an asset has loaded (or if it fails to).
 const imageCache = new Map<string, HTMLImageElement>();
 function getImage(src: string): HTMLImageElement | null {
   if (typeof window === "undefined") return null;
@@ -353,8 +384,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     return {
-      x: ((e.clientX - rect.left) / rect.width) * TABLE_WIDTH,
-      y: ((e.clientY - rect.top) / rect.height) * TABLE_HEIGHT,
+      x: VIEW.x0 + ((e.clientX - rect.left) / rect.width) * VIEW.w,
+      y: VIEW.y0 + ((e.clientY - rect.top) / rect.height) * VIEW.h,
     };
   }
 
@@ -434,15 +465,15 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   return (
     <canvas
       ref={canvasRef}
-      width={TABLE_WIDTH}
-      height={TABLE_HEIGHT}
+      width={VIEW.w}
+      height={VIEW.h}
       // Scales to fit BOTH the available width and height, keeping the
-      // table's aspect ratio — no page scrolling at any resolution.
+      // table's aspect ratio (play area + rail margin) — no page scrolling.
       className="max-h-full max-w-full rounded-xl"
       style={{
         width: "auto",
         height: "auto",
-        aspectRatio: `${TABLE_WIDTH} / ${TABLE_HEIGHT}`,
+        aspectRatio: `${VIEW.w} / ${VIEW.h}`,
         touchAction: "none",
       }}
       onPointerDown={handlePointerDown}
@@ -496,6 +527,13 @@ function drawScene(
   }>
 ) {
   const { state } = props;
+  // Absolute transform each frame (drawScene has early returns, so avoid
+  // cumulative translate). Clear the whole canvas, then shift into engine space
+  // so the rail margin around the play area is drawn.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#04050a";
+  ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+  ctx.setTransform(1, 0, 0, 1, -VIEW.x0, -VIEW.y0);
   drawTable(ctx);
 
   const now = performance.now();
@@ -775,243 +813,34 @@ function drawCueStick(
 // ───────────────────────────── table ─────────────────────────────
 
 function drawTable(ctx: CanvasRenderingContext2D) {
-  // Dark wood frame.
-  const wood = ctx.createLinearGradient(0, 0, TABLE_WIDTH, TABLE_HEIGHT);
-  wood.addColorStop(0, "#3b2417");
-  wood.addColorStop(0.5, "#2a160c");
-  wood.addColorStop(1, "#1a0d06");
-  ctx.fillStyle = wood;
-  ctx.fillRect(0, 0, TABLE_WIDTH, TABLE_HEIGHT);
-
-  // Wood grain hint: faint long streaks.
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 8; i++) {
-    const y = (TABLE_HEIGHT / 8) * i + 12;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(TABLE_WIDTH * 0.3, y + 6, TABLE_WIDTH * 0.7, y - 6, TABLE_WIDTH, y);
-    ctx.stroke();
+  const skin = TABLE_SKIN;
+  const img = getImage(skin.src);
+  if (img) {
+    // The full branded photo IS the table surface — wood rails, green cushion
+    // walls, gold pockets and crest — scaled/placed so its pockets sit on the
+    // engine holes, so felt, cushions and pockets all match the physics.
+    ctx.drawImage(img, skin.dx, skin.dy, skin.dw, skin.dh);
+    return;
   }
-
-  // Outer + inner gold trim.
-  ctx.strokeStyle = "#8a6d1d";
-  ctx.lineWidth = 6;
-  ctx.strokeRect(3, 3, TABLE_WIDTH - 6, TABLE_HEIGHT - 6);
-  ctx.strokeStyle = "#c9a227";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(
-    BORDER_SIZE - 8,
-    BORDER_SIZE - 8,
-    TABLE_WIDTH - 2 * BORDER_SIZE + 16,
-    TABLE_HEIGHT - 2 * BORDER_SIZE + 16
+  // Fallback until the photo loads: emerald felt + a dark hint at each pocket.
+  const cloth = ctx.createRadialGradient(
+    TABLE_WIDTH / 2,
+    TABLE_HEIGHT / 2,
+    100,
+    TABLE_WIDTH / 2,
+    TABLE_HEIGHT / 2,
+    Math.max(TABLE_WIDTH, TABLE_HEIGHT)
   );
-
-  // Gold filigree corner braces.
-  drawCornerBrace(ctx, 8, 8, 1, 1);
-  drawCornerBrace(ctx, TABLE_WIDTH - 8, 8, -1, 1);
-  drawCornerBrace(ctx, 8, TABLE_HEIGHT - 8, 1, -1);
-  drawCornerBrace(ctx, TABLE_WIDTH - 8, TABLE_HEIGHT - 8, -1, -1);
-
-  // Branded cloth photo; a plain emerald gradient is the fallback vector
-  // fill until it's loaded (matches the stick/watermark asset pattern).
-  const clothX = BORDER_SIZE;
-  const clothY = BORDER_SIZE;
-  const clothW = TABLE_WIDTH - 2 * BORDER_SIZE;
-  const clothH = TABLE_HEIGHT - 2 * BORDER_SIZE;
-  const feltImg = getImage(FELT_SRC);
-  if (feltImg) {
-    drawCoverImage(ctx, feltImg, clothX, clothY, clothW, clothH);
-  } else {
-    const cloth = ctx.createRadialGradient(
-      TABLE_WIDTH / 2,
-      TABLE_HEIGHT / 2,
-      100,
-      TABLE_WIDTH / 2,
-      TABLE_HEIGHT / 2,
-      900
-    );
-    cloth.addColorStop(0, "#0e4a38");
-    cloth.addColorStop(1, "#0a382b");
-    ctx.fillStyle = cloth;
-    ctx.fillRect(clothX, clothY, clothW, clothH);
-    // The photo already carries the Pool Dawgs crest — only ink the vector
-    // watermark while it's still loading.
-    drawWatermark(ctx);
-  }
-
-  // Baulk line + head spot, subtle.
-  ctx.strokeStyle = "rgba(245, 239, 224, 0.1)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(413, BORDER_SIZE);
-  ctx.lineTo(413, TABLE_HEIGHT - BORDER_SIZE);
-  ctx.stroke();
-
-  // Rail sights (gold diamonds).
-  ctx.fillStyle = "rgba(232, 197, 71, 0.85)";
-  for (let i = 1; i <= 7; i++) {
-    const x = (TABLE_WIDTH / 8) * i;
-    if (Math.abs(x - 750) > 40) {
-      drawDiamond(ctx, x, BORDER_SIZE / 2);
-      drawDiamond(ctx, x, TABLE_HEIGHT - BORDER_SIZE / 2);
-    }
-  }
-  for (let i = 1; i <= 3; i++) {
-    const y = (TABLE_HEIGHT / 4) * i;
-    drawDiamond(ctx, BORDER_SIZE / 2, y);
-    drawDiamond(ctx, TABLE_WIDTH - BORDER_SIZE / 2, y);
-  }
-
-  // Paw prints walking the rails between the sights (design detail).
-  for (let i = 0; i < 8; i++) {
-    const x = (TABLE_WIDTH / 8) * i + TABLE_WIDTH / 16;
-    drawPaw(ctx, x, BORDER_SIZE / 2, 9, "rgba(201, 162, 39, 0.35)");
-    drawPaw(ctx, x, TABLE_HEIGHT - BORDER_SIZE / 2, 9, "rgba(201, 162, 39, 0.35)");
-  }
-
-  // Pockets: deep black with double gold rims and a soft glow.
+  cloth.addColorStop(0, "#0e4a38");
+  cloth.addColorStop(1, "#0a382b");
+  ctx.fillStyle = cloth;
+  ctx.fillRect(0, 0, TABLE_WIDTH, TABLE_HEIGHT);
   for (const hole of HOLES) {
-    ctx.save();
-    ctx.shadowColor = "rgba(232, 197, 71, 0.3)";
-    ctx.shadowBlur = 16;
     ctx.beginPath();
     ctx.arc(hole.x, hole.y, hole.radius - 8, 0, Math.PI * 2);
     ctx.fillStyle = "#06060a";
     ctx.fill();
-    ctx.restore();
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.radius - 8, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(201, 162, 39, 0.7)";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(hole.x, hole.y, hole.radius - 2, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(138, 109, 29, 0.45)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
   }
-}
-
-function drawCornerBrace(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  sx: number,
-  sy: number
-) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(sx, sy);
-  ctx.strokeStyle = "rgba(201, 162, 39, 0.8)";
-  ctx.lineWidth = 3;
-  for (const r of [26, 36]) {
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI / 2);
-    ctx.stroke();
-  }
-  // Small scroll curls at the brace ends.
-  ctx.beginPath();
-  ctx.arc(44, 6, 5, 0, Math.PI * 1.5);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(6, 44, 5, Math.PI / 2, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
-}
-
-/** The client's dawg-head watermark (watermark.svg), inked low-alpha onto the
- *  cloth; arc-text vector fallback while it loads. */
-function drawWatermark(ctx: CanvasRenderingContext2D) {
-  const cx = TABLE_WIDTH / 2;
-  const cy = TABLE_HEIGHT / 2;
-
-  const img = getImage("/assets/watermark.svg");
-  if (img) {
-    const w = 700;
-    const h = w * (img.naturalHeight / img.naturalWidth);
-    ctx.save();
-    // Multiply inks the line art into the cloth like a real table stencil.
-    ctx.globalAlpha = 0.45;
-    ctx.globalCompositeOperation = "multiply";
-    ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-    ctx.restore();
-    return;
-  }
-
-  ctx.save();
-  ctx.fillStyle = "rgba(6, 48, 36, 0.9)";
-  drawArcText(ctx, "★ POOL ★", cx, cy + 40, 200, true, "bold 64px Georgia");
-  drawArcText(ctx, "★ DAWGS ★", cx, cy - 40, 200, false, "bold 64px Georgia");
-  drawPaw(ctx, cx, cy, 46, "rgba(6, 48, 36, 0.9)");
-  ctx.restore();
-}
-
-function drawArcText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  cx: number,
-  cy: number,
-  radius: number,
-  top: boolean,
-  font: string
-) {
-  ctx.save();
-  ctx.font = font;
-  ctx.textAlign = "center";
-  ctx.textBaseline = top ? "bottom" : "top";
-  const total = text.length;
-  const arc = Math.PI * 0.55; // total angular spread
-  for (let i = 0; i < total; i++) {
-    const frac = total === 1 ? 0.5 : i / (total - 1);
-    const theta = top
-      ? -Math.PI / 2 + (frac - 0.5) * arc
-      : Math.PI / 2 - (frac - 0.5) * arc;
-    const x = cx + Math.cos(theta) * radius;
-    const y = cy + Math.sin(theta) * radius;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(top ? theta + Math.PI / 2 : theta - Math.PI / 2);
-    ctx.fillText(text[i], 0, 0);
-    ctx.restore();
-  }
-  ctx.restore();
-}
-
-function drawPaw(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  size: number,
-  color: string
-) {
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.ellipse(x, y + size * 0.25, size * 0.62, size * 0.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  const toes: Array<[number, number]> = [
-    [-0.62, -0.35],
-    [-0.22, -0.62],
-    [0.22, -0.62],
-    [0.62, -0.35],
-  ];
-  for (const [tx, ty] of toes) {
-    ctx.beginPath();
-    ctx.arc(x + tx * size, y + ty * size, size * 0.21, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawDiamond(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.beginPath();
-  ctx.moveTo(x, y - 7);
-  ctx.lineTo(x + 5, y);
-  ctx.lineTo(x, y + 7);
-  ctx.lineTo(x - 5, y);
-  ctx.closePath();
-  ctx.fill();
 }
 
 // ───────────────────────────── balls ─────────────────────────────
@@ -1033,8 +862,8 @@ function drawBall(
   ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
   ctx.fill();
 
-  // Prefer the generated SVG ball art; snooker balls (no SVG) fall through
-  // to the vector path below, as do pool balls while their SVG loads.
+  // Prefer the photoreal PNG ball art; any ball with no PNG falls through to
+  // the vector path below, as do balls while their PNG is still loading.
   const path = ballAssetPath(ball);
   const img = path ? getImage(path) : null;
   if (img) {

@@ -35,22 +35,27 @@ interface Acc8 {
 }
 
 // id → { color, number } matches apps/web ball art (solids 1–7, 8, stripes 9–15).
+// A FROZEN triangle: columns step +33 px (≥ diameter·cos30°) and balls within a
+// column step a full diameter (38 px), so vertical neighbours touch exactly and
+// diagonal neighbours sit 38.08 px apart — visually frozen, but always ≥ 1
+// diameter so the pack never self-separates before the break (integer coords
+// keep this deterministic across server and client).
 const RACK: ReadonlyArray<{ x: number; y: number; color: BallColor; number: number }> = [
   { x: 1022, y: 413, color: "yellow", number: 1 },
-  { x: 1056, y: 393, color: "yellow", number: 2 },
-  { x: 1056, y: 433, color: "red", number: 9 },
-  { x: 1090, y: 374, color: "red", number: 10 },
-  { x: 1090, y: 413, color: "black", number: 8 },
-  { x: 1090, y: 452, color: "yellow", number: 3 },
-  { x: 1126, y: 354, color: "yellow", number: 4 },
-  { x: 1126, y: 393, color: "red", number: 11 },
-  { x: 1126, y: 433, color: "yellow", number: 5 },
-  { x: 1126, y: 472, color: "red", number: 12 },
-  { x: 1162, y: 335, color: "red", number: 13 },
-  { x: 1162, y: 374, color: "red", number: 14 },
-  { x: 1162, y: 413, color: "yellow", number: 6 },
-  { x: 1162, y: 452, color: "red", number: 15 },
-  { x: 1162, y: 491, color: "yellow", number: 7 },
+  { x: 1055, y: 394, color: "yellow", number: 2 },
+  { x: 1055, y: 432, color: "red", number: 9 },
+  { x: 1088, y: 375, color: "red", number: 10 },
+  { x: 1088, y: 413, color: "black", number: 8 },
+  { x: 1088, y: 451, color: "yellow", number: 3 },
+  { x: 1121, y: 356, color: "yellow", number: 4 },
+  { x: 1121, y: 394, color: "red", number: 11 },
+  { x: 1121, y: 432, color: "yellow", number: 5 },
+  { x: 1121, y: 470, color: "red", number: 12 },
+  { x: 1154, y: 337, color: "red", number: 13 },
+  { x: 1154, y: 375, color: "red", number: 14 },
+  { x: 1154, y: 413, color: "yellow", number: 6 },
+  { x: 1154, y: 451, color: "red", number: 15 },
+  { x: 1154, y: 489, color: "yellow", number: 7 },
 ];
 
 function pocketedCount(state: TableState, color: BallColor): number {

@@ -112,7 +112,9 @@ const SNK_BALL_SIZE = Math.round(POOL_BALL_SIZE * (52.5 / 57.15)); // ≈ 35 px
 const SNK_BALL_RADIUS = SNK_BALL_SIZE / 2;
 // Snooker pockets (86 / 89 mm) are tighter than pool's (115 / 125 mm).
 const SNK_CORNER_R = Math.round(POOL_HOLE_RADIUS * (86 / 115)); // ≈ 34
-const SNK_MIDDLE_R = Math.round(52 * (89 / 125)); // ≈ 37
+// Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
+// pool middle-pocket bump; also widens the rail gap and the drawn mouth.
+const SNK_MIDDLE_R = 42;
 
 export const SNOOKER_GEOM: TableGeometry = {
   TABLE_WIDTH: SNK_W,

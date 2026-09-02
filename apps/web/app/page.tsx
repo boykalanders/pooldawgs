@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 const VARIANTS = [
-  { ball: "/assets/pooldawgs_ico/8ball-icon.png", label: "8-Ball" },
-  { ball: "/assets/pooldawgs_ico/9ball-icon.png", label: "9-Ball" },
-  { ball: "/assets/pooldawgs_ico/snooker-icon.png", label: "Snooker" },
+  { ball: "/assets/balls/ball-8.png", label: "8-Ball" },
+  { ball: "/assets/balls/ball-9.png", label: "9-Ball" },
+  { ball: "/assets/balls/ball-red.png", label: "Snooker" },
 ];
 
 const FEATURES = [

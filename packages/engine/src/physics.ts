@@ -223,6 +223,23 @@ function applyMagnetism(ball: BallState): void {
   }
 }
 
+/**
+ * A middle pocket (tx === 0) opens a real GAP in its rail. Within the mouth the
+ * cushion must not bounce the ball — otherwise it rebounds off a phantom wall
+ * behind the pocket instead of rolling in, which is exactly the "middle pocket
+ * won't take the ball" feel. Returns the middle hole whose mouth spans `x` on
+ * the given rail (`ty` = -1 top, +1 bottom), or null. `half` is the clear
+ * opening for a ball centre; below the corner jaws the rail is solid as before.
+ */
+function railMouthHole(x: number, ty: -1 | 1): Hole | null {
+  for (const hole of G.HOLES) {
+    if (hole.tx !== 0 || hole.ty !== ty) continue;
+    const half = hole.radius - G.BALL_RADIUS;
+    if (half > 0 && Math.abs(x - hole.x) < half) return hole;
+  }
+  return null;
+}
+
 function integrateBall(
   ball: BallState,
   dt: number,
@@ -237,7 +254,17 @@ function integrateBall(
   const newX = ball.x + ball.vx * dt;
   const newY = ball.y + ball.vy * dt;
 
-  const hole = capturingHole(ball, newX, newY);
+  // Directional capture (acceptance cone): on-line pots drop; rail-skims don't.
+  let hole = capturingHole(ball, newX, newY);
+  // Middle-pocket throat: with the rail gap open (below), a ball that has rolled
+  // through the mouth and pushed its centre past the rail line is physically in
+  // the pocket, so it drops at any angle — a clean-looking cut no longer clips a
+  // phantom cushion. Rail-skimmers travel along the rail and never cross the
+  // line, so they are still rejected.
+  if (!hole) {
+    if (newY <= G.TOP_BORDER_Y) hole = railMouthHole(newX, -1);
+    else if (newY >= G.BOTTOM_BORDER_Y) hole = railMouthHole(newX, 1);
+  }
   if (hole) {
     ball.x = G.POCKETED_PARK.x;
     ball.y = G.POCKETED_PARK.y;
@@ -253,6 +280,8 @@ function integrateBall(
   // Cushions: normal restitution + tangential friction (spec §3). Clamped to
   // the ball's actual drawn radius, not the old (larger) BALL_ORIGIN — that
   // mismatch left a visible gap of felt between a resting ball and the rail.
+  // The top/bottom rails skip the bounce across a middle-pocket mouth so the
+  // ball rolls into the throat (captured above) instead of rebounding.
   let collision = false;
   if (newX - G.BALL_RADIUS < G.LEFT_BORDER_X) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
@@ -265,12 +294,12 @@ function integrateBall(
     ball.x = G.RIGHT_BORDER_X - G.BALL_RADIUS;
     collision = true;
   }
-  if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y) {
+  if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y && !railMouthHole(newX, -1)) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
     ball.y = G.TOP_BORDER_Y + G.BALL_RADIUS;
     collision = true;
-  } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y) {
+  } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y && !railMouthHole(newX, 1)) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
     ball.y = G.BOTTOM_BORDER_Y - G.BALL_RADIUS;

@@ -242,13 +242,33 @@ function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): vo
   const spanZ = bottom - top;
   const spanX = right - left;
 
+  // Middle pockets (tx === 0) open a real GAP in the top/bottom rails: a ball
+  // whose centre is within `g` of the pocket rolls into the throat instead of
+  // rebounding off a phantom wall behind the pocket. Mirrors the TS engine's
+  // railMouthHole so both backends take a middle-pocket ball the same way.
+  const midHole = geom.HOLES.find((hh) => hh.tx === 0);
+  const g = midHole ? Math.max(0, M(midHole.radius - geom.BALL_RADIUS)) : 0;
+  const topZ = top - t / 2;
+  const botZ = bottom + t / 2;
+  const leftEnd = left - t; // outer x of the left corner block
+  const rightEnd = right + t; // outer x of the right corner block
+
   const walls: Array<[number, number, number, number]> = [
     // [centerX, centerZ, extentX, extentZ]
     [left - t / 2, midZ, t, spanZ + t * 2], // left
     [right + t / 2, midZ, t, spanZ + t * 2], // right
-    [midX, top - t / 2, spanX + t * 2, t], // top
-    [midX, bottom + t / 2, spanX + t * 2, t], // bottom
   ];
+  if (g > 0) {
+    // Top rail — split into two segments either side of the middle-pocket gap.
+    walls.push([(leftEnd + (midX - g)) / 2, topZ, midX - g - leftEnd, t]);
+    walls.push([(midX + g + rightEnd) / 2, topZ, rightEnd - (midX + g), t]);
+    // Bottom rail — same gap.
+    walls.push([(leftEnd + (midX - g)) / 2, botZ, midX - g - leftEnd, t]);
+    walls.push([(midX + g + rightEnd) / 2, botZ, rightEnd - (midX + g), t]);
+  } else {
+    walls.push([midX, topZ, spanX + t * 2, t]); // top (full)
+    walls.push([midX, botZ, spanX + t * 2, t]); // bottom (full)
+  }
   for (const [cx, cz, ex, ez] of walls) {
     const node = new TransformNode("rail", scene);
     node.position = new Vector3(cx, h / 2, cz);
@@ -291,6 +311,15 @@ function park(b: BallBody): void {
 /** Analytic pocket capture (reuses the calibrated throat gate, per-variant). */
 function capturedHole(x: number, y: number, vx: number, vy: number): boolean {
   for (const hole of G.HOLES) {
+    // Middle-pocket throat: a ball that has rolled through the rail gap and
+    // pushed its centre past the rail line is physically in the pocket, so it
+    // drops at any angle (matches the TS engine). Rail-skimmers travel along the
+    // rail and never cross the line, so they are still rejected below.
+    if (hole.tx === 0) {
+      const half = hole.radius - G.BALL_RADIUS;
+      const pastLine = hole.ty === -1 ? y <= G.TOP_BORDER_Y : y >= G.BOTTOM_BORDER_Y;
+      if (half > 0 && Math.abs(x - hole.x) < half && pastLine) return true;
+    }
     const dx = x - hole.x;
     const dy = y - hole.y;
     if (Math.sqrt(dx * dx + dy * dy) >= hole.radius) continue;

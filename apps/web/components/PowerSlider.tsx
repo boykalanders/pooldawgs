@@ -12,8 +12,10 @@ interface PowerSliderProps {
   onRelease: (value: number) => void;
 }
 
-/** Vertical power meter (right rail). Drag up to charge, release to strike.
- *  Reads 0–100% regardless of the engine's internal MAX_POWER scale. */
+/** Vertical power fader (right rail), styled after the brand "POWER" panel:
+ *  a black gold-trimmed case with a tick-marked channel, a gold knob that rides
+ *  the value, and an amber glow that charges up from the bottom. Drag up to
+ *  charge, release to strike. Reads 0–100% over the engine's MAX_POWER scale. */
 export default function PowerSlider({ value, disabled, onChange, onRelease }: PowerSliderProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -44,15 +46,28 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
 
   const pct = Math.max(0, Math.min(100, (value / MAX_POWER) * 100));
   const display = Math.round(pct);
+  const charged = pct > 1;
 
   return (
-    <div className="flex h-full select-none flex-col items-center gap-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-gold">Power</span>
+    <div
+      className="flex h-full w-full select-none flex-col items-center gap-1 rounded-2xl border border-gold-dim/40 px-1 py-2"
+      style={{
+        background: "linear-gradient(160deg, #1c1c21 0%, #101013 55%, #070708 100%)",
+        boxShadow: "inset 0 1px 0 rgba(232,197,71,0.12), 0 6px 16px rgba(0,0,0,0.5)",
+      }}
+    >
+      <span
+        className="text-[8px] font-extrabold uppercase tracking-[0.14em] text-gold-bright touch:text-[7px]"
+        style={{ textShadow: "0 1px 1px rgba(0,0,0,0.85)" }}
+      >
+        Power
+      </span>
 
+      {/* Channel — pointer target + measurement box. */}
       <div
         ref={trackRef}
         data-testid="power-slider"
-        className={`relative w-7 min-h-[64px] flex-1 overflow-hidden rounded-full border border-gold-dim/50 bg-emerald-deep shadow-[inset_0_2px_8px_rgba(0,0,0,0.9)] touch:w-11 ${
+        className={`relative w-full min-h-[64px] flex-1 rounded-xl ${
           disabled ? "opacity-40" : "cursor-pointer"
         }`}
         style={{ touchAction: "none" }}
@@ -61,19 +76,81 @@ export default function PowerSlider({ value, disabled, onChange, onRelease }: Po
         onPointerUp={handleUp}
         onPointerCancel={handleUp}
       >
-        {/* Red→gold fill that grows from the bottom. Uses a scaleY transform on a
-            full-height (inset-0) layer — no percentage height, so it renders the
-            same in portrait, landscape, and on mobile (where % heights against a
-            flex parent collapse to 0). */}
+        {/* Recessed track visuals (clipped); the knob rides above, unclipped. */}
         <div
-          className="pointer-events-none absolute inset-0 origin-bottom"
+          className="absolute inset-0 overflow-hidden rounded-xl"
           style={{
-            transform: `scaleY(${pct / 100})`,
-            background: "linear-gradient(to top, #d11f2a 0%, #ff6b35 50%, #e8c547 100%)",
-            boxShadow: pct > 1 ? "0 0 14px rgba(232, 197, 71, 0.7)" : "none",
-            transition: dragging.current ? "none" : "transform 90ms linear",
+            background: "linear-gradient(to right, #050506, #0d0d10)",
+            boxShadow:
+              "inset 0 2px 10px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(201,162,39,0.16)",
           }}
-        />
+        >
+          {/* Tick marks down the right edge. */}
+          <div
+            className="pointer-events-none absolute right-1.5 top-3 bottom-3 w-1.5"
+            style={{
+              backgroundImage:
+                "repeating-linear-gradient(to bottom, rgba(201,162,39,0.5) 0 2px, transparent 2px 10%)",
+            }}
+          />
+
+          {/* Neutral centre rail — reads as the metallic needle above the knob. */}
+          <div
+            className="pointer-events-none absolute left-1/2 top-2 bottom-2 -translate-x-1/2 rounded-full"
+            style={{
+              width: 3,
+              background:
+                "linear-gradient(to bottom, rgba(232,232,238,0.85), rgba(150,150,160,0.3))",
+            }}
+          />
+
+          {/* Amber charge, growing up from the bottom via a scaleY transform.
+              Percentage HEIGHTS collapse against this flex-sized track, so the
+              fill is a full-height bar scaled by the power fraction instead
+              (same trick the original meter used). */}
+          <div
+            className="pointer-events-none absolute bottom-2 top-2 left-1/2 rounded-full"
+            style={{
+              width: 6,
+              transformOrigin: "bottom center",
+              transform: `translateX(-50%) scaleY(${pct / 100})`,
+              background: "linear-gradient(to top, #ff8a00, #ffb347 60%, #ffd98a)",
+              boxShadow: charged ? "0 0 12px 2px rgba(255,150,40,0.75)" : "none",
+            }}
+          />
+          {/* Glowing droplet at the base of the charge. */}
+          {charged && (
+            <div
+              className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 rounded-full"
+              style={{
+                width: 14,
+                height: 14,
+                background:
+                  "radial-gradient(circle, #fff2cc 0%, #ffb347 45%, rgba(255,140,30,0) 72%)",
+              }}
+            />
+          )}
+        </div>
+
+        {/* Gold knob riding at the current value. Positioned with flex-grow
+            spacers (top grows 100−pct, bottom grows pct) rather than a
+            percentage offset — flex distribution needs no definite height, so
+            unlike `bottom: %` it tracks the charge live in this flex layout. */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center py-2">
+          <div style={{ flexGrow: 100 - pct, flexBasis: 0 }} />
+          <div
+            className="shrink-0 rounded-full border"
+            style={{
+              width: 20,
+              height: 20,
+              borderColor: "rgba(90,70,20,0.9)",
+              background:
+                "radial-gradient(circle at 35% 30%, #ffe9a8 0%, #e8c547 42%, #b8891f 100%)",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.7), 0 0 8px rgba(232,197,71,0.5)",
+            }}
+          />
+          <div style={{ flexGrow: pct, flexBasis: 0 }} />
+        </div>
       </div>
 
       <span className="font-mono text-xs font-bold tabular-nums text-gold-bright">{display}</span>

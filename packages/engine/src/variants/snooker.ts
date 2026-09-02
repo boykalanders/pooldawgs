@@ -42,13 +42,14 @@ const D_RADIUS = M(0.292); // the "D"
 const PINK_X = (CENTER_X + SG.RIGHT_BORDER_X) / 2; // midway centre→top cushion
 const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
 
-// A touching triangle: columns step by diameter·cos30°, balls within a column
-// by a full diameter (+1 px) so no two reds overlap. RED_STEP_Y MUST be ≥ the
-// ball diameter — that was the historical racking bug.
-// Pad a touch over the touching-triangle minimum so rounding never creates a
-// sub-diameter gap (the diagonal between adjacent columns must exceed BALL_SIZE).
-const RED_STEP_X = Math.round(SG.BALL_SIZE * 0.92);
-const RED_STEP_Y = SG.BALL_SIZE + 3;
+// A FROZEN triangle (matches the 8-ball rack): reds touch vertically at exactly
+// one diameter, and sit a hair over a diameter on the diagonals — tight enough
+// that a break cracks the pack instead of nudging through visible gaps. The gaps
+// must never fall BELOW one diameter, or the pack self-separates at rest (the
+// historical racking bug), so the column factor keeps a small safety margin over
+// cos30° (0.866). At SNK diameter 35: vertical 35 (touching), diagonal ≈ 35.6.
+const RED_STEP_X = Math.round(SG.BALL_SIZE * 0.88);
+const RED_STEP_Y = SG.BALL_SIZE;
 const REDS_APEX_X = PINK_X + SG.BALL_SIZE + 2; // apex just behind the pink
 
 /** Colour spots laid out for our landscape table (baulk on the left). */

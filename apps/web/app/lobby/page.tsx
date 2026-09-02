@@ -35,9 +35,9 @@ import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 
 const GAME_TYPE_ICON: Record<GameType, string> = {
-  "8ball": "/assets/pooldawgs_ico/8ball-icon.png",
-  "9ball": "/assets/pooldawgs_ico/9ball-icon.png",
-  snooker: "/assets/pooldawgs_ico/snooker-icon.png",
+  "8ball": "/assets/balls/ball-8.png",
+  "9ball": "/assets/balls/ball-9.png",
+  snooker: "/assets/balls/ball-red.png",
 };
 
 export default function LobbyPage() {

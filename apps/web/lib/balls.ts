@@ -51,17 +51,23 @@ export function ballStyle(ball: BallLike): BallStyle {
   return { number: n, kind: "stripe", color: NUMBER_COLORS[n - 8] };
 }
 
-/** SVG asset for a pool ball, or null for snooker balls (drawn as vector). */
+/**
+ * PNG asset for a ball. Pool balls (1–15 + cue) render from their numbered
+ * photoreal PNGs; snooker colour balls render from their solid colour PNGs.
+ * Returns null only for a colour with no matching art (falls back to vector).
+ */
 export function ballAssetPath(ball: BallLike): string | null {
   const style = ballStyle(ball);
-  if (style.kind === "cue") return "/assets/balls/ball-cue.svg";
-  if (style.number !== null) return `/assets/balls/ball-${style.number}.svg`;
+  if (style.kind === "cue") return "/assets/balls/ball-cue.png";
+  if (style.number !== null) return `/assets/balls/ball-${style.number}.png`;
+  // Snooker colour ball — solid photoreal PNG by colour name.
+  if (ball.color in SNOOKER_COLORS) return `/assets/balls/ball-${ball.color}.png`;
   return null;
 }
 
-/** SVG asset by pool ball number (for HUD trackers). */
+/** PNG asset by pool ball number (for HUD trackers). */
 export function ballAssetByNumber(n: number): string {
-  return `/assets/balls/ball-${n}.svg`;
+  return `/assets/balls/ball-${n}.png`;
 }
 
 export function numberColor(n: number): string {

@@ -127,17 +127,22 @@ const SQRT1_2 = Math.SQRT1_2;
  *  cones instead of re-deriving them and drifting out of sync. */
 export const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
 /** Centre pockets get a tighter cone than corners — this is what rejects the
- *  rail-skimmers the fork wrongly captured. Widened a touch (26° → 31°) on
- *  client feedback that the middle pocket felt too narrow. */
-export const SIDE_ACCEPT = Math.cos((31 * Math.PI) / 180);
+ *  rail-skimmers the fork wrongly captured. Widened over time on client feedback
+ *  that the middle pocket felt too narrow (26° → 31° → 40°); the min-inward-speed
+ *  gate, not this cone, is what still rejects true rail-skims. */
+export const SIDE_ACCEPT = Math.cos((40 * Math.PI) / 180);
+
+/** Centre-pocket mouth radius — bigger than a corner so the generous side
+ *  pocket takes the ball easily (also widens the rail gap and the drawn mouth). */
+export const MIDDLE_RADIUS = 64;
 
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top left
   { x: 1435, y: 62, radius: HOLE_RADIUS, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top right
   { x: 62, y: 762, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom left
   { x: 1435, y: 762, radius: HOLE_RADIUS, tx: SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom right
-  { x: 750, y: 36, radius: 56, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
-  { x: 750, y: 789, radius: 56, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
+  { x: 750, y: 36, radius: MIDDLE_RADIUS, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
+  { x: 750, y: 789, radius: MIDDLE_RADIUS, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
 ];
 
 /** Minimum inward speed (px/s) to be captured — rejects a ball that has all

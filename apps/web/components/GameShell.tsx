@@ -221,9 +221,15 @@ export default function GameShell({
       >
         <div className="relative">
           <IconButton
+            fill
             icon={
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/assets/pooldawgs_ico/setting_ico.png" alt="" className="h-5 w-5" draggable={false} />
+              <img
+                src="/assets/pooldawgs_ico/setting_ico.png"
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             }
             active={menuOpen}
             onClick={() => {
@@ -378,9 +384,15 @@ export default function GameShell({
 
         <div className="relative justify-self-end">
           <IconButton
+            fill
             icon={
               // eslint-disable-next-line @next/next/no-img-element
-              <img src="/assets/pooldawgs_ico/chat_ico.png" alt="" className="h-5 w-5" draggable={false} />
+              <img
+                src="/assets/pooldawgs_ico/chat_ico.png"
+                alt=""
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             }
             active={chatOpen}
             onClick={() => setChatOpen((v) => !v)}
@@ -401,6 +413,7 @@ export default function GameShell({
           <RailButton
             label="Cues"
             fill
+            bare
             icon={
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -432,6 +445,7 @@ export default function GameShell({
           <RailButton
             label="Aim"
             fill
+            bare
             icon={
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -634,7 +648,7 @@ export default function GameShell({
         </div>
 
         <div className="flex w-[68px] flex-col gap-2 touch:w-[52px]">
-          <div className="min-h-0 flex-1 rounded-xl border border-gold-dim/30 bg-emerald-panel/60 p-2">
+          <div className="min-h-0 flex-1">
             <PowerSlider
               value={power}
               disabled={!canShoot}
@@ -827,19 +841,23 @@ const railTone = (active?: boolean) =>
     ? "border-gold/80 bg-gold/10 text-gold-bright shadow-gold-glow"
     : "border-gold-dim/30 bg-emerald-panel/60 text-cream/75 enabled:hover:border-gold/60 enabled:hover:bg-gold/5 enabled:hover:text-gold-bright";
 
-/** Square icon button — top-bar menu / chat. */
+/** Square icon button — top-bar menu / chat. With `fill`, the icon art covers
+ *  the whole button edge-to-edge (like the rail's aim/spin/cue icons) instead
+ *  of sitting small and centred. */
 function IconButton({
   icon,
   onClick,
   disabled,
   active,
   title,
+  fill,
 }: {
   icon: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   active?: boolean;
   title?: string;
+  fill?: boolean;
 }) {
   return (
     <button
@@ -847,7 +865,9 @@ function IconButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`${railBase} h-11 w-11 touch:h-10 touch:w-10 ${railTone(active)}`}
+      className={`${railBase} h-11 w-11 touch:h-10 touch:w-10 ${
+        fill ? "overflow-hidden p-0" : ""
+      } ${railTone(active)}`}
     >
       {icon}
     </button>
@@ -865,6 +885,7 @@ function RailButton({
   active,
   title,
   fill,
+  bare,
 }: {
   label: string;
   icon: ReactNode;
@@ -873,7 +894,21 @@ function RailButton({
   active?: boolean;
   title?: string;
   fill?: boolean;
+  /** The icon art already carries its own framed tile (border + label), so
+   *  drop the button's border/background to avoid a doubled frame; the active
+   *  state shows as an outer glow instead. */
+  bare?: boolean;
 }) {
+  const cls =
+    fill && bare
+      ? `relative flex w-full aspect-square items-center justify-center overflow-hidden rounded-xl p-0 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+          active ? "shadow-gold-glow" : "opacity-85 enabled:hover:opacity-100"
+        }`
+      : `${railBase} w-full ${
+          fill
+            ? "aspect-square overflow-hidden p-0"
+            : "flex-col gap-1 py-2.5 touch:gap-0.5 touch:py-1.5"
+        } ${railTone(active)}`;
   return (
     <button
       type="button"
@@ -881,11 +916,7 @@ function RailButton({
       disabled={disabled}
       title={title}
       aria-label={fill ? label : undefined}
-      className={`${railBase} w-full ${
-        fill
-          ? "aspect-square overflow-hidden p-0"
-          : "flex-col gap-1 py-2.5 touch:gap-0.5 touch:py-1.5"
-      } ${railTone(active)}`}
+      className={cls}
     >
       {fill ? (
         icon
@@ -956,22 +987,19 @@ function ModeChip({
       disabled={!selectable}
       onClick={onSelect}
       aria-label={label}
-      className={`h-14 w-36 shrink-0 touch:hidden overflow-hidden rounded-xl border p-0 transition ${
+      // The badge art already carries its own gold-framed tile, so no button
+      // border/background here (that doubled the frame); active shows as a glow.
+      className={`h-14 w-36 shrink-0 touch:hidden overflow-hidden rounded-xl p-0 transition ${
         active
-          ? "border-gold bg-gold/10 shadow-gold-glow"
+          ? "shadow-gold-glow"
           : selectable
-            ? "border-gold-dim/30 bg-emerald-panel/60 hover:border-gold/60"
-            : "cursor-not-allowed border-gold-dim/25 bg-emerald-panel/40 opacity-50"
+            ? "opacity-80 hover:opacity-100"
+            : "cursor-not-allowed opacity-50"
       }`}
       title={selectable ? `Switch to ${label}` : `${label} — coming soon`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={ballSrc}
-        alt=""
-        className={`h-full w-full object-cover ${active ? "" : "opacity-70"}`}
-        draggable={false}
-      />
+      <img src={ballSrc} alt="" className="h-full w-full object-cover" draggable={false} />
     </button>
   );
 }

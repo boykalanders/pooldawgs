@@ -37,16 +37,21 @@ const COLOR_BY_NUMBER: Record<number, BallColor> = {
   9: "yellow",
 };
 
+// A FROZEN diamond: columns step +33 px (≥ diameter·cos30°), balls within a
+// column step a full diameter (38 px) — vertical neighbours touch exactly and
+// diagonal neighbours sit 38.08 px apart. Visually frozen, always ≥ 1 diameter
+// so the pack never self-separates before the break; integer coords stay
+// deterministic across server and client.
 const RACK: ReadonlyArray<{ x: number; y: number; number: number }> = [
   { x: 1022, y: 413, number: 1 },
-  { x: 1056, y: 393, number: 2 },
-  { x: 1056, y: 433, number: 3 },
-  { x: 1090, y: 373, number: 4 },
-  { x: 1090, y: 413, number: 9 }, // centre
-  { x: 1090, y: 453, number: 5 },
-  { x: 1124, y: 393, number: 6 },
-  { x: 1124, y: 433, number: 7 },
-  { x: 1158, y: 413, number: 8 },
+  { x: 1055, y: 394, number: 2 },
+  { x: 1055, y: 432, number: 3 },
+  { x: 1088, y: 375, number: 4 },
+  { x: 1088, y: 413, number: 9 }, // centre
+  { x: 1088, y: 451, number: 5 },
+  { x: 1121, y: 394, number: 6 },
+  { x: 1121, y: 432, number: 7 },
+  { x: 1154, y: 413, number: 8 },
 ];
 
 const NINE_HOME = { x: 1090, y: 413 };
