@@ -21,7 +21,13 @@ import {
   type ShotInput,
   type TableState,
 } from "@pooldawgs/engine";
-import { ballAssetPath, ballStyle, type BallLike } from "@/lib/balls";
+import { ballStyle, type BallLike } from "@/lib/balls";
+import {
+  drawRollingBall,
+  identityOrient,
+  rollOrient,
+  type Orient,
+} from "@/lib/ballSphere";
 
 // Geometry is per-variant (snooker's table is bigger / balls smaller). These
 // module-level values are refreshed from the active variant on every render via
@@ -557,7 +563,7 @@ function drawScene(
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(sc, sc);
-      drawBall(ctx, 0, 0, state.balls[id]);
+      drawBall(ctx, 0, 0, state.balls[id], orientOf(id));
       ctx.restore();
     }
   };
@@ -589,7 +595,7 @@ function drawScene(
       for (const fb of frame.balls) {
         if (!fb.visible) continue;
         pocketFx.current.lastVisible.set(fb.id, { x: fb.x, y: fb.y });
-        drawBall(ctx, fb.x, fb.y, state.balls[fb.id]);
+        drawBall(ctx, fb.x, fb.y, state.balls[fb.id], orientFor(fb.id, fb.x, fb.y));
       }
     }
     drawDrops();
@@ -606,7 +612,7 @@ function drawScene(
     // Ball in hand: the cue ball is lifted off the table — only the
     // placement ghost (drawn in the overlay) is visible.
     if (ball.id === cueIdx && state.ballInHand) continue;
-    drawBall(ctx, ball.x, ball.y, ball);
+    drawBall(ctx, ball.x, ball.y, ball, orientFor(ball.id, ball.x, ball.y));
   }
   drawDrops(); // finish any pocket FX still running after the replay ended
 
@@ -628,7 +634,7 @@ function drawOverlay(
       !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(state, x, y);
     ctx.save();
     ctx.globalAlpha = 0.65;
-    drawBall(ctx, x, y, cue);
+    drawBall(ctx, x, y, cue, orientOf(cue.id));
     ctx.globalAlpha = 1;
     ctx.beginPath();
     ctx.arc(x, y, BALL_RADIUS + 6, 0, Math.PI * 2);
@@ -845,29 +851,63 @@ function drawTable(ctx: CanvasRenderingContext2D) {
 
 // ───────────────────────────── balls ─────────────────────────────
 
+/**
+ * Cosmetic roll: a ball visibly tumbles as it travels, so motion reads as real
+ * rolling instead of a sprite sliding around. This lives ENTIRELY in the
+ * renderer — the engine carries no angular state — so it cannot affect physics,
+ * outcomes or determinism.
+ *
+ * Spin rate is proportional to distance/radius (so it slows with the ball and
+ * stops dead when it stops), and its direction follows the ball's heading
+ * projected onto a per-ball axis, so a ball reverses its tumble off a cushion
+ * and no two balls spin in lock-step.
+ */
+const IDENTITY = identityOrient();
+const orientState = new Map<number, { m: Orient; x: number; y: number }>();
+/** Advance a ball's 3-D orientation for its movement since the last frame. */
+function orientFor(id: number, x: number, y: number): Orient {
+  let st = orientState.get(id);
+  if (!st) {
+    st = { m: identityOrient(), x, y };
+    orientState.set(id, st);
+    return st.m;
+  }
+  const dx = x - st.x;
+  const dy = y - st.y;
+  const d = Math.hypot(dx, dy);
+  // Ignore teleports (rack reset, respot, ball-in-hand placement).
+  if (d > 0.01 && d < BALL_RADIUS * 2) rollOrient(st.m, dx, dy, BALL_RADIUS);
+  st.x = x;
+  st.y = y;
+  return st.m;
+}
+/** Current orientation without advancing it (for the pocket drop FX). */
+function orientOf(id: number): Orient {
+  return orientState.get(id)?.m ?? IDENTITY;
+}
+
 function drawBall(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  ball: BallLike | BallState
+  ball: BallLike | BallState,
+  m?: Orient
 ) {
   const style = ballStyle(ball);
   const r = BALL_RADIUS;
 
   ctx.save();
 
-  // Drop shadow.
+  // Drop shadow — stays put on the cloth; only the ball itself rolls.
   ctx.beginPath();
   ctx.arc(x + 2, y + 3, r, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
   ctx.fill();
 
-  // Prefer the photoreal PNG ball art; any ball with no PNG falls through to
-  // the vector path below, as do balls while their PNG is still loading.
-  const path = ballAssetPath(ball);
-  const img = path ? getImage(path) : null;
-  if (img) {
-    ctx.drawImage(img, x - r, y - r, r * 2, r * 2);
+  // Lit sphere with a real 3-D orientation: rolling carries the number/stripe
+  // over the top and around the back while the highlight stays fixed.
+  if (typeof document !== "undefined") {
+    drawRollingBall(ctx, x, y, r, ball, m ?? IDENTITY);
     ctx.restore();
     return;
   }
