@@ -188,30 +188,38 @@ export function isHavokReady(): boolean {
   return world !== null;
 }
 
-// GEOMETRIC friction combine (√(a·b)): with cloth 0.30 / ball 0.35 the ball↔floor
-// coefficient is ≈ 0.32. Eased from 0.8 → 0.45 → 0.38 → 0.30 over three rounds of
-// client feedback so balls roll freely (less "cement/heavy" feel); the small
-// launch roll (LAUNCH_ROLL) keeps the cue from gliding past object balls without
-// needing heavy cloth grip. ball↔rail ≈ 0.15 (clean banks). MINIMUM restitution
-// combine: ball↔floor → 0 (no vertical bounce), ball↔rail → 0.88, ball↔ball → 0.93.
+// MAXIMUM friction combine, so each contact PAIR carries its own real-world
+// coefficient. With a geometric mean the ball's own value leaked into every pair:
+// one number had to serve both ball↔ball and ball↔cloth, which are physically an
+// order of magnitude apart. max(a,b) lets the ball stay slippery while the cloth
+// and cushions keep their grip:
+//   ball↔ball  = max(0.06, 0.06) = 0.06  — polished phenolic balls are slick
+//                (measured 0.05–0.06). Was ≈0.35, which massively over-threw the
+//                object ball on cut shots.
+//   ball↔cloth = max(0.06, 0.20) = 0.20  — cloth sliding friction (real 0.15–0.25).
+//                This is what converts draw/follow spin into motion.
+//   ball↔rail  = max(0.06, 0.20) = 0.20  — close to the previous effective 0.19,
+//                so bank angles are unchanged.
+// MINIMUM restitution combine is unchanged: ball↔floor → 0 (no vertical bounce),
+// ball↔rail → 0.72, ball↔ball → 0.93.
 const clothMaterial = {
-  friction: 0.3,
+  friction: 0.2,
   restitution: 0,
-  frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
+  frictionCombine: PhysicsMaterialCombineMode.MAXIMUM,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
 const railMaterial = {
-  friction: 0.1,
+  friction: 0.2,
   // Real cushions bleed more energy than the spec's 0.88; ~0.72 keeps banks
   // lively but stops the full-power ball ricocheting for ~9 s ("no pinball").
   restitution: 0.72,
-  frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
+  frictionCombine: PhysicsMaterialCombineMode.MAXIMUM,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
 const ballMaterial = {
-  friction: 0.35,
+  friction: 0.06,
   restitution: 0.93,
-  frictionCombine: PhysicsMaterialCombineMode.GEOMETRIC_MEAN,
+  frictionCombine: PhysicsMaterialCombineMode.MAXIMUM,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
 
