@@ -490,11 +490,22 @@ export function simulateShotHavok(
     for (let s = 0; s < substeps; s++) w.step(DT / substeps);
 
     // Emit collisions captured this step, in order, and feed the rules.
+    // De-duplicated (spec §7.4): a ball riding a rail or a bevel reports a
+    // COLLISION_STARTED in several of this step's substeps, which would emit
+    // one cushion event per substep. Adaptive substepping made that worse, so
+    // each contact pair is reported at most once per outer step.
+    const seen = new Set<number>();
     for (const c of w.collisions) {
       if ("rail" in c) {
+        const key = -1000 - c.rail;
+        if (seen.has(key)) continue;
+        seen.add(key);
         cushionContacts++;
         events.push({ type: "cushion", ballId: c.rail, step: steps });
       } else {
+        const key = Math.min(c.a, c.b) * 64 + Math.max(c.a, c.b);
+        if (seen.has(key)) continue;
+        seen.add(key);
         ballCollisions++;
         const a = next.balls[c.a];
         const b = next.balls[c.b];

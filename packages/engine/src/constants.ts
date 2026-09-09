@@ -98,6 +98,20 @@ export const TS_STATIC_STOP_SPEED = 2.0;
 // ── restitution (spec §3, §5) ─────────────────────────────────────────────
 /** Ball-ball restitution (spec 0.93). */
 export const BALL_RESTITUTION = 0.93;
+/** Ball-ball Coulomb friction — polished phenolic is slick (spec §3.1: 0.055).
+ *  Matches the Havok ball material, so cut shots throw the same on both. */
+export const BALL_BALL_FRICTION = 0.06;
+
+// ── iterative contact solving (spec §6) ───────────────────────────────────
+// One pass in a fixed order let a cluster push itself toward a cushion and
+// leave residual overlap. Contacts are now solved iteratively, and overlap is
+// corrected with a slop + partial correction rather than by injecting velocity.
+export const VELOCITY_ITERATIONS = 6;
+export const POSITION_ITERATIONS = 8;
+/** Overlap tolerated before positional correction acts (spec §6.3: 1–3 mm). */
+export const CONTACT_SLOP = 0.002 * PX_PER_M; // ≈ 1.1 px
+/** Fraction of the remaining overlap resolved per position iteration. */
+export const POSITIONAL_CORRECTION = 0.2;
 /** Cushion normal restitution. Lowered 0.88 → 0.72 to match the Havok rail and
  *  the fix-spec's 0.70 target (§7.2, §12 parity): at 0.88 a full-power ball kept
  *  ~28% of its speed through 10 banks and pinballed for ~10 table lengths. */

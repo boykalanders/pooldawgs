@@ -19,7 +19,12 @@ import {
   MAX_POWER,
   MAX_SHOT_SPEED,
   MAX_SUBSTEPS,
+  BALL_BALL_FRICTION,
+  CONTACT_SLOP,
   MIN_COLLISION_SPEED,
+  POSITION_ITERATIONS,
+  POSITIONAL_CORRECTION,
+  VELOCITY_ITERATIONS,
   POCKET_MAGNET_RANGE,
   POCKET_MAGNETISM,
   POCKET_MIN_INWARD,
@@ -101,14 +106,40 @@ export function stepWorld(
   );
   const dt = DELTA / substeps;
 
+  // Contacts already reported this OUTER step, so an iterated solve (or a pair
+  // resting in contact) emits one event per physical collision, not one per
+  // iteration (spec §7.4).
+  const reported = new Set<number>();
+
   for (let sub = 0; sub < substeps; sub++) {
-    for (let i = 0; i < balls.length; i++) {
-      for (let j = i + 1; j < balls.length; j++) {
-        collideBalls(balls[i], balls[j], dt, step, events, hooks);
+    // ── velocity solve, iterated (spec §6.2) ──────────────────────────────
+    for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
+      let solvedAny = false;
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          if (resolveContact(balls[i], balls[j], dt, step, events, hooks, reported)) {
+            solvedAny = true;
+          }
+        }
       }
+      if (!solvedAny) break; // converged
     }
+
     for (const ball of balls) {
       integrateBall(ball, dt, step, events, hooks);
+    }
+
+    // ── positional correction, iterated (spec §6.3) ───────────────────────
+    // Never resolve overlap by adding velocity: push the pair apart by a
+    // fraction of the penetration beyond a small slop.
+    for (let it = 0; it < POSITION_ITERATIONS; it++) {
+      let movedAny = false;
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          if (correctOverlap(balls[i], balls[j])) movedAny = true;
+        }
+      }
+      if (!movedAny) break;
     }
   }
 
@@ -125,16 +156,17 @@ export function stepWorld(
  * (scaled by restitution), tangential components kept. A min-speed gate
  * resolves near-resting contacts inelastically to prevent jitter (spec §5).
  */
-function collideBalls(
+function resolveContact(
   b1: BallState,
   b2: BallState,
   dt: number,
   step: number,
   events: ShotEvent[],
-  hooks: StepHooks
-): void {
-  if (b1.inHole || b2.inHole) return;
-  if (!b1.moving && !b2.moving) return;
+  hooks: StepHooks,
+  reported: Set<number>
+): boolean {
+  if (b1.inHole || b2.inHole) return false;
+  if (!b1.moving && !b2.moving) return false;
 
   const n1x = b1.x + b1.vx * dt;
   const n1y = b1.y + b1.vy * dt;
@@ -144,40 +176,72 @@ function collideBalls(
   const dx = n1x - n2x;
   const dy = n1y - n2y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-
-  if (dist >= G.BALL_SIZE || dist < 1e-9) return;
+  if (dist >= G.BALL_SIZE || dist < 1e-9) return false;
 
   const nx = dx / dist;
   const ny = dy / dist;
 
-  const rel = (b1.vx - b2.vx) * nx + (b1.vy - b2.vy) * ny;
-  if (rel >= 0) return; // not approaching
+  // Relative velocity of b1 w.r.t. b2, split into normal and tangential parts.
+  const rvx = b1.vx - b2.vx;
+  const rvy = b1.vy - b2.vy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn >= 0) return false; // separating
 
-  hooks.onBallsCollide?.(b1, b2);
-  events.push({ type: "ballsCollide", a: b1.id, b: b2.id, step });
+  // Report each physical contact once per outer step, however many solver
+  // iterations touch it (spec §7.4).
+  const key = b1.id * 64 + b2.id;
+  if (!reported.has(key)) {
+    reported.add(key);
+    hooks.onBallsCollide?.(b1, b2);
+    events.push({ type: "ballsCollide", a: b1.id, b: b2.id, step });
+  }
 
-  const approach = -rel;
+  // Normal impulse. Equal masses ⇒ effective mass 1/2, so j = -(1+e)·vn / 2.
+  const approach = -vn;
   const restitution = approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION;
-  const impulse = ((1 + restitution) * approach) / 2;
-  b1.vx += impulse * nx;
-  b1.vy += impulse * ny;
-  b2.vx -= impulse * nx;
-  b2.vy -= impulse * ny;
+  const jn = ((1 + restitution) * approach) / 2;
+  b1.vx += jn * nx;
+  b1.vy += jn * ny;
+  b2.vx -= jn * nx;
+  b2.vy -= jn * ny;
 
-  // Separate interpenetration so balls never sink into each other.
-  const cdx = b1.x - b2.x;
-  const cdy = b1.y - b2.y;
-  const cdist = Math.sqrt(cdx * cdx + cdy * cdy);
-  if (cdist > 1e-9 && cdist < G.BALL_SIZE) {
-    const push = (G.BALL_SIZE - cdist) / 2;
-    b1.x += (cdx / cdist) * push;
-    b1.y += (cdy / cdist) * push;
-    b2.x -= (cdx / cdist) * push;
-    b2.y -= (cdy / cdist) * push;
+  // Tangential (Coulomb) friction impulse — this is the piece the old solver
+  // left out entirely, and it is what makes cut shots and throw behave.
+  const tvx = rvx - vn * nx;
+  const tvy = rvy - vn * ny;
+  const tv = Math.sqrt(tvx * tvx + tvy * tvy);
+  if (tv > 1e-9) {
+    const tx = tvx / tv;
+    const ty = tvy / tv;
+    const jt = Math.min(tv / 2, BALL_BALL_FRICTION * jn);
+    b1.vx -= jt * tx;
+    b1.vy -= jt * ty;
+    b2.vx += jt * tx;
+    b2.vy += jt * ty;
   }
 
   b1.moving = true;
   b2.moving = true;
+  return true;
+}
+
+/** Push an overlapping pair apart (spec §6.3) — position only, never velocity. */
+function correctOverlap(b1: BallState, b2: BallState): boolean {
+  if (b1.inHole || b2.inHole) return false;
+  const dx = b1.x - b2.x;
+  const dy = b1.y - b2.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1e-9) return false;
+  const penetration = G.BALL_SIZE - dist - CONTACT_SLOP;
+  if (penetration <= 0) return false;
+  const push = (penetration * POSITIONAL_CORRECTION) / 2;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  b1.x += ux * push;
+  b1.y += uy * push;
+  b2.x -= ux * push;
+  b2.y -= uy * push;
+  return true;
 }
 
 /** Inward speed of a ball toward a pocket throat (negative = moving away). */
