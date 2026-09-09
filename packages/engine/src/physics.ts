@@ -25,8 +25,9 @@ import {
   POCKET_MIN_INWARD,
   POWER_EXPONENT,
   ROLL_DECEL,
-  STOP_THRESHOLD,
-  SUBSTEP_TRAVEL,
+  STATIC_STOP_STEPS,
+  SUBSTEP_TRAVEL_FRACTION,
+  TS_STATIC_STOP_SPEED,
   VISCOUS_DRAG,
 } from "./constants.js";
 // Geometry (table size, ball size, pockets) is per-variant; read it from the
@@ -84,7 +85,9 @@ export function stepWorld(
   balls: BallState[],
   step: number,
   events: ShotEvent[],
-  hooks: StepHooks = {}
+  hooks: StepHooks = {},
+  /** Per-ball consecutive-slow-step counters for the static stop (spec §4.3). */
+  stopCounts?: number[]
 ): boolean {
   let maxSpeed = 0;
   for (const ball of balls) {
@@ -94,7 +97,7 @@ export function stepWorld(
   }
   const substeps = Math.min(
     MAX_SUBSTEPS,
-    Math.max(1, Math.ceil((maxSpeed * DELTA) / SUBSTEP_TRAVEL))
+    Math.max(1, Math.ceil((maxSpeed * DELTA) / (SUBSTEP_TRAVEL_FRACTION * G.BALL_SIZE)))
   );
   const dt = DELTA / substeps;
 
@@ -110,9 +113,9 @@ export function stepWorld(
   }
 
   let anyMoving = false;
-  for (const ball of balls) {
-    applyFriction(ball);
-    if (ball.moving) anyMoving = true;
+  for (let i = 0; i < balls.length; i++) {
+    applyFriction(balls[i], stopCounts, i);
+    if (balls[i].moving) anyMoving = true;
   }
   return anyMoving;
 }
@@ -189,6 +192,10 @@ function inwardSpeed(ball: BallState, hole: Hole): number {
  * pocket, which the fork's plain circular hole wrongly swallowed.
  */
 function capturingHole(ball: BallState, x: number, y: number): Hole | null {
+  // Defensive: every comparison below is false for NaN, so a non-finite state
+  // would fall through all the rejects and "capture" the ball at the first
+  // hole regardless of where it is. Never capture on a bad number.
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   for (const hole of G.HOLES) {
     const dx = x - hole.x;
     const dy = y - hole.y;
@@ -207,7 +214,13 @@ function capturingHole(ball: BallState, x: number, y: number): Hole | null {
  * its velocity gently toward the pocket centre so near-perfect shots drop.
  * Subtle by design — players shouldn't notice the assist.
  */
-function applyMagnetism(ball: BallState): void {
+function applyMagnetism(ball: BallState, dt: number): void {
+  // Scaled by dt/DELTA so the assist is per UNIT TIME, not per substep. It used
+  // to be applied once per substep at a fixed strength, so simply making the
+  // solver finer multiplied the pocket attraction — a frame-rate-dependent bug
+  // (spec: "must use dt"). Tightening the substep travel cap exposed it by
+  // vacuuming balls, including the cue, into pockets.
+  const scale = dt / DELTA;
   for (const hole of G.HOLES) {
     const dx = hole.x - ball.x;
     const dy = hole.y - ball.y;
@@ -217,8 +230,8 @@ function applyMagnetism(ball: BallState): void {
     if (vIn <= 0) continue;
     const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
     if (speed < 1e-9 || vIn / speed < hole.acceptCos) continue;
-    ball.vx += (dx / d) * POCKET_MAGNETISM * speed;
-    ball.vy += (dy / d) * POCKET_MAGNETISM * speed;
+    ball.vx += (dx / d) * POCKET_MAGNETISM * speed * scale;
+    ball.vy += (dy / d) * POCKET_MAGNETISM * speed * scale;
     return;
   }
 }
@@ -249,7 +262,7 @@ function integrateBall(
 ): void {
   if (!ball.moving || ball.inHole) return;
 
-  applyMagnetism(ball);
+  applyMagnetism(ball, dt);
 
   const newX = ball.x + ball.vx * dt;
   const newY = ball.y + ball.vy * dt;
@@ -319,16 +332,50 @@ function integrateBall(
  * model (real pool): a fixed speed loss per second plus a slight viscous term,
  * calibrated so a full-power shot rolls ≈3–4 table lengths (spec §4).
  */
-function applyFriction(ball: BallState): void {
+function applyFriction(ball: BallState, stopCounts?: number[], idx = -1): void {
   if (!ball.moving) return;
   const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+
+  // Already at a dead stop while still waiting out the hysteresis streak.
+  // Guard the divide below: 0/0 is NaN, and a NaN velocity makes every
+  // comparison in capturingHole() false, which silently "pockets" the ball
+  // wherever it stands.
+  if (speed < 1e-9) {
+    ball.vx = 0;
+    ball.vy = 0;
+    if (stopCounts !== undefined && idx >= 0) {
+      stopCounts[idx] = (stopCounts[idx] ?? 0) + 1;
+      if (stopCounts[idx] < STATIC_STOP_STEPS) return;
+    }
+    ball.moving = false;
+    return;
+  }
+
+  // Rolling resistance dominates; the viscous term is only a small residual
+  // (spec §4.4) — damping alone fades as the ball slows and leaves it creeping.
   const next = speed * VISCOUS_DRAG - ROLL_DECEL * DELTA;
-  if (next <= STOP_THRESHOLD) {
+  const track = stopCounts !== undefined && idx >= 0;
+
+  if (next <= TS_STATIC_STOP_SPEED) {
+    // Static-stop hysteresis (spec §4.3): a ball is only declared at rest after
+    // a streak of slow steps, so one slow frame mid-rebound cannot settle it.
+    const clamped = Math.max(0, next);
+    if (track) {
+      stopCounts![idx] = (stopCounts![idx] ?? 0) + 1;
+      if (stopCounts![idx] < STATIC_STOP_STEPS) {
+        const scale = clamped / speed;
+        ball.vx *= scale;
+        ball.vy *= scale;
+        return;
+      }
+    }
     ball.moving = false;
     ball.vx = 0;
     ball.vy = 0;
     return;
   }
+
+  if (track) stopCounts![idx] = 0;
   const scale = next / speed;
   ball.vx *= scale;
   ball.vy *= scale;

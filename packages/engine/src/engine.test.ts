@@ -182,7 +182,7 @@ describe("8-ball rules", () => {
     state.broken = true; // groups are only decided after the break
     const red = state.balls.find((b) => b.color === "red")!;
     const angle = setupCornerPot(state, red);
-    const result = simulateShot(state, { angle, power: 42 });
+    const result = simulateShot(state, { angle, power: 71 });
     expect(result.events.some((e) => e.type === "pocket" && e.ballId === red.id)).toBe(true);
     expect(result.endState.playerColors[0]).toBe("red");
     expect(result.endState.playerColors[1]).toBe("yellow");
@@ -202,7 +202,7 @@ describe("8-ball rules", () => {
     const black = state.balls.find((b) => b.color === "black")!;
     clearExcept(state, [black.id]);
     const angle = setupCornerPot(state, black);
-    const result = simulateShot(state, { angle, power: 42 });
+    const result = simulateShot(state, { angle, power: 71 });
     expect(result.outcome.gameOver).toBe(true);
     expect(result.outcome.winner).toBe(0);
   });
@@ -303,7 +303,7 @@ describe("8-ball rules", () => {
     aRed.x = 700; // player 0 still has a red on the table → black is illegal
     aRed.y = 150;
     const angle = setupCornerPot(state, black);
-    const result = simulateShot(state, { angle, power: 42 });
+    const result = simulateShot(state, { angle, power: 71 });
     expect(result.outcome.gameOver).toBe(true);
     expect(result.outcome.winner).toBe(1);
   });
@@ -338,12 +338,25 @@ describe("spin / english", () => {
     return s;
   }
   it("follow carries the cue forward, draw pulls it back", () => {
-    const flat = simulateShot(straight(), { angle: 0, power: 30 });
-    const follow = simulateShot(straight(), { angle: 0, power: 30, spinY: 1 });
-    const draw = simulateShot(straight(), { angle: 0, power: 30, spinY: -1 });
+    // Measured shortly AFTER first contact, which is where follow/draw acts.
+    // The end state is not a valid probe: the object ball rebounds off the far
+    // cushion and knocks the cue about, so the final position reflects that
+    // second collision rather than the spin. (The playtest harness uses the
+    // same post-contact cutoff for its draw/follow checks.)
     const cid = cueBallId(straight());
-    expect(follow.endState.balls[cid].x).toBeGreaterThan(flat.endState.balls[cid].x);
-    expect(draw.endState.balls[cid].x).toBeLessThan(flat.endState.balls[cid].x);
+    const cueXAfterContact = (spinY: number): number => {
+      const r = simulateShot(
+        straight(),
+        { angle: 0, power: 50, spinY },
+        { recordFrames: true, frameStride: 1 }
+      );
+      const hit = r.events.find((e) => e.type === "ballsCollide")!;
+      const frame = r.frames!.find((f) => f.step >= hit.step + 40)!;
+      return frame.balls.find((b) => b.id === cid)!.x;
+    };
+    const flat = cueXAfterContact(0);
+    expect(cueXAfterContact(1)).toBeGreaterThan(flat);
+    expect(cueXAfterContact(-1)).toBeLessThan(flat);
   });
   it("spin shots stay deterministic", () => {
     const a = simulateShot(createInitialState(), { angle: 0, power: 60, spinX: 0.5, spinY: -0.7 });
@@ -376,7 +389,7 @@ describe("9-ball rules", () => {
     const cue = cueBall(s);
     cue.x = 300;
     cue.y = 412;
-    const r = simulateShot(s, { angle: 0, power: 35 });
+    const r = simulateShot(s, { angle: 0, power: 59 });
     expect(r.outcome.foul).toBe(true);
     expect(r.outcome.ballInHand).toBe(true);
     expect(r.outcome.nextTurn).toBe(1);
@@ -387,7 +400,7 @@ describe("9-ball rules", () => {
     const nineBall = s.balls.find((b) => b.number === 9)!;
     clearExcept(s, [nineBall.id]); // 9 is now the lowest (and only) ball
     const angle = setupCornerPot(s, nineBall);
-    const r = simulateShot(s, { angle, power: 42 });
+    const r = simulateShot(s, { angle, power: 71 });
     expect(r.events.some((e) => e.type === "pocket" && e.ballId === nineBall.id)).toBe(true);
     expect(r.outcome.gameOver).toBe(true);
     expect(r.outcome.winner).toBe(0);
@@ -401,7 +414,7 @@ describe("9-ball rules", () => {
     one.x = 700;
     one.y = 150; // present (keeps 9 illegal) but out of the line
     const angle = setupCornerPot(s, nineBall); // hit the 9 first = foul
-    const r = simulateShot(s, { angle, power: 42 });
+    const r = simulateShot(s, { angle, power: 71 });
     expect(r.outcome.gameOver).toBe(false);
     expect(r.outcome.foul).toBe(true);
     expect(r.endState.balls[nineBall.id].inHole).toBe(false); // respotted
@@ -438,7 +451,7 @@ describe("snooker rules", () => {
     cue.x = mid.x;
     cue.y = geo.TOP_BORDER_Y + 240; // in the field, below the side pocket
     s.ballInHand = false;
-    const r = simulateShot(s, { angle: -Math.PI / 2, power: 32 }); // straight up
+    const r = simulateShot(s, { angle: -Math.PI / 2, power: 54 }); // straight up
     expect(r.events.some((e) => e.type === "pocket" && e.ballId === cue.id)).toBe(true);
   });
 
@@ -448,7 +461,7 @@ describe("snooker rules", () => {
     // Keep one red (place near corner) + colours on their spots; park the rest.
     clearExcept(s, [...s.balls.filter((b) => b.color !== "red").map((b) => b.id), reds[0].id]);
     const angle = setupCornerPot(s, reds[0]);
-    const r = simulateShot(s, { angle, power: 42 });
+    const r = simulateShot(s, { angle, power: 71 });
     expect(r.events.some((e) => e.type === "pocket" && e.ballId === reds[0].id)).toBe(true);
     expect(r.outcome.foul).toBe(false);
     expect(r.endState.scores[0]).toBe(1);
@@ -461,7 +474,7 @@ describe("snooker rules", () => {
     s.onColor = true; // pretend we just potted a red
     const blue = s.balls.find((b) => b.color === "blue")!;
     const angle = setupCornerPot(s, blue);
-    const r = simulateShot(s, { angle, power: 42 });
+    const r = simulateShot(s, { angle, power: 71 });
     expect(r.endState.scores[0]).toBe(5); // blue = 5
     expect(r.endState.onColor).toBe(false);
     expect(r.endState.balls[blue.id].inHole).toBe(false); // respotted
@@ -476,7 +489,7 @@ describe("snooker rules", () => {
     const cue = cueBall(s);
     cue.x = 300;
     cue.y = 412;
-    const r = simulateShot(s, { angle: 0, power: 35 });
+    const r = simulateShot(s, { angle: 0, power: 59 });
     expect(r.outcome.foul).toBe(true);
     expect(r.endState.scores[1]).toBeGreaterThanOrEqual(4);
     expect(r.outcome.nextTurn).toBe(1);

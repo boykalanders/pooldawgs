@@ -13,6 +13,16 @@
 // must run identical constants or replays desync.
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Physics version (spec §1.2). Stamped onto every ShotResult so a match or a
+ * replay records which constants produced it. NEVER change constants for an
+ * active match or an existing replay — bump this instead.
+ *   v1 = the original calibration (pre 9 Sep 2026)
+ *   v2 = real per-pair contact friction, explicit rolling resistance,
+ *        static-stop hysteresis, adaptive substepping
+ */
+export const PHYSICS_VERSION = "pooldawgs-v2";
+
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
 
@@ -44,10 +54,12 @@ export const STEP_MS = 1000 / PHYSICS_FPS;
 export const MAX_POWER = 75; // input scale the UI sends (0–75)
 export const POWER_EXPONENT = 1.4;
 /**
- * Launch speed at full power (px/s). Calibrated with the playtest harness so
- * a max-power shot rolls ≈3.4 table lengths and settles naturally.
+ * Launch speed at full power (px/s) = 8.5 m/s, the SAME physical speed the Havok
+ * backend uses (spec §12 parity). Was 9600 px/s ≈ 17.6 m/s — roughly twice a real
+ * break, which is why the TS backend needed unphysical drag to stop a ball and
+ * still felt different from the server. A real cue-ball break tops out ~7–8 m/s.
  */
-export const MAX_SHOT_SPEED = 9600;
+export const MAX_SHOT_SPEED = 8.5 * PX_PER_M; // ≈ 4638 px/s
 
 // ── cloth friction (spec §4: ≈3–4 table lengths on full power) ────────────
 // Constant-deceleration rolling model (real billiards) rather than the fork's
@@ -59,16 +71,37 @@ export const MAX_SHOT_SPEED = 9600;
 // gives the gentle final roll-out. Keeping ROLL_DECEL low is what makes balls
 // ease to rest instead of halting abruptly (client feedback: "the way it
 // stops"); the stop threshold is low so the settle reads as smooth.
-export const ROLL_DECEL = 240; // px/s² constant deceleration (gentle roll-out)
-export const VISCOUS_DRAG = 0.9897; // per-step multiplicative drag (@120 Hz)
+export const ROLL_DECEL = 420; // px/s² constant deceleration (spec §4.4: 180–220)
+export const VISCOUS_DRAG = 0.998; // residual per-step drag (spec §4.4: 0.997–0.999)
 /** Below this speed (px/s) a ball is considered stopped. */
 export const STOP_THRESHOLD = 2.5;
+
+// ── rolling resistance & static stop (spec §4) ────────────────────────────
+// Damping alone is velocity-proportional, so it gets weaker exactly when a ball
+// is nearly stopped — that is what produced the residual low-speed drift. The
+// cloth is now modelled as a CONSTANT deceleration a = µ_r·g (Coulomb rolling
+// resistance) with a separate static-stop threshold, and damping is demoted to a
+// small residual term.
+export const GRAVITY_MS2 = 9.81;
+/** Cloth rolling-resistance coefficient, per variant (spec §3.1 / §3.2). */
+export const POOL_ROLLING_RESISTANCE = 0.022;
+export const SNOOKER_ROLLING_RESISTANCE = 0.025;
+/** Rolling resistance applies above this speed (m/s). */
+export const ROLLING_STOP_SPEED_MS = 0.01;
+/** Below this speed (m/s) a ball counts toward a static stop. */
+export const STATIC_STOP_SPEED_MS = 0.004;
+/** Consecutive steps below STATIC_STOP_SPEED before the ball is pinned. */
+export const STATIC_STOP_STEPS = 10;
+/** TS equivalent of STATIC_STOP_SPEED, in px/s (spec §4.4: 1.5–2.5). */
+export const TS_STATIC_STOP_SPEED = 2.0;
 
 // ── restitution (spec §3, §5) ─────────────────────────────────────────────
 /** Ball-ball restitution (spec 0.93). */
 export const BALL_RESTITUTION = 0.93;
-/** Cushion normal restitution (spec 0.88) — soft enough to kill pinball banks. */
-export const CUSHION_RESTITUTION = 0.88;
+/** Cushion normal restitution. Lowered 0.88 → 0.72 to match the Havok rail and
+ *  the fix-spec's 0.70 target (§7.2, §12 parity): at 0.88 a full-power ball kept
+ *  ~28% of its speed through 10 banks and pinballed for ~10 table lengths. */
+export const CUSHION_RESTITUTION = 0.72;
 /** Cushion tangential friction (spec 0.12) — natural angle bleed off the rail. */
 export const CUSHION_FRICTION = 0.12;
 /** Below this relative normal speed a contact is resolved inelastically
@@ -79,7 +112,7 @@ export const MIN_COLLISION_SPEED = 0.02 * PX_PER_M; // ≈ 11 px/s
 /** Follow (top spin) impulse as a fraction of cue speed at first contact. */
 export const TOP_SPIN = 0.2;
 /** Draw (back spin) impulse fraction (applied with a negative sign). */
-export const BACK_SPIN = 0.22;
+export const BACK_SPIN = 0.32;
 /** Side english authority — tangential velocity added per cushion bounce. */
 export const SIDE_ENGLISH = 0.18;
 /** Spin imparted to the object ball on contact ("throw"). */
@@ -93,8 +126,11 @@ export const SPIN_SIDE_DECAY = 0.6;
 // A full-power shot moves far per step — more than the 38px collision
 // diameter — so each step is subdivided until no ball travels more than
 // SUBSTEP_TRAVEL px between collision checks. Friction stays per OUTER step.
-export const SUBSTEP_TRAVEL = 12;
-export const MAX_SUBSTEPS = 16;
+// Spec §8.2: a ball may never travel more than one-fifth of its DIAMETER
+// between collision checks. Expressed as a fraction so it stays correct after
+// any ball-size migration (was a flat 12 px ≈ 0.32 diameters — too coarse).
+export const SUBSTEP_TRAVEL_FRACTION = 0.2;
+export const MAX_SUBSTEPS = 24;
 
 /** Hard cap on settle time so a shot can never simulate forever. */
 export const MAX_STEPS = 12000;

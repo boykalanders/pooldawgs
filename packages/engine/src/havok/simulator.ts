@@ -26,10 +26,16 @@ import { Quaternion } from "@babylonjs/core/Maths/math.vector.js";
 import "@babylonjs/core/Physics/joinedPhysicsEngineComponent.js";
 
 import {
+  GRAVITY_MS2,
   MAX_POWER,
   MAX_STEPS,
+  PHYSICS_VERSION,
+  POOL_ROLLING_RESISTANCE,
   POWER_EXPONENT,
   PX_PER_M,
+  SNOOKER_ROLLING_RESISTANCE,
+  STATIC_STOP_SPEED_MS,
+  STATIC_STOP_STEPS,
   STEP_MS,
 } from "../constants.js";
 import { G, geomFor, setActiveGeometry, type TableGeometry } from "../geometry.js";
@@ -60,13 +66,15 @@ const SLEEP_SPEED = M(8);
 /** Full-power launch speed (m/s). Real cue-ball break tops out ~7–8 m/s; this
  *  also keeps per-step travel below the rail thickness (no tunnelling). */
 const MAX_SPEED_MS = 8.5;
-/** Cloth drag — calibrated in scripts/havok-playtest.mjs. Lower = balls carry
- *  further and slow more gently. Kept near the original (0.28) so banks/rebound
- *  stay lively (client liked the rebound); the "heavy/cement" feel was mostly
- *  the cloth FRICTION, eased below. */
-const LINEAR_DAMPING = 0.24;
+/**
+ * Residual drag only (spec §4.1). The cloth is modelled by explicit rolling
+ * resistance below — damping is velocity-proportional, so it fades exactly when
+ * a ball is nearly stopped, which is what produced the low-speed drift. Was
+ * 0.24, doing the cloth's whole job.
+ */
+const LINEAR_DAMPING = 0.04;
 /** Low, so cue-ball spin survives the roll to first contact (draw/follow). */
-const ANGULAR_DAMPING = 0.3;
+const ANGULAR_DAMPING = 0.12;
 /** Spin authority: multiples of the natural rolling rate (v/R) at full spin. */
 const FOLLOW_DRAW_GAIN = 2.0;
 const ENGLISH_GAIN = 1.5;
@@ -75,6 +83,10 @@ interface BallBody {
   node: TransformNode;
   body: PhysicsBody;
   id: number; // engine ball id, -1 when unused this shot
+  /** Consecutive steps under STATIC_STOP_SPEED (spec §4.3 hysteresis). */
+  belowStopSteps: number;
+  /** Pinned by the static stop this shot — cleared when the ball is re-seated. */
+  settled: boolean;
 }
 
 interface HavokWorld {
@@ -304,7 +316,7 @@ function makeBall(scene: Scene, R: number): BallBody {
   body.setLinearDamping(LINEAR_DAMPING);
   body.setAngularDamping(ANGULAR_DAMPING);
   body.setCollisionCallbackEnabled(true);
-  return { node, body, id: -1 };
+  return { node, body, id: -1, belowStopSteps: 0, settled: false };
 }
 
 function park(b: BallBody): void {
@@ -382,6 +394,8 @@ export function simulateShotHavok(
       continue;
     }
     bb.id = ball.id;
+    bb.belowStopSteps = 0;
+    bb.settled = false;
     bb.body.setMotionType(PhysicsMotionType.DYNAMIC);
     bb.node.position.set(M(ball.x), R, M(ball.y));
     bb.node.rotationQuaternion = Quaternion.Identity();
@@ -427,12 +441,26 @@ export function simulateShotHavok(
   // momentary zero-velocity at a cushion rebound or ball-ball contact would
   // end the shot mid-bounce.
   const SETTLE_STREAK = 10;
-  // Sub-step the solver: at a single 1/120 step a max-power ball (8.5 m/s) moves
-  // ~7 cm — more than a ball diameter — so on contact it penetrated deeply and
-  // the solver ejected the pair (visible "jump") or couldn't separate them in
-  // one step ("stick"). Stepping at 1/240 keeps per-step travel under a ball
-  // radius, so contacts resolve cleanly. Collisions accumulate across substeps.
-  const SUBSTEPS = 2;
+  // ADAPTIVE substepping (spec §8). Babylon's Havok plugin exposes no solver
+  // iteration counts and no CCD flag (only setTimeStep), so travel-limited
+  // substepping is the mandatory fallback the spec calls for: no ball may travel
+  // more than 20% of its diameter between collision checks. A fixed 2 substeps
+  // let a full-power ball cover ~7 cm/step — deeper than a ball radius — which
+  // is how breaks produced penetration, ejection "jumps" and cushion drift.
+  const MAX_TRAVEL_PER_SUBSTEP = 0.2 * (2 * R); // 20% of a diameter, in metres
+  const BASE_SUBSTEPS = 4;
+  const MAX_SUBSTEPS_HV = 12;
+  const rollMu =
+    w.geomKey === "snooker" ? SNOOKER_ROLLING_RESISTANCE : POOL_ROLLING_RESISTANCE;
+  const rollDecel = rollMu * GRAVITY_MS2; // m/s², constant (Coulomb) deceleration
+  // telemetry (spec §13)
+  let maxSpeed = 0;
+  let maxPenetration = 0;
+  let ballCollisions = 0;
+  let cushionContacts = 0;
+  let pockets = 0;
+  let maxSubstepsUsed = 0;
+  let staticStops = 0;
   // Stun assist: a struck cue naturally rolls up over the approach, and a
   // rolling cue FOLLOWS the object after contact — which reads as the cue
   // "trailing" the object on an ordinary straight hit. On a shot with no
@@ -444,14 +472,30 @@ export function simulateShotHavok(
   const cueId = next.balls[cueIdx]?.id;
   let cueRollKilled = false;
   while (moving && steps < MAX_STEPS) {
+    // Choose this step's substep count from the fastest ball, so a break is
+    // integrated finely and a settling table cheaply.
+    let fastest = 0;
+    for (const bb of w.balls) {
+      if (bb.id < 0) continue;
+      const v = bb.body.getLinearVelocity();
+      const s = Math.hypot(v.x, v.y, v.z);
+      if (s > fastest) fastest = s;
+    }
+    if (PX(fastest) > maxSpeed) maxSpeed = PX(fastest);
+    const needed = Math.ceil((fastest * DT) / MAX_TRAVEL_PER_SUBSTEP);
+    const substeps = Math.max(BASE_SUBSTEPS, Math.min(MAX_SUBSTEPS_HV, needed || 1));
+    if (substeps > maxSubstepsUsed) maxSubstepsUsed = substeps;
+
     w.collisions.length = 0;
-    for (let s = 0; s < SUBSTEPS; s++) w.step(DT / SUBSTEPS);
+    for (let s = 0; s < substeps; s++) w.step(DT / substeps);
 
     // Emit collisions captured this step, in order, and feed the rules.
     for (const c of w.collisions) {
       if ("rail" in c) {
+        cushionContacts++;
         events.push({ type: "cushion", ballId: c.rail, step: steps });
       } else {
+        ballCollisions++;
         const a = next.balls[c.a];
         const b = next.balls[c.b];
         events.push({ type: "ballsCollide", a: c.a, b: c.b, step: steps });
@@ -467,12 +511,53 @@ export function simulateShotHavok(
       }
     }
 
+    // A ball still being resolved by the solver must not be slowed or pinned by
+    // the cloth model this step (spec §4.2: "only while on the cloth").
+    const contactIds = new Set<number>();
+    for (const c of w.collisions) {
+      if ("rail" in c) contactIds.add(c.rail);
+      else {
+        contactIds.add(c.a);
+        contactIds.add(c.b);
+      }
+    }
+
     // Sync positions back to engine px-space; capture pockets; test settle.
     let anyFast = false;
     for (const bb of w.balls) {
       if (bb.id < 0) continue;
       const ball = next.balls[bb.id];
       if (!ball || ball.inHole) continue;
+
+      // ── cloth model (spec §4.2 rolling resistance, §4.3 static stop) ────
+      // Constant deceleration a = µ_r·g opposite horizontal travel — unlike
+      // damping this does NOT fade as the ball slows, so a ball actually comes
+      // to rest instead of creeping. Resistance is applied down to the static
+      // threshold (rather than the spec's 0.010 m/s) so there is no dead band
+      // where neither resistance nor the static stop acts.
+      const lv0 = bb.body.getLinearVelocity();
+      const airborne = bb.node.position.y > R * 1.08;
+      if (contactIds.has(bb.id) || airborne) {
+        bb.belowStopSteps = 0;
+        bb.settled = false;
+      } else {
+        const hs = Math.hypot(lv0.x, lv0.z);
+        if (hs > STATIC_STOP_SPEED_MS) {
+          bb.belowStopSteps = 0;
+          bb.settled = false;
+          const k = Math.max(0, hs - rollDecel * DT) / hs;
+          bb.body.setLinearVelocity(new Vector3(lv0.x * k, lv0.y, lv0.z * k));
+        } else {
+          bb.belowStopSteps++;
+          if (!bb.settled && bb.belowStopSteps >= STATIC_STOP_STEPS) {
+            bb.body.setLinearVelocity(new Vector3(0, lv0.y, 0));
+            bb.body.setAngularVelocity(Vector3.Zero());
+            bb.settled = true;
+            staticStops++;
+          }
+        }
+      }
+
       const x = PX(bb.node.position.x);
       const y = PX(bb.node.position.z);
       const lv = bb.body.getLinearVelocity();
@@ -488,6 +573,7 @@ export function simulateShotHavok(
         ball.moving = false;
         ball.vx = 0;
         ball.vy = 0;
+        pockets++;
         events.push({ type: "pocket", ballId: ball.id, color: ball.color, step: steps });
         rules.onPocket(next, turnAcc, ball);
         park(bb);
@@ -498,6 +584,24 @@ export function simulateShotHavok(
       ball.moving = spd > SLEEP_SPEED;
       if (ball.moving) anyFast = true;
     }
+
+    // Deepest interpenetration this step (spec §13) — the headline signal for
+    // whether substepping is fine enough during a break.
+    for (let i = 0; i < w.balls.length; i++) {
+      const A = w.balls[i];
+      if (A.id < 0) continue;
+      const ba = next.balls[A.id];
+      if (!ba || ba.inHole) continue;
+      for (let j = i + 1; j < w.balls.length; j++) {
+        const B = w.balls[j];
+        if (B.id < 0) continue;
+        const bo = next.balls[B.id];
+        if (!bo || bo.inHole) continue;
+        const pen = G.BALL_SIZE - Math.hypot(ba.x - bo.x, ba.y - bo.y);
+        if (pen > maxPenetration) maxPenetration = pen;
+      }
+    }
+
     slowStreak = anyFast ? 0 : slowStreak + 1;
     moving = slowStreak < SETTLE_STREAK;
 
@@ -521,7 +625,36 @@ export function simulateShotHavok(
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
 
-  return { endState: next, events, outcome: resolution, frames, steps };
+  const settleCapped = steps >= MAX_STEPS;
+  const flags: string[] = [];
+  if (maxPenetration > 0.1 * G.BALL_SIZE) flags.push("deep-penetration");
+  if (settleCapped) flags.push("settle-cap-reached");
+  if (maxSubstepsUsed >= MAX_SUBSTEPS_HV) flags.push("substep-ceiling");
+
+  return {
+    endState: next,
+    events,
+    outcome: resolution,
+    frames,
+    steps,
+    physicsVersion: PHYSICS_VERSION,
+    diagnostics: {
+      physicsVersion: PHYSICS_VERSION,
+      backend: "havok",
+      gameType: state.gameType,
+      maxSpeed,
+      maxPenetration: Math.max(0, maxPenetration),
+      ballCollisions,
+      cushionContacts,
+      pockets,
+      maxSubsteps: maxSubstepsUsed,
+      steps,
+      settleSeconds: (steps * STEP_MS) / 1000,
+      staticStops,
+      settleCapped,
+      flags,
+    },
+  };
 }
 
 function snapshot(state: TableState, step: number): Frame {

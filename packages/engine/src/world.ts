@@ -2,10 +2,14 @@ import {
   BACK_SPIN,
   MAX_POWER,
   MAX_STEPS,
+  MAX_SUBSTEPS,
+  PHYSICS_VERSION,
   SIDE_ENGLISH,
   SPIN_DECAY,
   SPIN_SIDE_DECAY,
   SPIN_TRANSFER,
+  STATIC_STOP_STEPS,
+  STEP_MS,
   TOP_SPIN,
 } from "./constants.js";
 import { G, setActiveGeometry } from "./geometry.js";
@@ -182,13 +186,34 @@ export function simulateShot(
 
   let steps = 0;
   let anyMoving = true;
+  /** Per-ball slow-step counters backing the static stop (spec §4.3). */
+  const stopCounts: number[] = new Array(next.balls.length).fill(0);
+  // telemetry (spec §13)
+  let maxSpeed = 0;
+  let maxPenetration = 0;
   while (anyMoving && steps < MAX_STEPS) {
     const cue = cueBall(next);
     const preVx = cue.vx;
     const preVy = cue.vy;
     const eventsBefore = events.length;
 
-    anyMoving = stepWorld(next.balls, steps, events, hooks);
+    anyMoving = stepWorld(next.balls, steps, events, hooks, stopCounts);
+
+    for (const b of next.balls) {
+      if (b.inHole) continue;
+      const s = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      if (s > maxSpeed) maxSpeed = s;
+    }
+    for (let i = 0; i < next.balls.length; i++) {
+      const a = next.balls[i];
+      if (a.inHole) continue;
+      for (let j = i + 1; j < next.balls.length; j++) {
+        const b = next.balls[j];
+        if (b.inHole) continue;
+        const pen = G.BALL_SIZE - Math.hypot(a.x - b.x, a.y - b.y);
+        if (pen > maxPenetration) maxPenetration = pen;
+      }
+    }
 
     // Follow/draw: one-shot impulse along the pre-contact direction. Follow
     // (top) and draw (back) have distinct authority (spec §8).
@@ -238,7 +263,35 @@ export function simulateShot(
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
 
-  return { endState: next, events, outcome: resolution, frames, steps };
+  const settleCapped = steps >= MAX_STEPS;
+  const flags: string[] = [];
+  if (maxPenetration > 0.1 * G.BALL_SIZE) flags.push("deep-penetration");
+  if (settleCapped) flags.push("settle-cap-reached");
+
+  return {
+    endState: next,
+    events,
+    outcome: resolution,
+    frames,
+    steps,
+    physicsVersion: PHYSICS_VERSION,
+    diagnostics: {
+      physicsVersion: PHYSICS_VERSION,
+      backend: "ts",
+      gameType: next.gameType,
+      maxSpeed,
+      maxPenetration: Math.max(0, maxPenetration),
+      ballCollisions: events.filter((e) => e.type === "ballsCollide").length,
+      cushionContacts: events.filter((e) => e.type === "cushion").length,
+      pockets: events.filter((e) => e.type === "pocket").length,
+      maxSubsteps: MAX_SUBSTEPS,
+      steps,
+      settleSeconds: (steps * STEP_MS) / 1000,
+      staticStops: stopCounts.filter((c) => c >= STATIC_STOP_STEPS).length,
+      settleCapped,
+      flags,
+    },
+  };
 }
 
 /**

@@ -100,6 +100,34 @@ export interface TurnResolution {
 
 export interface ShotOutcome extends TurnResolution {}
 
+/**
+ * Per-shot physics telemetry (spec §13). Always produced — it is cheap — so a
+ * bad shot can be diagnosed after the fact instead of reproduced by hand.
+ * `flags` names any condition the spec says to treat as a physics failure.
+ */
+export interface ShotDiagnostics {
+  physicsVersion: string;
+  backend: "ts" | "havok";
+  gameType: GameType;
+  /** Fastest any ball travelled during the shot (px/s). */
+  maxSpeed: number;
+  /** Deepest ball-ball interpenetration seen (px). 0 = never overlapped. */
+  maxPenetration: number;
+  ballCollisions: number;
+  cushionContacts: number;
+  pockets: number;
+  /** Largest substep count used in a single step (adaptive substepping). */
+  maxSubsteps: number;
+  /** Steps taken to settle, and the wall-clock equivalent in seconds. */
+  steps: number;
+  settleSeconds: number;
+  /** Balls pinned by static-stop hysteresis. */
+  staticStops: number;
+  /** True when the shot hit MAX_STEPS — a physics failure, not a normal result. */
+  settleCapped: boolean;
+  flags: string[];
+}
+
 export interface ShotResult {
   endState: TableState;
   events: ShotEvent[];
@@ -108,6 +136,10 @@ export interface ShotResult {
   frames?: Frame[];
   /** Number of fixed steps the shot took to settle. */
   steps: number;
+  /** Constants version that produced this result (spec §1.2). */
+  physicsVersion: string;
+  /** Physics telemetry for this shot (spec §13). */
+  diagnostics: ShotDiagnostics;
 }
 
 /**
