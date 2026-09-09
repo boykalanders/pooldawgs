@@ -75,9 +75,15 @@ const MAX_SPEED_MS = 8.5;
 const LINEAR_DAMPING = 0.04;
 /** Low, so cue-ball spin survives the roll to first contact (draw/follow). */
 const ANGULAR_DAMPING = 0.12;
-/** Spin authority: multiples of the natural rolling rate (v/R) at full spin. */
-const FOLLOW_DRAW_GAIN = 2.0;
-const ENGLISH_GAIN = 1.5;
+/**
+ * Spin authority: multiples of the natural rolling rate (v/R) at full spin.
+ * Reduced from 2.0 / 1.5 to the spec's §5.3 range (follow-draw 1.0–1.4, english
+ * 1.0–1.3): at 2.0 a full-spin cue left the tip with twice the angular rate a
+ * real cue can impart, which over-drove draw and made english unrealistically
+ * strong off the cushion.
+ */
+const FOLLOW_DRAW_GAIN = 1.2;
+const ENGLISH_GAIN = 1.15;
 
 interface BallBody {
   node: TransformNode;
