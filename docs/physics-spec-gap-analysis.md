@@ -6,6 +6,68 @@ code, not from memory; "not found" means a grep across `packages/engine/src` and
 
 ---
 
+## ⚠️ STATUS UPDATE — Phases A, B and C(13) are now implemented
+
+The audit below describes the state **before** the fix work. Implemented since,
+in three verified commits:
+
+| Phase | Commit | What landed |
+|---|---|---|
+| **A** | `a116080` | §1.2 physics versioning · §4 rolling resistance + static-stop hysteresis (both backends) · §8 adaptive substepping · §13 diagnostics · §12 speed/restitution parity |
+| **B** | `b91c63e` | §6 iterative impulse contacts with Coulomb tangential friction + positional correction · §7.4 duplicate contact-event filtering |
+| **C** | `06fc6ce` | §5.3 Havok cue-spin gains reduced to the spec range |
+
+**Two real bugs were found and fixed while verifying**, both of which would have
+affected wagered matches:
+
+1. **Balls could be pocketed mid-table.** Static-stop hysteresis could leave a
+   ball at exactly zero speed while still flagged moving; the next step computed
+   `0/0 = NaN`. Every comparison in `capturingHole()` is false for NaN, so it
+   returned the *first* hole and silently pocketed the ball wherever it stood.
+2. **Pocket magnetism was frame-rate dependent.** It was applied once per
+   *substep* at fixed strength, so making the solver finer multiplied the assist.
+   Now scaled by `dt`.
+
+**Verification standing (all green):** 31/31 engine unit tests · 6/6 TS playtest
+· 5/5 Havok playtest · 20/20 `rest-tests.mjs` (spec §14 rest/cloth + diagnostics)
+· 20/20 `contact-tests.mjs` (spec §14 ball collisions + cushions), each across
+both backends and both variants.
+
+**Measured effect on the reported symptoms:**
+
+| Symptom | Before | After |
+|---|---|---|
+| Balls keep moving after a shot | damping-only cloth, creeping at low speed | residual speed **exactly 0**, settle 0.85–2.5 s |
+| Balls drift toward cushions after the break | one-pass solver, residual overlap | in-shot penetration **1.61 px → 0.00 px**, zero final overlap |
+| Cut shots / throw unreliable | tangential velocity untouched by contacts | Coulomb tangential impulse; throw 2.6° at max english |
+
+### Still outstanding
+
+- **§5 C10–C12 — real angular state in the TS backend** (sliding/rolling
+  transitions, removing the scripted spin nudges). Deliberately deferred. The
+  spec itself sanctions this (§5): *"Keep Havok as the outcome authority. Use TS
+  only as a visual/practice approximation, **or** replace the TS solver with a
+  deterministic angular solver."* Havok **is** the authority for wagered matches
+  and now has real contact physics; TS runs Practice only. A full angular
+  rewrite would change every TS outcome again for no effect on match results.
+  **TS spin remains a scripted approximation — it should not be described as
+  physical.**
+- **§2 / Phase D — geometry migration** (pool 38 → 31.2 px, snooker 35 → 28.65 px
+  and 0.142 kg). Not started, and it **needs a decision**: it was explicitly
+  declined earlier in favour of "coefficients only", and it would require
+  rebuilding racks, pocket mouths, cushion noses and re-fitting both table
+  photographs. The spec's own advice is to do it last, behind a geometry version.
+- **§7.1 cushion-nose profile.** Not implemented, deliberately: balls are
+  constrained to the table plane, so a vertical wall face already yields the
+  correct horizontal contact normal. Pocket-mouth rail gaps are verified
+  symmetric by the new tests.
+- **§8 solver iterations / CCD in Havok.** Not available — Babylon's Havok plugin
+  exposes only `setTimeStep`. The spec's mandatory fallback (travel-limited
+  adaptive substepping) is implemented instead.
+- **§12 parity tests** and **Phase E release gate.** Not started.
+
+---
+
 ## Headline: the assumption is inverted
 
 > *"I think most of them have been implemented except a few recommendations on how
