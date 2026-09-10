@@ -1,5 +1,28 @@
 # Phase D — Geometry Migration: table image reference
 
+> ## Decision (10 Sep 2026): keep the current table and ball sizes
+>
+> The team agreed the current table plays at the right difficulty — "mid, not
+> arcade, because money is involved." The actual complaint was the physics:
+> **on the break, the balls all get dragged to one side.** That turned out to be
+> a solver bug in the engine (the order it processed balls in), not the size of
+> the table or the balls, and it is being fixed in code.
+>
+> **For Dynamix — nothing in this document needs implementing:**
+>
+> | Item | Change required |
+> |---|---|
+> | Pool table image (`pool_table.png`) | **None** — keep as is |
+> | Snooker table image (`snooker_table.png`) | **None** — keep as is |
+> | New table artwork | **None needed** |
+> | Ball sizes (pool 38 px, snooker 35 px) | **None** |
+> | Pocket sizes (pool 46 / 64 px, snooker 34 / 42 px) | **None** |
+>
+> Even if the ball-size migration below is done one day, **no new table images
+> will be needed**: the images are fitted to the cushion line, and the cushion
+> line does not move when the balls get smaller. Everything below is kept only as
+> the reference for that future option.
+
 Everything needed to migrate ball geometry (spec §2) without breaking the fitted
 table artwork. Measured from source on 9 Sep 2026.
 

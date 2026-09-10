@@ -8,7 +8,8 @@
 //     pocket magnetism for on-line shots.
 // The fixed timestep and the ORDER of operations (pairwise collisions first,
 // then per-ball integration, ascending index) are preserved so server and
-// client simulations stay bit-identical.
+// client simulations stay bit-identical. The contact solve itself is Jacobi
+// (order-independent), so the result no longer depends on ball list order.
 
 import {
   BALL_RESTITUTION,
@@ -111,18 +112,54 @@ export function stepWorld(
   // iteration (spec §7.4).
   const reported = new Set<number>();
 
+  // Scratch for the order-independent (Jacobi) solve below.
+  const n = balls.length;
+  const dv = new Float64Array(2 * n);
+  const dp = new Float64Array(2 * n);
+  const counts = new Int32Array(n);
+  const contacts: number[] = [];
+
   for (let sub = 0; sub < substeps; sub++) {
     // ── velocity solve, iterated (spec §6.2) ──────────────────────────────
+    // JACOBI, not Gauss-Seidel. Every contact in an iteration is computed from
+    // the SAME velocity snapshot and the impulses are applied together. The old
+    // sequential sweep in fixed index order let whichever ball came first in the
+    // list act first; on a frozen rack that dragged the whole break toward one
+    // side regardless of aim (measured: pack centre ~60 px off a dead-straight
+    // cue line, and it flipped side when the rack was mirrored — i.e. decided by
+    // list order, not physics).
     for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
-      let solvedAny = false;
-      for (let i = 0; i < balls.length; i++) {
-        for (let j = i + 1; j < balls.length; j++) {
-          if (resolveContact(balls[i], balls[j], dt, step, events, hooks, reported)) {
-            solvedAny = true;
+      contacts.length = 0;
+      counts.fill(0);
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          if (!detectContact(balls[i], balls[j], dt)) continue;
+          contacts.push(i, j, contactNx, contactNy);
+          counts[i]++;
+          counts[j]++;
+          // Report each physical contact once per outer step (spec §7.4).
+          const key = balls[i].id * 64 + balls[j].id;
+          if (!reported.has(key)) {
+            reported.add(key);
+            hooks.onBallsCollide?.(balls[i], balls[j]);
+            events.push({ type: "ballsCollide", a: balls[i].id, b: balls[j].id, step });
           }
         }
       }
-      if (!solvedAny) break; // converged
+      if (contacts.length === 0) break; // converged
+      dv.fill(0);
+      for (let k = 0; k < contacts.length; k += 4) {
+        contactImpulse(balls, contacts[k], contacts[k + 1], contacts[k + 2], contacts[k + 3], counts, dv);
+      }
+      for (let k = 0; k < n; k++) {
+        const ix = dv[2 * k];
+        const iy = dv[2 * k + 1];
+        if (ix !== 0 || iy !== 0) {
+          balls[k].vx += ix;
+          balls[k].vy += iy;
+          balls[k].moving = true;
+        }
+      }
     }
 
     for (const ball of balls) {
@@ -130,16 +167,22 @@ export function stepWorld(
     }
 
     // ── positional correction, iterated (spec §6.3) ───────────────────────
-    // Never resolve overlap by adding velocity: push the pair apart by a
-    // fraction of the penetration beyond a small slop.
+    // Never resolve overlap by adding velocity: push each overlapping pair apart
+    // by a fraction of the penetration beyond a small slop. Also Jacobi — every
+    // push is computed from the same positions, then all are applied together.
     for (let it = 0; it < POSITION_ITERATIONS; it++) {
+      dp.fill(0);
       let movedAny = false;
-      for (let i = 0; i < balls.length; i++) {
-        for (let j = i + 1; j < balls.length; j++) {
-          if (correctOverlap(balls[i], balls[j])) movedAny = true;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          if (overlapPush(balls[i], balls[j], i, j, dp)) movedAny = true;
         }
       }
       if (!movedAny) break;
+      for (let k = 0; k < n; k++) {
+        balls[k].x += dp[2 * k];
+        balls[k].y += dp[2 * k + 1];
+      }
     }
   }
 
@@ -151,82 +194,94 @@ export function stepWorld(
   return anyMoving;
 }
 
+// Contact normal written by detectContact() (b2 → b1, unit length). Module
+// scratch rather than an allocated object: this runs in the innermost loop.
+let contactNx = 0;
+let contactNy = 0;
+
 /**
- * Elastic equal-mass collision: normal-component velocities are exchanged
- * (scaled by restitution), tangential components kept. A min-speed gate
- * resolves near-resting contacts inelastically to prevent jitter (spec §5).
+ * Is the pair touching (at the predicted positions) AND approaching? Pure
+ * query — changes nothing, so every pair in a Jacobi pass sees the same state.
  */
-function resolveContact(
-  b1: BallState,
-  b2: BallState,
-  dt: number,
-  step: number,
-  events: ShotEvent[],
-  hooks: StepHooks,
-  reported: Set<number>
-): boolean {
+function detectContact(b1: BallState, b2: BallState, dt: number): boolean {
   if (b1.inHole || b2.inHole) return false;
   if (!b1.moving && !b2.moving) return false;
 
-  const n1x = b1.x + b1.vx * dt;
-  const n1y = b1.y + b1.vy * dt;
-  const n2x = b2.x + b2.vx * dt;
-  const n2y = b2.y + b2.vy * dt;
-
-  const dx = n1x - n2x;
-  const dy = n1y - n2y;
+  const dx = b1.x + b1.vx * dt - (b2.x + b2.vx * dt);
+  const dy = b1.y + b1.vy * dt - (b2.y + b2.vy * dt);
   const dist = Math.sqrt(dx * dx + dy * dy);
   if (dist >= G.BALL_SIZE || dist < 1e-9) return false;
 
   const nx = dx / dist;
   const ny = dy / dist;
+  const vn = (b1.vx - b2.vx) * nx + (b1.vy - b2.vy) * ny;
+  if (vn >= 0) return false; // separating
+  contactNx = nx;
+  contactNy = ny;
+  return true;
+}
 
-  // Relative velocity of b1 w.r.t. b2, split into normal and tangential parts.
+/**
+ * Elastic equal-mass collision: normal-component velocities are exchanged
+ * (scaled by restitution) plus a Coulomb friction impulse on the tangent. A
+ * min-speed gate resolves near-resting contacts inelastically to prevent
+ * jitter (spec §5).
+ *
+ * Reads velocities, never writes them: the impulse is ACCUMULATED into `dv`
+ * and applied by the caller once every contact in the pass is computed. When a
+ * ball has several contacts in the same pass their impulses would stack from
+ * one stale snapshot and overshoot, so each contact is scaled by
+ * 1 / max(contacts on either ball). The same scale goes to both balls, so
+ * momentum is still conserved exactly; the remainder is picked up by the next
+ * iteration.
+ */
+function contactImpulse(
+  balls: BallState[],
+  i: number,
+  j: number,
+  nx: number,
+  ny: number,
+  counts: Int32Array,
+  dv: Float64Array
+): void {
+  const b1 = balls[i];
+  const b2 = balls[j];
   const rvx = b1.vx - b2.vx;
   const rvy = b1.vy - b2.vy;
   const vn = rvx * nx + rvy * ny;
-  if (vn >= 0) return false; // separating
-
-  // Report each physical contact once per outer step, however many solver
-  // iterations touch it (spec §7.4).
-  const key = b1.id * 64 + b2.id;
-  if (!reported.has(key)) {
-    reported.add(key);
-    hooks.onBallsCollide?.(b1, b2);
-    events.push({ type: "ballsCollide", a: b1.id, b: b2.id, step });
-  }
+  const share = 1 / Math.max(counts[i], counts[j]);
 
   // Normal impulse. Equal masses ⇒ effective mass 1/2, so j = -(1+e)·vn / 2.
   const approach = -vn;
   const restitution = approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION;
   const jn = ((1 + restitution) * approach) / 2;
-  b1.vx += jn * nx;
-  b1.vy += jn * ny;
-  b2.vx -= jn * nx;
-  b2.vy -= jn * ny;
+  let ix = jn * nx;
+  let iy = jn * ny;
 
-  // Tangential (Coulomb) friction impulse — this is the piece the old solver
-  // left out entirely, and it is what makes cut shots and throw behave.
+  // Tangential (Coulomb) friction impulse — what makes cut shots and throw
+  // behave.
   const tvx = rvx - vn * nx;
   const tvy = rvy - vn * ny;
   const tv = Math.sqrt(tvx * tvx + tvy * tvy);
   if (tv > 1e-9) {
-    const tx = tvx / tv;
-    const ty = tvy / tv;
     const jt = Math.min(tv / 2, BALL_BALL_FRICTION * jn);
-    b1.vx -= jt * tx;
-    b1.vy -= jt * ty;
-    b2.vx += jt * tx;
-    b2.vy += jt * ty;
+    ix -= (jt * tvx) / tv;
+    iy -= (jt * tvy) / tv;
   }
 
-  b1.moving = true;
-  b2.moving = true;
-  return true;
+  ix *= share;
+  iy *= share;
+  dv[2 * i] += ix;
+  dv[2 * i + 1] += iy;
+  dv[2 * j] -= ix;
+  dv[2 * j + 1] -= iy;
 }
 
-/** Push an overlapping pair apart (spec §6.3) — position only, never velocity. */
-function correctOverlap(b1: BallState, b2: BallState): boolean {
+/**
+ * Overlap push for one pair (spec §6.3) — position only, never velocity.
+ * Accumulated into `dp`; the caller applies every push together.
+ */
+function overlapPush(b1: BallState, b2: BallState, i: number, j: number, dp: Float64Array): boolean {
   if (b1.inHole || b2.inHole) return false;
   const dx = b1.x - b2.x;
   const dy = b1.y - b2.y;
@@ -235,12 +290,12 @@ function correctOverlap(b1: BallState, b2: BallState): boolean {
   const penetration = G.BALL_SIZE - dist - CONTACT_SLOP;
   if (penetration <= 0) return false;
   const push = (penetration * POSITIONAL_CORRECTION) / 2;
-  const ux = dx / dist;
-  const uy = dy / dist;
-  b1.x += ux * push;
-  b1.y += uy * push;
-  b2.x -= ux * push;
-  b2.y -= uy * push;
+  const ux = (dx / dist) * push;
+  const uy = (dy / dist) * push;
+  dp[2 * i] += ux;
+  dp[2 * i + 1] += uy;
+  dp[2 * j] -= ux;
+  dp[2 * j + 1] -= uy;
   return true;
 }
 

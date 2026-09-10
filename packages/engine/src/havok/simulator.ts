@@ -26,17 +26,24 @@ import { Quaternion } from "@babylonjs/core/Maths/math.vector.js";
 import "@babylonjs/core/Physics/joinedPhysicsEngineComponent.js";
 
 import {
+  BALL_BALL_FRICTION,
+  BALL_RESTITUTION,
+  CONTACT_SLOP,
   GRAVITY_MS2,
   MAX_POWER,
   MAX_STEPS,
+  MIN_COLLISION_SPEED,
   PHYSICS_VERSION,
   POOL_ROLLING_RESISTANCE,
+  POSITION_ITERATIONS,
+  POSITIONAL_CORRECTION,
   POWER_EXPONENT,
   PX_PER_M,
   SNOOKER_ROLLING_RESISTANCE,
   STATIC_STOP_SPEED_MS,
   STATIC_STOP_STEPS,
   STEP_MS,
+  VELOCITY_ITERATIONS,
 } from "../constants.js";
 import { G, geomFor, setActiveGeometry, type TableGeometry } from "../geometry.js";
 import { getRules } from "../variants/index.js";
@@ -97,6 +104,7 @@ interface BallBody {
 
 interface HavokWorld {
   scene: Scene;
+  plugin: HavokPlugin;
   step(dt: number): void;
   balls: BallBody[];
   /** body.uniqueId → engine ball id, for the shot in progress. */
@@ -172,6 +180,7 @@ function buildWorld(gameType: GameType): void {
   const physicsEngine = scene.getPhysicsEngine()!;
   world = {
     scene,
+    plugin,
     step: (dt: number) => physicsEngine._step(dt),
     balls,
     bodyToBall,
@@ -211,9 +220,8 @@ export function isHavokReady(): boolean {
 // one number had to serve both ball↔ball and ball↔cloth, which are physically an
 // order of magnitude apart. max(a,b) lets the ball stay slippery while the cloth
 // and cushions keep their grip:
-//   ball↔ball  = max(0.06, 0.06) = 0.06  — polished phenolic balls are slick
-//                (measured 0.05–0.06). Was ≈0.35, which massively over-threw the
-//                object ball on cut shots.
+//   ball↔ball  — NOT solved by Havok any more (see solveBallContacts); the
+//                same 0.06 friction / 0.93 restitution are applied there.
 //   ball↔cloth = max(0.06, 0.20) = 0.20  — cloth sliding friction (real 0.15–0.25).
 //                This is what converts draw/follow spin into motion.
 //   ball↔rail  = max(0.06, 0.20) = 0.20  — close to the previous effective 0.19,
@@ -317,6 +325,10 @@ function makeBall(scene: Scene, R: number): BallBody {
   const body = new PhysicsBody(node, PhysicsMotionType.DYNAMIC, false, scene);
   const shape = new PhysicsShapeSphere(new Vector3(0, 0, 0), R, scene);
   shape.material = ballMaterial;
+  // Balls collide with the cloth and rails but pass through each other in
+  // Havok — ball↔ball contacts are resolved by solveBallContacts() instead.
+  shape.filterMembershipMask = BALL_GROUP;
+  shape.filterCollideMask = ~BALL_GROUP >>> 0;
   body.shape = shape;
   body.setMassProperties({ mass: 0.17 });
   body.setLinearDamping(LINEAR_DAMPING);
@@ -356,6 +368,227 @@ function capturedHole(x: number, y: number, vx: number, vy: number): boolean {
     return true;
   }
   return false;
+}
+
+// ── ball↔ball contacts: solved here, NOT by Havok ──────────────────────────
+// Havok's contact solver is sequential (Gauss-Seidel) and visits contacts in
+// body order. On a frozen rack every contact is simultaneous, so that order —
+// not the aim — decided where the pack went: a dead-straight break pushed the
+// rack 15–28 px to one side after 1 s, and the side flipped when the rack was
+// mirrored. Balls are therefore filtered out of each other in Havok (makeBall)
+// and resolved by the same order-independent Jacobi solve as the TS engine.
+// Havok still owns everything else: cloth, rails, spin and roll.
+
+const BALL_GROUP = 0b10;
+const MAX_BALLS = 22; // snooker
+
+// Scratch — reused every substep. Per ball: position, linear and angular
+// velocity (Havok metres, Y up), and the pass's accumulated deltas.
+const live: BallBody[] = [];
+const P = new Float64Array(MAX_BALLS * 3);
+const V = new Float64Array(MAX_BALLS * 3);
+const W = new Float64Array(MAX_BALLS * 3);
+const DV = new Float64Array(MAX_BALLS * 3);
+const DW = new Float64Array(MAX_BALLS * 3);
+const CNT = new Int32Array(MAX_BALLS);
+const CHANGED = new Uint8Array(MAX_BALLS);
+const REPORTED = new Uint8Array(MAX_BALLS * MAX_BALLS);
+const pairs: number[] = [];
+
+function gatherLive(w: HavokWorld): number {
+  live.length = 0;
+  for (const bb of w.balls) if (bb.id >= 0) live.push(bb);
+  return live.length;
+}
+
+/**
+ * Velocity solve for every ball↔ball contact in the coming substep `h`.
+ * Mirrors the TS engine (physics.ts contactImpulse): predictive detection,
+ * equal-mass restitution impulse with the min-speed gate, Coulomb friction —
+ * all computed from one snapshot and applied together, each contact scaled by
+ * 1 / max(contacts on either ball), iterated VELOCITY_ITERATIONS times.
+ * Unlike TS it also includes spin: the friction acts on the CONTACT-POINT slip
+ * (so english throws the object ball) and puts torque back into both balls.
+ */
+function solveBallContacts(w: HavokWorld, h: number): void {
+  const n = gatherLive(w);
+  if (n < 2) return;
+  const R = w.R;
+  const D = 2 * R;
+  const minSpeed = M(MIN_COLLISION_SPEED);
+  for (let k = 0; k < n; k++) {
+    const bb = live[k];
+    const p = bb.node.position;
+    const v = bb.body.getLinearVelocity();
+    const a = bb.body.getAngularVelocity();
+    P[3 * k] = p.x;
+    P[3 * k + 1] = p.y;
+    P[3 * k + 2] = p.z;
+    V[3 * k] = v.x;
+    V[3 * k + 1] = v.y;
+    V[3 * k + 2] = v.z;
+    W[3 * k] = a.x;
+    W[3 * k + 1] = a.y;
+    W[3 * k + 2] = a.z;
+  }
+  CHANGED.fill(0);
+  REPORTED.fill(0);
+
+  for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
+    pairs.length = 0;
+    CNT.fill(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = P[3 * i] + V[3 * i] * h - (P[3 * j] + V[3 * j] * h);
+        const dy = P[3 * i + 1] + V[3 * i + 1] * h - (P[3 * j + 1] + V[3 * j + 1] * h);
+        const dz = P[3 * i + 2] + V[3 * i + 2] * h - (P[3 * j + 2] + V[3 * j + 2] * h);
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist >= D || dist < 1e-12) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const nz = dz / dist;
+        const vn =
+          (V[3 * i] - V[3 * j]) * nx + (V[3 * i + 1] - V[3 * j + 1]) * ny + (V[3 * i + 2] - V[3 * j + 2]) * nz;
+        if (vn >= 0) continue; // separating
+        pairs.push(i, j, nx, ny, nz);
+        CNT[i]++;
+        CNT[j]++;
+        if (!REPORTED[i * MAX_BALLS + j]) {
+          REPORTED[i * MAX_BALLS + j] = 1;
+          w.collisions.push({ a: live[i].id, b: live[j].id });
+        }
+      }
+    }
+    if (pairs.length === 0) break; // converged
+
+    DV.fill(0);
+    DW.fill(0);
+    for (let q = 0; q < pairs.length; q += 5) {
+      const i = pairs[q];
+      const j = pairs[q + 1];
+      const nx = pairs[q + 2];
+      const ny = pairs[q + 3];
+      const nz = pairs[q + 4];
+      const share = 1 / Math.max(CNT[i], CNT[j]);
+      const rvx = V[3 * i] - V[3 * j];
+      const rvy = V[3 * i + 1] - V[3 * j + 1];
+      const rvz = V[3 * i + 2] - V[3 * j + 2];
+      const approach = -(rvx * nx + rvy * ny + rvz * nz);
+      const e = approach < minSpeed ? 0 : BALL_RESTITUTION;
+      // Equal masses ⇒ normal effective mass m/2 (impulses per unit mass).
+      const jn = ((1 + e) * approach) / 2;
+      let ix = jn * nx;
+      let iy = jn * ny;
+      let iz = jn * nz;
+
+      // Contact-point slip u = rv − R·(ω_i + ω_j) × n, horizontal tangent only
+      // (a vertical friction component would just hop the balls off the cloth).
+      const sx = W[3 * i] + W[3 * j];
+      const sy = W[3 * i + 1] + W[3 * j + 1];
+      const sz = W[3 * i + 2] + W[3 * j + 2];
+      const ux = rvx - R * (sy * nz - sz * ny);
+      const uz = rvz - R * (sx * ny - sy * nx);
+      const un = ux * nx + uz * nz;
+      let tx = ux - un * nx;
+      let tz = uz - un * nz;
+      const ut = Math.sqrt(tx * tx + tz * tz);
+      if (ut > 1e-9) {
+        tx /= ut;
+        tz /= ut;
+        // Solid spheres: tangential effective mass at the contact is m/7, so
+        // sticking needs |u|/7; Coulomb caps it at µ·jn.
+        const jt = Math.min(ut / 7, BALL_BALL_FRICTION * jn);
+        ix -= jt * tx;
+        iz -= jt * tz;
+        // Torque r × J on each ball, / I (= 2/5 m R²): same for both balls.
+        const k = ((2.5 * jt) / R) * share;
+        const cwx = ny * tz;
+        const cwy = nz * tx - nx * tz;
+        const cwz = -ny * tx;
+        DW[3 * i] += k * cwx;
+        DW[3 * i + 1] += k * cwy;
+        DW[3 * i + 2] += k * cwz;
+        DW[3 * j] += k * cwx;
+        DW[3 * j + 1] += k * cwy;
+        DW[3 * j + 2] += k * cwz;
+      }
+      ix *= share;
+      iy *= share;
+      iz *= share;
+      DV[3 * i] += ix;
+      DV[3 * i + 1] += iy;
+      DV[3 * i + 2] += iz;
+      DV[3 * j] -= ix;
+      DV[3 * j + 1] -= iy;
+      DV[3 * j + 2] -= iz;
+      CHANGED[i] = 1;
+      CHANGED[j] = 1;
+    }
+    for (let k = 0; k < 3 * n; k++) {
+      V[k] += DV[k];
+      W[k] += DW[k];
+    }
+  }
+
+  for (let k = 0; k < n; k++) {
+    if (!CHANGED[k]) continue;
+    const b = live[k].body;
+    b.setLinearVelocity(new Vector3(V[3 * k], V[3 * k + 1], V[3 * k + 2]));
+    b.setAngularVelocity(new Vector3(W[3 * k], W[3 * k + 1], W[3 * k + 2]));
+  }
+}
+
+/**
+ * Positional correction (spec §6.3), Jacobi like the TS engine: overlapping
+ * pairs are pushed apart by a fraction of the penetration beyond the slop,
+ * horizontally, position only. Bodies that moved are teleported (velocity kept).
+ */
+function correctBallOverlaps(w: HavokWorld): void {
+  const n = gatherLive(w);
+  if (n < 2) return;
+  const D = 2 * w.R;
+  const slop = M(CONTACT_SLOP);
+  for (let k = 0; k < n; k++) {
+    const p = live[k].node.position;
+    P[3 * k] = p.x;
+    P[3 * k + 2] = p.z;
+  }
+  CHANGED.fill(0);
+  for (let it = 0; it < POSITION_ITERATIONS; it++) {
+    DV.fill(0);
+    let moved = false;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = P[3 * i] - P[3 * j];
+        const dz = P[3 * i + 2] - P[3 * j + 2];
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist < 1e-12) continue;
+        const pen = D - dist - slop;
+        if (pen <= 0) continue;
+        const push = (pen * POSITIONAL_CORRECTION) / 2 / dist;
+        DV[3 * i] += dx * push;
+        DV[3 * i + 2] += dz * push;
+        DV[3 * j] -= dx * push;
+        DV[3 * j + 2] -= dz * push;
+        CHANGED[i] = 1;
+        CHANGED[j] = 1;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+    for (let k = 0; k < n; k++) {
+      P[3 * k] += DV[3 * k];
+      P[3 * k + 2] += DV[3 * k + 2];
+    }
+  }
+  for (let k = 0; k < n; k++) {
+    if (!CHANGED[k]) continue;
+    const bb = live[k];
+    bb.node.position.x = P[3 * k];
+    bb.node.position.z = P[3 * k + 2];
+    bb.node.computeWorldMatrix(true);
+    w.plugin.setPhysicsBodyTransformation(bb.body, bb.node);
+  }
 }
 
 /**
@@ -493,7 +726,12 @@ export function simulateShotHavok(
     if (substeps > maxSubstepsUsed) maxSubstepsUsed = substeps;
 
     w.collisions.length = 0;
-    for (let s = 0; s < substeps; s++) w.step(DT / substeps);
+    const h = DT / substeps;
+    for (let s = 0; s < substeps; s++) {
+      solveBallContacts(w, h);
+      w.step(h);
+      correctBallOverlaps(w);
+    }
 
     // Emit collisions captured this step, in order, and feed the rules.
     // De-duplicated (spec §7.4): a ball riding a rail or a bevel reports a

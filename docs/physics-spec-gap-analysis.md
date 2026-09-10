@@ -6,16 +6,27 @@ code, not from memory; "not found" means a grep across `packages/engine/src` and
 
 ---
 
-## ⚠️ STATUS UPDATE — Phases A, B and C(13) are now implemented
+## ⚠️ STATUS UPDATE — Phases A, B, C(13) and the break-symmetry fix are implemented
 
 The audit below describes the state **before** the fix work. Implemented since,
-in three verified commits:
+in verified commits:
 
 | Phase | Commit | What landed |
 |---|---|---|
 | **A** | `a116080` | §1.2 physics versioning · §4 rolling resistance + static-stop hysteresis (both backends) · §8 adaptive substepping · §13 diagnostics · §12 speed/restitution parity |
 | **B** | `b91c63e` | §6 iterative impulse contacts with Coulomb tangential friction + positional correction · §7.4 duplicate contact-event filtering |
 | **C** | `06fc6ce` | §5.3 Havok cue-spin gains reduced to the spec range |
+| **B2** | *break-symmetry commit* | §6 contact solve made **order-independent (Jacobi)** in both backends. Havok's ball↔ball contacts now bypass its sequential solver (collision filter) and use the same solve, including spin throw. `PHYSICS_VERSION` → `pooldawgs-v3` |
+
+**Break-symmetry bug ("the break drags everything to one side").** Both solvers
+resolved simultaneous contacts one at a time in ball-list order, so on a frozen
+rack the *list order*, not the aim, decided where the pack went. A dead-straight
+full-power break shifted the pack ~60 px (TS) and 15–28 px (Havok) to one side,
+and the side flipped when the rack was mirrored. After the fix both backends
+give 0.00–0.36 px with identical normal/mirrored results, and small aim errors
+now move the pack toward the side the aim dictates. Guarded by
+`scripts/break-symmetry.mjs` (24 checks, 3 px tolerance, both backends, all
+three variants).
 
 **Two real bugs were found and fixed while verifying**, both of which would have
 affected wagered matches:
@@ -30,8 +41,8 @@ affected wagered matches:
 
 **Verification standing (all green):** 31/31 engine unit tests · 6/6 TS playtest
 · 5/5 Havok playtest · 20/20 `rest-tests.mjs` (spec §14 rest/cloth + diagnostics)
-· 20/20 `contact-tests.mjs` (spec §14 ball collisions + cushions), each across
-both backends and both variants.
+· 20/20 `contact-tests.mjs` (spec §14 ball collisions + cushions) · 24/24
+`break-symmetry.mjs`, each across both backends and both variants.
 
 **Measured effect on the reported symptoms:**
 
@@ -40,6 +51,7 @@ both backends and both variants.
 | Balls keep moving after a shot | damping-only cloth, creeping at low speed | residual speed **exactly 0**, settle 0.85–2.5 s |
 | Balls drift toward cushions after the break | one-pass solver, residual overlap | in-shot penetration **1.61 px → 0.00 px**, zero final overlap |
 | Cut shots / throw unreliable | tangential velocity untouched by contacts | Coulomb tangential impulse; throw 2.6° at max english |
+| Break drags the pack to one side | contact order set by ball-list order (TS ~60 px, Havok 15–28 px; flips when mirrored) | straight break **0.00–0.36 px**, mirror-identical, both backends |
 
 ### Still outstanding
 
@@ -53,10 +65,11 @@ both backends and both variants.
   **TS spin remains a scripted approximation — it should not be described as
   physical.**
 - **§2 / Phase D — geometry migration** (pool 38 → 31.2 px, snooker 35 → 28.65 px
-  and 0.142 kg). Not started, and it **needs a decision**: it was explicitly
-  declined earlier in favour of "coefficients only", and it would require
-  rebuilding racks, pocket mouths, cushion noses and re-fitting both table
-  photographs. The spec's own advice is to do it last, behind a geometry version.
+  and 0.142 kg). **Decided 10 Sep 2026: not doing it.** The team keeps the
+  current table and ball sizes ("mid" difficulty, because money is involved);
+  the complaint was the break physics, fixed above. Reference kept in
+  `geometry-migration.md` should it ever be revisited — no new table images
+  would be needed.
 - **§7.1 cushion-nose profile.** Not implemented, deliberately: balls are
   constrained to the table plane, so a vertical wall face already yields the
   correct horizontal contact normal. Pocket-mouth rail gaps are verified

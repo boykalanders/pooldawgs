@@ -21,7 +21,7 @@
  *   v2 = real per-pair contact friction, explicit rolling resistance,
  *        static-stop hysteresis, adaptive substepping
  */
-export const PHYSICS_VERSION = "pooldawgs-v2";
+export const PHYSICS_VERSION = "pooldawgs-v3";
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
