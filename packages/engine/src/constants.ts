@@ -21,7 +21,7 @@
  *   v2 = real per-pair contact friction, explicit rolling resistance,
  *        static-stop hysteresis, adaptive substepping
  */
-export const PHYSICS_VERSION = "pooldawgs-v3";
+export const PHYSICS_VERSION = "pooldawgs-v3.1";
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
@@ -102,11 +102,36 @@ export const BALL_RESTITUTION = 0.93;
  *  Matches the Havok ball material, so cut shots throw the same on both. */
 export const BALL_BALL_FRICTION = 0.06;
 
+// ── snooker material preset (spec §3.2) ────────────────────────────────────
+// Havok previously hard-coded every ball to pool's mass/restitution
+// (simulator.ts `setMassProperties({ mass: 0.17 })`), so a snooker ball
+// carried a pool ball's inertia and bounce on a smaller, lighter real ball.
+// Geometry (geometry.ts) was already variant-aware; materials were not.
+/** Regulation pool ball mass (spec 0.170 kg) — named for symmetry with the
+ *  snooker constant below; existing call sites may still inline 0.17. */
+export const POOL_BALL_MASS = 0.17;
+/** Regulation snooker ball mass (WPBSA spec: 142 g). */
+export const SNOOKER_BALL_MASS = 0.142;
+/** Snooker ball-ball restitution (spec §3.2: ≈0.91 — snooker's phenolic mix
+ *  and smaller ball measure slightly less lively than pool's 0.93). */
+export const SNOOKER_BALL_RESTITUTION = 0.91;
+// NOTE: snooker cloth and cushion friction/restitution are NOT split out yet —
+// both backends still use the pool clothMaterial/railMaterial (Havok) and
+// CUSHION_FRICTION/CUSHION_RESTITUTION (TS) for snooker too. Only ball mass
+// and ball-ball restitution are corrected here; the rest needs the actual
+// spec §3.2 target numbers before it can be split the same way.
+
 // ── iterative contact solving (spec §6) ───────────────────────────────────
 // One pass in a fixed order let a cluster push itself toward a cushion and
 // leave residual overlap. Contacts are now solved iteratively, and overlap is
 // corrected with a slop + partial correction rather than by injecting velocity.
-export const VELOCITY_ITERATIONS = 6;
+/** Max Jacobi passes per substep. Order-independent solves converge more slowly
+ *  than a sequential sweep, so this is a ceiling, not a cost: the solve exits
+ *  as soon as every contact is within SOLVE_TOLERANCE of its target. */
+export const VELOCITY_ITERATIONS = 24;
+/** Contact solve is converged when no pass moves any contact by more than this
+ *  normal impulse (px/s per unit mass). */
+export const SOLVE_TOLERANCE = 0.01;
 export const POSITION_ITERATIONS = 8;
 /** Overlap tolerated before positional correction acts (spec §6.3: 1–3 mm). */
 export const CONTACT_SLOP = 0.002 * PX_PER_M; // ≈ 1.1 px
@@ -116,8 +141,8 @@ export const POSITIONAL_CORRECTION = 0.2;
  *  the fix-spec's 0.70 target (§7.2, §12 parity): at 0.88 a full-power ball kept
  *  ~28% of its speed through 10 banks and pinballed for ~10 table lengths. */
 export const CUSHION_RESTITUTION = 0.72;
-/** Cushion tangential friction (spec 0.12) — natural angle bleed off the rail. */
-export const CUSHION_FRICTION = 0.12;
+/** Cushion tangential friction — tuned to 0.16 for balanced bank angle/speed retention. */
+export const CUSHION_FRICTION = 0.16;
 /** Below this relative normal speed a contact is resolved inelastically
  *  (no bounce) to prevent jitter/micro-bouncing (spec 0.02 m/s). */
 export const MIN_COLLISION_SPEED = 0.02 * PX_PER_M; // ≈ 11 px/s
@@ -201,8 +226,8 @@ export const HOLES: readonly Hole[] = [
 export const POCKET_MIN_INWARD = 35;
 /** Capture-zone multiplier: magnetism engages within radius × this. */
 export const POCKET_MAGNET_RANGE = 1.35;
-/** Per-substep steer toward the pocket centre for on-line shots (spec §10). */
-export const POCKET_MAGNETISM = 0.02;
+/** Competitive pocket assist disabled; capture is geometry/direction based only. */
+export const POCKET_MAGNETISM = 0.0;
 
 export const CUE_BALL_START = { x: 413, y: 413 };
 

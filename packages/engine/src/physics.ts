@@ -25,6 +25,7 @@ import {
   MIN_COLLISION_SPEED,
   POSITION_ITERATIONS,
   POSITIONAL_CORRECTION,
+  SOLVE_TOLERANCE,
   VELOCITY_ITERATIONS,
   POCKET_MAGNET_RANGE,
   POCKET_MAGNETISM,
@@ -117,49 +118,50 @@ export function stepWorld(
   const dv = new Float64Array(2 * n);
   const dp = new Float64Array(2 * n);
   const counts = new Int32Array(n);
-  const contacts: number[] = [];
+  const slot = new Int32Array(n * n);
+  const cs: Contact[] = [];
 
   for (let sub = 0; sub < substeps; sub++) {
     // ── velocity solve, iterated (spec §6.2) ──────────────────────────────
-    // JACOBI, not Gauss-Seidel. Every contact in an iteration is computed from
+    // JACOBI, not Gauss-Seidel: every contact in an iteration is computed from
     // the SAME velocity snapshot and the impulses are applied together. The old
     // sequential sweep in fixed index order let whichever ball came first in the
     // list act first; on a frozen rack that dragged the whole break toward one
-    // side regardless of aim (measured: pack centre ~60 px off a dead-straight
-    // cue line, and it flipped side when the rack was mirrored — i.e. decided by
-    // list order, not physics).
-    for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
-      contacts.length = 0;
-      counts.fill(0);
-      for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          if (!detectContact(balls[i], balls[j], dt)) continue;
-          contacts.push(i, j, contactNx, contactNy);
-          counts[i]++;
-          counts[j]++;
-          // Report each physical contact once per outer step (spec §7.4).
-          const key = balls[i].id * 64 + balls[j].id;
-          if (!reported.has(key)) {
-            reported.add(key);
-            hooks.onBallsCollide?.(balls[i], balls[j]);
-            events.push({ type: "ballsCollide", a: balls[i].id, b: balls[j].id, step });
-          }
-        }
-      }
-      if (contacts.length === 0) break; // converged
+    // side regardless of aim (pack centre ~60 px off a dead-straight cue line,
+    // flipping side when the rack was mirrored).
+    //
+    // POISSON restitution, in three order-independent phases:
+    //   1. compression — converge every touching, approaching pair to zero
+    //      approach speed (accumulated impulse, clamped ≥ 0);
+    //   2. restitution — give each contact e × its compression impulse, all at
+    //      once;
+    //   3. clean-up — the same inelastic solve again, for any pair the bounce
+    //      drove back together.
+    // For a single contact this is exactly the old (1+e)·approach/2 impulse.
+    // For a cluster it can only lose energy (phase 1 is a projection, phase 2
+    // reflects back at most e of it, phase 3 is inelastic). Both earlier
+    // attempts failed here: re-deriving the bounce from the approach speed left
+    // after each Jacobi pass made the break almost inelastic (13 % of its energy
+    // kept 25 ms after impact), and fixing each contact's bounce speed at impact
+    // (Newton's law) made it CREATE energy (108–127 %).
+    const onNew = (b1: BallState, b2: BallState) => {
+      // Report each physical contact once per outer step (spec §7.4).
+      const key = b1.id * 64 + b2.id;
+      if (reported.has(key)) return;
+      reported.add(key);
+      hooks.onBallsCollide?.(b1, b2);
+      events.push({ type: "ballsCollide", a: b1.id, b: b2.id, step });
+    };
+    slot.fill(-1);
+    cs.length = 0;
+    solveInelastic(balls, dt, cs, slot, counts, dv, onNew);
+    if (cs.length > 0) {
+      countContacts(cs, counts);
       dv.fill(0);
-      for (let k = 0; k < contacts.length; k += 4) {
-        contactImpulse(balls, contacts[k], contacts[k + 1], contacts[k + 2], contacts[k + 3], counts, dv);
-      }
-      for (let k = 0; k < n; k++) {
-        const ix = dv[2 * k];
-        const iy = dv[2 * k + 1];
-        if (ix !== 0 || iy !== 0) {
-          balls[k].vx += ix;
-          balls[k].vy += iy;
-          balls[k].moving = true;
-        }
-      }
+      for (const c of cs) restitutionImpulse(balls, c, counts, dv);
+      applyDv(balls, dv);
+      for (const c of cs) c.acc = 0;
+      solveInelastic(balls, dt, cs, slot, counts, dv, onNew);
     }
 
     for (const ball of balls) {
@@ -221,60 +223,163 @@ function detectContact(b1: BallState, b2: BallState, dt: number): boolean {
   return true;
 }
 
+/** One ball↔ball contact for the current substep's velocity solve. */
+interface Contact {
+  i: number;
+  j: number;
+  /** Unit normal, ball j → ball i, frozen at first detection. */
+  nx: number;
+  ny: number;
+  /** Restitution for this contact (0 below the min-speed gate). */
+  e: number;
+  /** Normal impulse applied so far in the current phase (per unit mass). */
+  acc: number;
+  /** Compression impulse from phase 1 — the basis of the Poisson bounce. */
+  comp: number;
+}
+
+function countContacts(cs: Contact[], counts: Int32Array): void {
+  counts.fill(0);
+  for (const c of cs) {
+    counts[c.i]++;
+    counts[c.j]++;
+  }
+}
+
+function applyDv(balls: BallState[], dv: Float64Array): void {
+  for (let k = 0; k < balls.length; k++) {
+    const ix = dv[2 * k];
+    const iy = dv[2 * k + 1];
+    if (ix !== 0 || iy !== 0) {
+      balls[k].vx += ix;
+      balls[k].vy += iy;
+      balls[k].moving = true;
+    }
+  }
+}
+
 /**
- * Elastic equal-mass collision: normal-component velocities are exchanged
- * (scaled by restitution) plus a Coulomb friction impulse on the tangent. A
- * min-speed gate resolves near-resting contacts inelastically to prevent
- * jitter (spec §5).
- *
- * Reads velocities, never writes them: the impulse is ACCUMULATED into `dv`
- * and applied by the caller once every contact in the pass is computed. When a
- * ball has several contacts in the same pass their impulses would stack from
- * one stale snapshot and overshoot, so each contact is scaled by
- * 1 / max(contacts on either ball). The same scale goes to both balls, so
- * momentum is still conserved exactly; the remainder is picked up by the next
- * iteration.
+ * Jacobi-iterate every contact to zero approach speed. Contacts that start
+ * approaching part-way through (a ball the pass just set moving) join the set;
+ * `slot` maps a pair to its contact so each pair appears once per substep.
  */
-function contactImpulse(
+function solveInelastic(
   balls: BallState[],
-  i: number,
-  j: number,
-  nx: number,
-  ny: number,
+  dt: number,
+  cs: Contact[],
+  slot: Int32Array,
   counts: Int32Array,
-  dv: Float64Array
+  dv: Float64Array,
+  onNew: (a: BallState, b: BallState) => void
 ): void {
-  const b1 = balls[i];
-  const b2 = balls[j];
+  const n = balls.length;
+  for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
+    const before = cs.length;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (slot[i * n + j] >= 0 || !detectContact(balls[i], balls[j], dt)) continue;
+        const b1 = balls[i];
+        const b2 = balls[j];
+        const approach = -((b1.vx - b2.vx) * contactNx + (b1.vy - b2.vy) * contactNy);
+        slot[i * n + j] = cs.length;
+        cs.push({
+          i,
+          j,
+          nx: contactNx,
+          ny: contactNy,
+          e: approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION,
+          acc: 0,
+          comp: 0,
+        });
+        onNew(b1, b2);
+      }
+    }
+    if (cs.length === 0) return;
+    countContacts(cs, counts);
+    dv.fill(0);
+    let worst = 0;
+    for (const c of cs) worst = Math.max(worst, contactImpulse(balls, c, counts, dv));
+    applyDv(balls, dv);
+    if (worst < SOLVE_TOLERANCE && cs.length === before) return; // converged
+  }
+}
+
+/** Phase 2: each contact's bounce, e × its compression impulse, plus friction. */
+function restitutionImpulse(balls: BallState[], c: Contact, counts: Int32Array, dv: Float64Array): void {
+  const jn = c.e * c.comp;
+  if (jn <= 0) return;
+  const b1 = balls[c.i];
+  const b2 = balls[c.j];
   const rvx = b1.vx - b2.vx;
   const rvy = b1.vy - b2.vy;
-  const vn = rvx * nx + rvy * ny;
-  const share = 1 / Math.max(counts[i], counts[j]);
-
-  // Normal impulse. Equal masses ⇒ effective mass 1/2, so j = -(1+e)·vn / 2.
-  const approach = -vn;
-  const restitution = approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION;
-  const jn = ((1 + restitution) * approach) / 2;
-  let ix = jn * nx;
-  let iy = jn * ny;
-
-  // Tangential (Coulomb) friction impulse — what makes cut shots and throw
-  // behave.
-  const tvx = rvx - vn * nx;
-  const tvy = rvy - vn * ny;
+  const vn = rvx * c.nx + rvy * c.ny;
+  let ix = jn * c.nx;
+  let iy = jn * c.ny;
+  const tvx = rvx - vn * c.nx;
+  const tvy = rvy - vn * c.ny;
   const tv = Math.sqrt(tvx * tvx + tvy * tvy);
   if (tv > 1e-9) {
-    const jt = Math.min(tv / 2, BALL_BALL_FRICTION * jn);
+    const share = 1 / Math.max(counts[c.i], counts[c.j]);
+    const jt = Math.min((tv / 2) * share, BALL_BALL_FRICTION * jn);
     ix -= (jt * tvx) / tv;
     iy -= (jt * tvy) / tv;
   }
+  dv[2 * c.i] += ix;
+  dv[2 * c.i + 1] += iy;
+  dv[2 * c.j] -= ix;
+  dv[2 * c.j + 1] -= iy;
+}
 
-  ix *= share;
-  iy *= share;
-  dv[2 * i] += ix;
-  dv[2 * i + 1] += iy;
-  dv[2 * j] -= ix;
-  dv[2 * j + 1] -= iy;
+/**
+ * Phase-1/3 contact solve: drive the pair's approach speed to zero, with a
+ * Coulomb friction impulse on the tangent (what makes cut shots and throw
+ * behave). The bounce itself is added separately (restitutionImpulse).
+ *
+ * Reads velocities, never writes them: the impulse goes into `dv` and the
+ * caller applies every contact of the pass together. Each contact moves by
+ * 1 / max(contacts on either ball) of its remaining error, so several contacts
+ * on one ball don't all overshoot from the same snapshot. The same impulse
+ * goes to both balls, so momentum is conserved exactly. Returns the size of
+ * this iteration's normal correction (for the convergence test).
+ */
+function contactImpulse(balls: BallState[], c: Contact, counts: Int32Array, dv: Float64Array): number {
+  const b1 = balls[c.i];
+  const b2 = balls[c.j];
+  const { nx, ny } = c;
+  const rvx = b1.vx - b2.vx;
+  const rvy = b1.vy - b2.vy;
+  const vn = rvx * nx + rvy * ny;
+  const share = 1 / Math.max(counts[c.i], counts[c.j]);
+
+  // Normal, toward zero approach speed: equal masses ⇒ effective mass 1/2.
+  // Accumulated and clamped at 0 — a contact can push but never pull.
+  const want = (-vn / 2) * share;
+  const acc = Math.max(0, c.acc + want);
+  const jn = acc - c.acc;
+  c.acc = acc;
+  c.comp = acc;
+  let ix = jn * nx;
+  let iy = jn * ny;
+
+  // Tangential (Coulomb) friction — what makes cut shots and throw behave.
+  // Bounded by µ × this iteration's normal impulse, so the total stays within
+  // µ × the total normal impulse.
+  if (jn > 0) {
+    const tvx = rvx - vn * nx;
+    const tvy = rvy - vn * ny;
+    const tv = Math.sqrt(tvx * tvx + tvy * tvy);
+    if (tv > 1e-9) {
+      const jt = Math.min((tv / 2) * share, BALL_BALL_FRICTION * jn);
+      ix -= (jt * tvx) / tv;
+      iy -= (jt * tvy) / tv;
+    }
+  }
+
+  dv[2 * c.i] += ix;
+  dv[2 * c.i + 1] += iy;
+  dv[2 * c.j] -= ix;
+  dv[2 * c.j + 1] -= iy;
+  return Math.abs(jn);
 }
 
 /**

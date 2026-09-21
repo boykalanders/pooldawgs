@@ -238,8 +238,12 @@ export function simulateShot(
         if (event.type !== "cushion" || event.ballId !== cueIdx) continue;
         const flippedX = preVx !== 0 && Math.sign(cue.vx) !== Math.sign(preVx);
         const flippedY = preVy !== 0 && Math.sign(cue.vy) !== Math.sign(preVy);
-        if (flippedX) cue.vy += spinCtx.sideSpin * SIDE_ENGLISH * Math.abs(preVx);
-        if (flippedY) cue.vx -= spinCtx.sideSpin * SIDE_ENGLISH * Math.abs(preVy);
+        // Spin about the vertical axis is fixed in the WORLD frame, so the
+        // deflection flips between opposite rails (signed pre-bounce speed, not
+        // its magnitude). With abs() english bent the wrong way off the left and
+        // top rails — the opposite of Havok, which simulates it physically.
+        if (flippedX) cue.vy += spinCtx.sideSpin * SIDE_ENGLISH * preVx;
+        if (flippedY) cue.vx -= spinCtx.sideSpin * SIDE_ENGLISH * preVy;
         if (flippedX || flippedY) spinCtx.sideSpin *= SPIN_SIDE_DECAY;
         break;
       }
