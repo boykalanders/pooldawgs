@@ -16,6 +16,15 @@
 import { createInitialState, cueBallId, geomFor, simulateShot } from "../dist/index.js";
 import { initHavok, simulateShotHavok } from "../dist/havok/simulator.js";
 
+/** A mid-frame table: no ball in hand, so the scenario may put the cue ball
+ *  anywhere (a fresh rack starts with ball in hand behind the head string /
+ *  in the D, and the engine rejects a shot from outside that zone). */
+function midFrame(s) {
+  s.ballInHand = false;
+  s.placementZone = undefined;
+  return s;
+}
+
 await initHavok();
 
 let pass = 0;
@@ -57,12 +66,12 @@ console.log("Test 1 — roll + single cushion bounce, no other balls\n");
   const g = geomFor(gameType);
   const mid = (g.TOP_BORDER_Y + g.BOTTOM_BORDER_Y) / 2;
 
-  const sTs = createInitialState(gameType);
+  const sTs = midFrame(createInitialState(gameType));
   clearAllButCue(sTs);
   sTs.balls[cueBallId(sTs)].x = g.LEFT_BORDER_X + 500;
   sTs.balls[cueBallId(sTs)].y = mid;
 
-  const sHv = createInitialState(gameType);
+  const sHv = midFrame(createInitialState(gameType));
   clearAllButCue(sHv);
   sHv.balls[cueBallId(sHv)].x = g.LEFT_BORDER_X + 500;
   sHv.balls[cueBallId(sHv)].y = mid;
@@ -97,7 +106,7 @@ console.log("\nTest 2 — single cut shot on one object ball\n");
   const mid = (g.TOP_BORDER_Y + g.BOTTOM_BORDER_Y) / 2;
 
   function setup() {
-    const s = createInitialState(gameType);
+    const s = midFrame(createInitialState(gameType));
     clearAllButCue(s);
     const cue = s.balls[cueBallId(s)];
     cue.x = g.LEFT_BORDER_X + 300;
@@ -135,7 +144,7 @@ console.log("\nTest 3 — straight full-power break\n");
 {
   const gameType = "8ball";
   function rack() {
-    const s = createInitialState(gameType);
+    const s = midFrame(createInitialState(gameType));
     const cue = s.balls[cueBallId(s)];
     const objs = s.balls.filter((b) => b.color !== "cue" && !b.inHole);
     const axis = objs.reduce((a, b) => a + b.y, 0) / objs.length;

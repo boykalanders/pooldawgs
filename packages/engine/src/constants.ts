@@ -229,7 +229,12 @@ export const POCKET_MAGNET_RANGE = 1.35;
 /** Competitive pocket assist disabled; capture is geometry/direction based only. */
 export const POCKET_MAGNETISM = 0.0;
 
-export const CUE_BALL_START = { x: 413, y: 413 };
+/** Pool head string: ¼ of the playing length from the head (left) cushion.
+ *  With ball in hand for the break the cue ball's centre must be behind it. */
+export const HEAD_STRING_X = LEFT_BORDER_X + PLAY_LENGTH_PX / 4; // 403.5
+/** Default break spot, just behind the head string (was x 413 — in front of
+ *  the line, i.e. not a legal break position). */
+export const CUE_BALL_START = { x: 400, y: 413 };
 
 /** Where pocketed balls are parked, mirroring Ball.out() in the fork. */
 export const POCKETED_PARK = { x: 0, y: 900 };

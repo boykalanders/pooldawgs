@@ -101,7 +101,9 @@ export const eightBall: GameRules<Acc8> = {
       gameType: "8ball",
       balls,
       turn: 0,
-      ballInHand: false,
+      // The break is taken with ball in hand behind the head string.
+      ballInHand: true,
+      placementZone: "kitchen",
       gameOver: false,
       winner: null,
       playerColors: [null, null],
@@ -212,12 +214,16 @@ export const eightBall: GameRules<Acc8> = {
     }
 
     const keepTurn = acc.scored && !acc.foul;
+    // Scratch on the break: the incoming player has ball in hand behind the
+    // head string (WPA 8-ball); any other foul is ball in hand anywhere.
+    const cueDown = state.balls.some((b) => b.color === "cue" && b.inHole);
     return {
       gameOver: false,
       winner: null,
       foul: acc.foul,
       nextTurn: keepTurn ? turn : other,
       ballInHand: acc.foul,
+      placementZone: wasBreak && cueDown ? "kitchen" : "table",
       note: acc.foul ? "Foul — ball in hand" : undefined,
     };
   },

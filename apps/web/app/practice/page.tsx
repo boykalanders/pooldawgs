@@ -15,6 +15,7 @@ import GameShell from "@/components/GameShell";
 import type { ShotAnimation } from "@/components/PoolCanvas";
 import WinnerPopup from "@/components/WinnerPopup";
 import { loadGraphics, saveGraphics, type GraphicsSettings } from "@/lib/graphics";
+import { ballInHandHint } from "@/lib/ballInHand";
 
 const PLAYERS = [
   { name: "Deputy Dawg", avatarSrc: "/assets/avatar-deputy.png" },
@@ -210,9 +211,7 @@ export default function PracticePage() {
       clockExpiresAt={null}
       statusText={turnLabel}
       banner={
-        state.ballInHand && !state.gameOver
-          ? "Foul! Ball in hand — drag the cue ball to a clear spot to place it"
-          : message
+        state.ballInHand && !state.gameOver ? message ?? ballInHandHint(state) : message
       }
       centerAction={state.gameOver ? { label: "PLAY AGAIN", onClick: () => reRack() } : null}
       onSelectGameType={selectGameType}

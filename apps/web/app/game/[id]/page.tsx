@@ -41,6 +41,7 @@ import { useNftAvatar } from "@/lib/useNftAvatar";
 import { log } from "@/lib/log";
 import { getSocket } from "@/lib/socket";
 import { syncServerClock } from "@/lib/serverClock";
+import { ballInHandHint } from "@/lib/ballInHand";
 
 export default function GamePage() {
   return (
@@ -263,7 +264,8 @@ function GameRoom() {
         cue.inHole = false;
         cue.vx = 0;
         cue.vy = 0;
-        next.ballInHand = false;
+        // Ball in hand stays on until the shot (the server keeps it too), so
+        // the player can move the cue ball again before shooting.
         return next;
       });
     };
@@ -667,9 +669,7 @@ function GameRoom() {
       statusText={statusText}
       banner={
         serverError ??
-        (myTurn && state.ballInHand
-          ? "Ball in hand — drag the cue ball to a clear spot to place it"
-          : null)
+        (myTurn && state.ballInHand ? ballInHandHint(state) : null)
       }
       menuItems={[
         ...(mySeat !== null && !snapshot.over

@@ -19,6 +19,7 @@ import {
   CORNER_ACCEPT,
   CUE_BALL_START as POOL_CUE_START,
   HOLES as POOL_HOLES,
+  HEAD_STRING_X as POOL_HEAD_STRING_X,
   HOLE_RADIUS as POOL_HOLE_RADIUS,
   LEFT_BORDER_X as POOL_LEFT,
   POCKETED_PARK as POOL_PARK,
@@ -46,6 +47,12 @@ export interface TableGeometry {
   HOLES: readonly Hole[];
   CUE_BALL_START: { x: number; y: number };
   POCKETED_PARK: { x: number; y: number };
+  /** Ball-in-hand "kitchen" limit: the cue ball's centre must be at x ≤ this.
+   *  Pool: the head string (¼ of the playing length). Snooker: the baulk line. */
+  HEAD_STRING_X: number;
+  /** Snooker's D (semicircle on the baulk line, opening toward the baulk
+   *  cushion); null on pool tables. */
+  D: { x: number; y: number; r: number } | null;
 }
 
 const SQRT1_2 = Math.SQRT1_2;
@@ -98,6 +105,8 @@ export const POOL_GEOM: TableGeometry = {
   HOLES: POOL_HOLES,
   CUE_BALL_START: POOL_CUE_START,
   POCKETED_PARK: POOL_PARK,
+  HEAD_STRING_X: POOL_HEAD_STRING_X,
+  D: null,
 };
 
 // ── Snooker: real 3.569 m × 1.778 m, same px/m as pool ──────────────────────
@@ -115,6 +124,9 @@ const SNK_CORNER_R = Math.round(POOL_HOLE_RADIUS * (86 / 115)); // ≈ 34
 // Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
 // pool middle-pocket bump; also widens the rail gap and the drawn mouth.
 const SNK_MIDDLE_R = 42;
+// Baulk line 0.737 m off the baulk cushion; the D is a 0.292 m semicircle on it.
+const SNK_BAULK_X = SNK_BORDER + 0.737 * PX_PER_M;
+const SNK_D = { x: SNK_BAULK_X, y: SNK_H / 2, r: 0.292 * PX_PER_M };
 
 export const SNOOKER_GEOM: TableGeometry = {
   TABLE_WIDTH: SNK_W,
@@ -130,6 +142,8 @@ export const SNOOKER_GEOM: TableGeometry = {
   HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_BALL_RADIUS, SNK_CORNER_R, SNK_MIDDLE_R),
   CUE_BALL_START: { x: SNK_BORDER + Math.round(0.6 * PX_PER_M), y: Math.round(SNK_H / 2) },
   POCKETED_PARK: { x: 0, y: SNK_H + 120 },
+  HEAD_STRING_X: SNK_BAULK_X,
+  D: SNK_D,
 };
 
 export function geomFor(gameType: GameType): TableGeometry {

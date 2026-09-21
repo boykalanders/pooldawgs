@@ -6,6 +6,7 @@ import { useAccountModal, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import {
   cueBallId,
+  inPlacementZone,
   type BallColor,
   type GameType,
   type ShotInput,
@@ -174,8 +175,14 @@ export default function GameShell({
     setSpin({ x: 0, y: 0 });
   }
 
+  // With ball in hand the player may still shoot from where the cue ball lies,
+  // as long as it's inside the zone (e.g. the break from behind the head string).
+  const cueNow = state.balls[cueBallId(state)];
   const canShoot =
-    interactive && !state.gameOver && !state.ballInHand && !state.balls[cueBallId(state)].inHole;
+    interactive &&
+    !state.gameOver &&
+    !cueNow.inHole &&
+    (!state.ballInHand || inPlacementZone(state, cueNow.x, cueNow.y));
 
   return (
     <>

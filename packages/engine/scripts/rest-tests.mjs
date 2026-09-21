@@ -5,6 +5,15 @@
 import { getRules, geomFor, simulateShot, PHYSICS_VERSION } from "../dist/index.js";
 import { initHavok, simulateShotHavok } from "../dist/havok/simulator.js";
 
+/** A mid-frame table: no ball in hand, so the scenario may put the cue ball
+ *  anywhere (a fresh rack starts with ball in hand behind the head string /
+ *  in the D, and the engine rejects a shot from outside that zone). */
+function midFrame(s) {
+  s.ballInHand = false;
+  s.placementZone = undefined;
+  return s;
+}
+
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -15,7 +24,7 @@ function check(name, ok, detail) {
 /** Open table: one object ball well clear, cue on the baulk spot. */
 function openTable(gameType) {
   const rules = getRules(gameType);
-  const s = rules.createInitialState();
+  const s = midFrame(rules.createInitialState());
   const g = geomFor(gameType);
   let i = 0;
   for (const b of s.balls) {

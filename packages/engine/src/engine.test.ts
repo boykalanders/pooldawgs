@@ -163,8 +163,15 @@ describe("shot validation", () => {
     expect(validateShot(s, { angle: 0, power: MAX_POWER + 1 }).ok).toBe(false);
     expect(validateShot(s, { angle: NaN, power: 10 }).ok).toBe(false);
     expect(validateShot(s, { angle: 0, power: 10, spinX: 2 }).ok).toBe(false);
+    // The break is ball in hand in the kitchen: shooting from the default spot
+    // is fine, from in front of the head string is not.
+    expect(s.ballInHand).toBe(true);
     expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(true);
-    s.ballInHand = true;
+    cueBall(s).x = 700;
+    expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(false);
+    // A potted cue ball must be placed first.
+    cueBall(s).x = 400;
+    cueBall(s).inHole = true;
     expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(false);
   });
 });
@@ -312,15 +319,44 @@ describe("8-ball rules", () => {
 describe("ball in hand placement", () => {
   function foulState(): TableState {
     const s = createInitialState();
+    s.broken = true;
     s.ballInHand = true;
+    s.placementZone = "table";
     cueBall(s).inHole = true;
     return s;
   }
   it("accepts a legal placement, rejects illegal ones", () => {
     expect(placeCueBall(foulState(), 400, 400).ok).toBe(true);
+    expect(placeCueBall(foulState(), 700, 200).ok).toBe(true); // anywhere after a foul
     expect(placeCueBall(foulState(), 10, 10).ok).toBe(false);
     expect(placeCueBall(foulState(), HOLES[0].x, HOLES[0].y).ok).toBe(false);
-    expect(placeCueBall(createInitialState(), 400, 400).ok).toBe(false);
+    const noHand = createInitialState();
+    noHand.ballInHand = false;
+    expect(placeCueBall(noHand, 400, 400).ok).toBe(false);
+  });
+  it("the break is ball in hand behind the head string, and stays movable", () => {
+    const s = createInitialState();
+    expect(s.placementZone).toBe("kitchen");
+    const placed = placeCueBall(s, 200, 300);
+    expect(placed.ok).toBe(true);
+    if (!placed.ok) return;
+    expect(placed.state.ballInHand).toBe(true); // can still move it again
+    expect(placeCueBall(placed.state, 250, 500).ok).toBe(true);
+    expect(placeCueBall(s, 403, 300).ok).toBe(true); // just behind the line
+    expect(placeCueBall(s, 404, 300).ok).toBe(false); // just in front of it
+    const r = simulateShot(placed.state, { angle: 0, power: 70 });
+    // After the break it's no longer in hand unless the shot fouled.
+    expect(r.endState.ballInHand).toBe(r.outcome.foul);
+  });
+  it("snooker: ball in hand is in the D (break and after an in-off)", () => {
+    const s = createInitialState("snooker");
+    const g = geomFor("snooker");
+    expect(s.ballInHand).toBe(true);
+    expect(s.placementZone).toBe("d");
+    expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(true); // default spot is in the D
+    expect(placeCueBall(s, g.D!.x - 20, g.D!.y + g.D!.r - 30).ok).toBe(true);
+    expect(placeCueBall(s, g.D!.x + 20, g.D!.y).ok).toBe(false); // past the baulk line
+    expect(placeCueBall(s, g.D!.x - 150, g.D!.y + 150).ok).toBe(false); // behind baulk, outside the D
   });
 });
 
@@ -422,8 +458,13 @@ describe("9-ball rules", () => {
 });
 
 describe("snooker rules", () => {
+  /** A snooker table mid-frame (no ball in hand), so the rules tests below can
+   *  put the cue ball wherever the scenario needs it. */
   function snk() {
-    return createInitialState("snooker");
+    const s = createInitialState("snooker");
+    s.ballInHand = false;
+    s.placementZone = undefined;
+    return s;
   }
   it("racks 15 reds + 6 colours + cue", () => {
     const s = snk();

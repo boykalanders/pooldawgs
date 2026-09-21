@@ -12,10 +12,11 @@ import {
   STEP_MS,
   TOP_SPIN,
 } from "./constants.js";
-import { G, setActiveGeometry } from "./geometry.js";
+import { G, geomFor, setActiveGeometry } from "./geometry.js";
 import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.js";
 import { getRules } from "./variants/index.js";
 import type {
+  PlacementZone,
   BallColor,
   BallState,
   Frame,
@@ -48,6 +49,7 @@ export function cloneState(state: TableState): TableState {
     balls: state.balls.map((b) => ({ ...b })),
     turn: state.turn,
     ballInHand: state.ballInHand,
+    placementZone: state.placementZone,
     gameOver: state.gameOver,
     winner: state.winner,
     playerColors: [state.playerColors[0], state.playerColors[1]],
@@ -85,10 +87,15 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
       return { ok: false, reason: "spin must be within [-1, 1]" };
     }
   }
-  // After ANY foul the cue ball is in hand (off the table) — it must be
-  // placed before the next shot.
-  if (state.ballInHand || cueBall(state).inHole) {
+  // A potted cue ball must be placed before the next shot. With ball in hand
+  // and the cue ball still on the table the player may shoot from where it
+  // lies — as long as that spot is inside the zone (the kitchen / the D).
+  const cue = cueBall(state);
+  if (cue.inHole) {
     return { ok: false, reason: "ball in hand — place the cue ball first" };
+  }
+  if (state.ballInHand && !inPlacementZone(state, cue.x, cue.y)) {
+    return { ok: false, reason: `ball in hand — the cue ball must be ${zoneLabel(state)}` };
   }
   return { ok: true };
 }
@@ -266,6 +273,7 @@ export function simulateShot(
   next.winner = resolution.winner;
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
+  next.placementZone = resolution.ballInHand ? (resolution.placementZone ?? "table") : undefined;
 
   const settleCapped = steps >= MAX_STEPS;
   const flags: string[] = [];
@@ -298,8 +306,46 @@ export function simulateShot(
   };
 }
 
+/** True if (x, y) is inside the state's ball-in-hand zone (ignores other
+ *  balls, pockets and cushions — see cuePlacementError for the full check). */
+export function inPlacementZone(state: TableState, x: number, y: number): boolean {
+  const zone: PlacementZone = state.placementZone ?? "table";
+  if (zone === "table") return true;
+  const g = geomFor(state.gameType);
+  if (x > g.HEAD_STRING_X) return false;
+  if (zone === "kitchen" || !g.D) return true;
+  return Math.hypot(x - g.D.x, y - g.D.y) <= g.D.r;
+}
+
+/** Human wording for the zone, for errors and the HUD. */
+export function zoneLabel(state: TableState): string {
+  const zone = state.placementZone ?? "table";
+  return zone === "d" ? "inside the D" : zone === "kitchen" ? "behind the head string" : "on a clear spot";
+}
+
+/**
+ * Why the cue ball can't go at (x, y) with ball in hand — or null if it can.
+ * The single rule shared by the server (placeCueBall) and the renderers'
+ * placement ghost, so what the player sees as legal is what the server accepts.
+ */
+export function cuePlacementError(state: TableState, x: number, y: number): string | null {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return "invalid position";
+  setActiveGeometry(state.gameType); // border/hole/overlap checks are per-variant
+  if (isOutsideBorder(x, y)) return "outside borders";
+  if (isInsideHole(x, y)) return "inside a pocket";
+  if (!inPlacementZone(state, x, y)) return `must be ${zoneLabel(state)}`;
+  const cueIdx = cueBallId(state);
+  for (const ball of state.balls) {
+    if (ball.id === cueIdx || ball.inHole) continue;
+    if (Math.hypot(x - ball.x, y - ball.y) < G.BALL_SIZE) return "overlaps another ball";
+  }
+  return null;
+}
+
 /**
  * Ball-in-hand placement, validated server-side. Mutates and returns a clone.
+ * Ball in hand stays on afterwards — the player may keep moving the cue ball
+ * until they shoot.
  */
 export function placeCueBall(
   state: TableState,
@@ -308,22 +354,8 @@ export function placeCueBall(
 ): { ok: true; state: TableState } | { ok: false; reason: string } {
   if (state.gameOver) return { ok: false, reason: "game over" };
   if (!state.ballInHand) return { ok: false, reason: "no ball in hand" };
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return { ok: false, reason: "invalid position" };
-  }
-  setActiveGeometry(state.gameType); // border/hole/overlap checks are per-variant
-  if (isOutsideBorder(x, y)) return { ok: false, reason: "outside borders" };
-  if (isInsideHole(x, y)) return { ok: false, reason: "inside a pocket" };
-
-  const cueIdx = cueBallId(state);
-  for (const ball of state.balls) {
-    if (ball.id === cueIdx || ball.inHole) continue;
-    const dx = x - ball.x;
-    const dy = y - ball.y;
-    if (Math.sqrt(dx * dx + dy * dy) < G.BALL_SIZE) {
-      return { ok: false, reason: "overlaps another ball" };
-    }
-  }
+  const why = cuePlacementError(state, x, y);
+  if (why) return { ok: false, reason: why };
 
   const next = cloneState(state);
   const cue = cueBall(next);
@@ -333,7 +365,6 @@ export function placeCueBall(
   cue.vy = 0;
   cue.moving = false;
   cue.inHole = false;
-  next.ballInHand = false;
   return { ok: true, state: next };
 }
 

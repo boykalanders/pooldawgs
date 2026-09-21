@@ -11,6 +11,15 @@ import {
   PX_PER_M,
 } from "../dist/index.js";
 
+/** A mid-frame table: no ball in hand, so the scenario may put the cue ball
+ *  anywhere (a fresh rack starts with ball in hand behind the head string /
+ *  in the D, and the engine rejects a shot from outside that zone). */
+function midFrame(s) {
+  s.ballInHand = false;
+  s.placementZone = undefined;
+  return s;
+}
+
 const CM = (px) => ((px / PX_PER_M) * 100).toFixed(1);
 const LEN = (px) => (px / PLAY_LENGTH_PX).toFixed(2);
 let pass = 0;
@@ -45,7 +54,7 @@ function cuePath(result) {
 
 // ── Test 1: full table shot → cue rolls ≈3–4 table lengths ────────────────
 {
-  const s = createInitialState("8ball");
+  const s = midFrame(createInitialState("8ball"));
   clearTable(s);
   cue(s).x = 100;
   cue(s).y = 412;
@@ -60,7 +69,7 @@ function cuePath(result) {
 
 // ── Test 2: 45° bank → natural rebound, no pinball ────────────────────────
 {
-  const s = createInitialState("8ball");
+  const s = midFrame(createInitialState("8ball"));
   clearTable(s);
   cue(s).x = 300;
   cue(s).y = 600;
@@ -76,7 +85,7 @@ function cuePath(result) {
 
 // ── Test 3: thin cut → pots when correctly aimed ──────────────────────────
 {
-  const s = createInitialState("8ball");
+  const s = midFrame(createInitialState("8ball"));
   const obj = s.balls.find((b) => b.color === "red");
   clearTable(s);
   obj.inHole = false;
@@ -107,7 +116,7 @@ function cuePath(result) {
 // object rolls away and we read the cue's FIRST settle position (before the
 // object can bank back), so the displacement is pure spin effect.
 function spinShot(spinY) {
-  const s = createInitialState("8ball");
+  const s = midFrame(createInitialState("8ball"));
   const obj = s.balls.find((b) => b.color === "red");
   clearTable(s);
   obj.inHole = false;
@@ -154,7 +163,7 @@ function spinShot(spinY) {
 
 // ── Test 6: soft pocket shot → drops, no lip bounce ───────────────────────
 {
-  const s = createInitialState("8ball");
+  const s = midFrame(createInitialState("8ball"));
   const obj = s.balls.find((b) => b.color === "red");
   clearTable(s);
   obj.inHole = false;

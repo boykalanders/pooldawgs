@@ -30,9 +30,8 @@ import {
   STEP_MS,
   cloneState,
   cueBallId,
+  cuePlacementError,
   geomFor,
-  isInsideHole,
-  isOutsideBorder,
   simulateShot,
   type Frame,
   type ShotEvent,
@@ -182,7 +181,7 @@ export default function PoolTable3D({
   shootAtAim.current = (shotPower) => {
     const p = propsRef.current;
     if (!p.interactive || playing.current || !p.onShoot) return false;
-    if (p.state.gameOver || p.state.ballInHand) return false;
+    if (p.state.gameOver || carrying(p.state, placingBall.current)) return false;
     const cue = p.state.balls[cueBallId(p.state)];
     if (cue.inHole || shotPower <= 1) return false;
     const angle = Math.atan2(aimTarget.current.y - cue.y, aimTarget.current.x - cue.x);
@@ -421,7 +420,7 @@ export default function PoolTable3D({
           continue;
         }
         styleBall(m, ball, scene); // re-skins when the variant changes
-        if (ball.inHole || (i === cueIdx && s.ballInHand)) {
+        if (ball.inHole || (i === cueIdx && s.ballInHand && placingBall.current)) {
           m.isVisible = false;
         } else {
           m.isVisible = true;
@@ -457,7 +456,13 @@ export default function PoolTable3D({
       dragging = true;
       const t = pickTable(e.clientX, e.clientY);
       if (t) aimTarget.current = { x: t.px, y: t.py };
-      if (p.state.ballInHand && p.onPlaceCueBall) {
+      // Ball in hand: pick the cue ball up (or, if it was potted, carry the
+      // ghost) and drop it on release. With the cue ball on the table a press
+      // anywhere else aims and shoots from where it lies.
+      const grab =
+        t !== null &&
+        (p.state.balls[cueBallId(p.state)].inHole || onCueBall(p.state, t.px, t.py));
+      if (p.state.ballInHand && p.onPlaceCueBall && grab) {
         placingBall.current = true; // drag the ghost, drop on release
         canvas.setPointerCapture?.(e.pointerId);
         return;
@@ -495,7 +500,7 @@ export default function PoolTable3D({
         if (t) aimTarget.current = { x: t.px, y: t.py };
         const s = p.state;
         const { x, y } = aimTarget.current;
-        if (s.ballInHand && p.onPlaceCueBall && !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y)) {
+        if (s.ballInHand && p.onPlaceCueBall && cuePlacementError(s, x, y) === null) {
           p.onPlaceCueBall(x, y);
         }
         return;
@@ -587,7 +592,7 @@ export default function PoolTable3D({
         !playing.current &&
         p.interactive &&
         !p.state.gameOver &&
-        !p.state.ballInHand &&
+        !carrying(p.state, placingBall.current) &&
         (charging.current || keysDown.current.has("w") || p.power > 1)
           ? 1
           : 0;
@@ -599,7 +604,13 @@ export default function PoolTable3D({
       // Power charging (hold-click + W/S), mirrors the 2D canvas.
       const dt = lastTick.current ? Math.min(now - lastTick.current, 100) : 16;
       lastTick.current = now;
-      if (p.onPowerChange && p.interactive && !p.state.gameOver && !p.state.ballInHand && !playing.current) {
+      if (
+        p.onPowerChange &&
+        p.interactive &&
+        !p.state.gameOver &&
+        !carrying(p.state, placingBall.current) &&
+        !playing.current
+      ) {
         let next = p.power;
         if (charging.current) next += dt * CHARGE_PER_MS;
         if (keysDown.current.has("w")) next += dt * KEY_POWER_PER_MS;
@@ -643,7 +654,7 @@ export default function PoolTable3D({
         const s = p.state;
         setBallPositions(s);
         const cb = s.balls[s.balls.length - 1];
-        const aiming = p.interactive && !s.gameOver && !s.ballInHand && cb && !cb.inHole;
+        const aiming = p.interactive && !s.gameOver && !carrying(s, placingBall.current) && cb && !cb.inHole;
         if (aiming) {
           const angle = Math.atan2(aimTarget.current.y - cb.y, aimTarget.current.x - cb.x);
           const cwx = wx(cb.x);
@@ -670,10 +681,10 @@ export default function PoolTable3D({
           aimLine.isVisible = false;
         }
         // Ball-in-hand ghost: show the cue ball following the pointer.
-        if (p.interactive && s.ballInHand && !s.gameOver && cb) {
+        if (p.interactive && carrying(s, placingBall.current) && !s.gameOver && cb) {
           const m = balls[cb.id];
           const { x, y } = aimTarget.current;
-          const legal = !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y);
+          const legal = cuePlacementError(s, x, y) === null;
           m.isVisible = true;
           m.position.set(wx(x), R, wz(y));
           m.visibility = legal ? 0.9 : 0.5;
@@ -718,13 +729,16 @@ export default function PoolTable3D({
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-function overlapsBall(state: TableState, x: number, y: number): boolean {
-  const cue = cueBallId(state);
-  for (const ball of state.balls) {
-    if (ball.id === cue || ball.inHole) continue;
-    if (Math.hypot(x - ball.x, y - ball.y) < RG.BALL_SIZE) return true;
-  }
-  return false;
+/** Ball in hand and the cue ball is off the table or being dragged: the
+ *  pointer carries a placement ghost instead of aiming. */
+function carrying(state: TableState, placing: boolean): boolean {
+  return state.ballInHand && (placing || state.balls[cueBallId(state)].inHole);
+}
+
+/** Is the table point on the cue ball (generous, for fingers)? */
+function onCueBall(state: TableState, x: number, y: number): boolean {
+  const cue = state.balls[cueBallId(state)];
+  return !cue.inHole && Math.hypot(x - cue.x, y - cue.y) <= RG.BALL_RADIUS * 1.8;
 }
 
 function applyFrame(balls: Mesh[], frame: Frame, scene: Scene, ids: BallLike[]): void {

@@ -58,8 +58,13 @@ export interface TableState {
   balls: BallState[];
   /** Whose turn it is to shoot. */
   turn: PlayerIndex;
-  /** Set after a foul: the player to shoot may (re)place the cue ball. */
+  /** The player to shoot may (re)place the cue ball — after a foul, and for
+   *  the opening break. Stays true until the shot is taken, so the ball can be
+   *  moved as often as the player likes; if the cue ball is still on the table
+   *  they may also just shoot from where it lies. */
   ballInHand: boolean;
+  /** Where ball in hand may be placed (absent ⇒ "table"). */
+  placementZone?: PlacementZone;
   gameOver: boolean;
   /** Winning player once gameOver. */
   winner: PlayerIndex | null;
@@ -74,6 +79,15 @@ export interface TableState {
   /** Snooker: true when the striker is "on a colour" (just potted a red). */
   onColor: boolean;
 }
+
+/**
+ * Where the cue ball may be placed with ball in hand:
+ *  - "table"   anywhere clear (pool, after a foul);
+ *  - "kitchen" behind the head string (pool break, and 8-ball after a scratch
+ *              on the break);
+ *  - "d"       inside the D (snooker break and after an in-off).
+ */
+export type PlacementZone = "table" | "kitchen" | "d";
 
 export type ShotEvent =
   | { type: "pocket"; ballId: number; color: BallColor; step: number }
@@ -94,6 +108,8 @@ export interface TurnResolution {
   nextTurn: PlayerIndex;
   /** Next player may re-place the cue ball (any foul). */
   ballInHand: boolean;
+  /** Where they may place it (absent ⇒ "table"). */
+  placementZone?: PlacementZone;
   /** Human-readable note for the HUD (e.g. "Foul — 4 to opponent"). */
   note?: string;
 }

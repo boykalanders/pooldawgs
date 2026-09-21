@@ -3,6 +3,15 @@
 import { getRules, geomFor, simulateShot } from "../dist/index.js";
 import { initHavok, simulateShotHavok } from "../dist/havok/simulator.js";
 
+/** A mid-frame table: no ball in hand, so the scenario may put the cue ball
+ *  anywhere (a fresh rack starts with ball in hand behind the head string /
+ *  in the D, and the engine rejects a shot from outside that zone). */
+function midFrame(s) {
+  s.ballInHand = false;
+  s.placementZone = undefined;
+  return s;
+}
+
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -12,7 +21,7 @@ function check(name, ok, detail) {
 
 /** Cue + exactly one live object ball; everything else parked off-table. */
 function table(gameType) {
-  const s = getRules(gameType).createInitialState();
+  const s = midFrame(getRules(gameType).createInitialState());
   const g = geomFor(gameType);
   const obj = s.balls.find((b) => b.color !== "cue");
   for (const b of s.balls) {
@@ -74,7 +83,7 @@ function run(label, sim, gameType) {
 
   // 7. Cluster break leaves no persistent overlap.
   {
-    const s = getRules(gameType).createInitialState();
+    const s = midFrame(getRules(gameType).createInitialState());
     const r = sim(s, { angle: 0, power: 75 });
     let worst = 0;
     const live = r.endState.balls.filter((b) => !b.inHole);

@@ -89,7 +89,9 @@ export const nineBall: GameRules<FactsAcc> = {
       gameType: "9ball",
       balls,
       turn: 0,
-      ballInHand: false,
+      // The break is taken with ball in hand behind the head string.
+      ballInHand: true,
+      placementZone: "kitchen",
       gameOver: false,
       winner: null,
       playerColors: [null, null],

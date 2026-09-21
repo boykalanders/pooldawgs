@@ -951,6 +951,7 @@ export function simulateShotHavok(
   next.winner = resolution.winner;
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
+  next.placementZone = resolution.ballInHand ? (resolution.placementZone ?? "table") : undefined;
 
   const settleCapped = steps >= MAX_STEPS;
   const flags: string[] = [];

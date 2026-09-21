@@ -11,9 +11,8 @@ import {
   STEP_MS,
   cloneState,
   cueBallId,
+  cuePlacementError,
   geomFor,
-  isInsideHole,
-  isOutsideBorder,
   simulateShot,
   type BallState,
   type Frame,
@@ -209,7 +208,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: TABLE_WIDTH / 2, y: TABLE_HEIGHT / 2 });
   const charging = useRef(false);
-  /** Touch ball-in-hand: dragging a ghost cue ball, dropped on release. */
+  /** Ball in hand: the cue ball is being carried (dragged) — a ghost follows
+   *  the pointer and is dropped on release. */
   const placingBall = useRef(false);
   const keysDown = useRef(new Set<string>());
   const lastTick = useRef(0);
@@ -268,8 +268,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
       spin: hitPoint,
       muted: isMuted,
     } = propsRef.current;
-    if (!canAct || playing.current || !shoot) return false;
-    if (s.gameOver || s.ballInHand) return false;
+    if (!canAct || playing.current || !shoot || placingBall.current) return false;
+    if (s.gameOver) return false;
     const cue = s.balls[cueBallId(s)];
     if (cue.inHole || shotPower <= 1) return false;
     const angle = Math.atan2(mouse.current.y - cue.y, mouse.current.x - cue.x);
@@ -360,7 +360,7 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     let raf = 0;
     const loop = (now: number) => {
       updateInputPower(now);
-      drawScene(ctx, propsRef.current, mouse.current, playing, pocketFx);
+      drawScene(ctx, propsRef.current, mouse.current, playing, pocketFx, placingBall.current);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -374,7 +374,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     lastTick.current = now;
     const { state: s, interactive: canAct, power: current, onPowerChange: setPower } =
       propsRef.current;
-    if (!setPower || !canAct || s.gameOver || s.ballInHand || playing.current) {
+    const carrying = s.ballInHand && (placingBall.current || s.balls[cueBallId(s)].inHole);
+    if (!setPower || !canAct || s.gameOver || carrying || playing.current) {
       charging.current = false;
       return;
     }
@@ -396,7 +397,13 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function legalCuePlacement(s: TableState, x: number, y: number): boolean {
-    return !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(s, x, y);
+    return cuePlacementError(s, x, y) === null;
+  }
+
+  /** Is the pointer on the cue ball (generous, for fingers)? */
+  function onCueBall(s: TableState, p: { x: number; y: number }): boolean {
+    const cue = s.balls[cueBallId(s)];
+    return !cue.inHole && Math.hypot(p.x - cue.x, p.y - cue.y) <= BALL_RADIUS * 1.8;
   }
 
   function handlePointerDown(e: React.PointerEvent) {
@@ -405,7 +412,15 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     mouse.current = toTable(e);
     if (!canAct || playing.current) return;
 
-    if (s.ballInHand && place) {
+    // Ball in hand with the cue ball still on the table (the break, or a foul
+    // that didn't pot it): grab the cue ball to carry it somewhere else, or
+    // aim and shoot from where it lies.
+    if (s.ballInHand && place && onCueBall(s, mouse.current) && !s.balls[cueBallId(s)].inHole) {
+      placingBall.current = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (s.ballInHand && place && s.balls[cueBallId(s)].inHole) {
       if (e.pointerType === "touch") {
         // Touch: grab the ghost cue ball and DRAG it into position (a moving
         // ghost with a legal/illegal ring); it's dropped on release. Tapping a
@@ -441,8 +456,8 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
   }
 
   function handlePointerUp() {
-    // Touch ball-in-hand: drop the dragged cue ball at the released position
-    // if it's legal (otherwise keep it in hand so the player can re-drag).
+    // Ball in hand: drop the carried cue ball where it was released if that's
+    // legal; otherwise it stays where it was (and can be picked up again).
     if (placingBall.current) {
       placingBall.current = false;
       const { state: s, onPlaceCueBall: place } = propsRef.current;
@@ -461,11 +476,19 @@ const PoolCanvas = forwardRef<PoolCanvasHandle, PoolCanvasProps>(function PoolCa
     }
   }
 
-  function handlePointerMove(e: React.PointerEvent) {
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
     // Mouse updates aim/ghost on hover; touch updates it while a finger is
     // down (aiming, or dragging the ball-in-hand ghost).
     if (e.pointerType === "touch" && e.buttons === 0 && !placingBall.current) return;
     mouse.current = toTable(e);
+    // Hint that the cue ball can be picked up.
+    const { state: s, interactive: canAct } = propsRef.current;
+    const grab = canAct && s.ballInHand && !s.gameOver && !playing.current;
+    e.currentTarget.style.cursor = placingBall.current
+      ? "grabbing"
+      : grab && onCueBall(s, mouse.current)
+        ? "grab"
+        : "";
   }
 
   return (
@@ -494,17 +517,6 @@ export default PoolCanvas;
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-function overlapsBall(state: TableState, x: number, y: number): boolean {
-  const cue = cueBallId(state);
-  for (const ball of state.balls) {
-    if (ball.id === cue || ball.inHole) continue;
-    const dx = x - ball.x;
-    const dy = y - ball.y;
-    if (Math.sqrt(dx * dx + dy * dy) < BALL_SIZE) return true;
-  }
-  return false;
-}
-
 interface SceneProps {
   state: TableState;
   interactive: boolean;
@@ -530,7 +542,9 @@ function drawScene(
   pocketFx: React.MutableRefObject<{
     drops: Map<number, { startedAt: number; x0: number; y0: number }>;
     lastVisible: Map<number, { x: number; y: number }>;
-  }>
+  }>,
+  /** The ball-in-hand cue ball is being dragged. */
+  placing = false
 ) {
   const { state } = props;
   // Absolute transform each frame (drawScene has early returns, so avoid
@@ -609,29 +623,31 @@ function drawScene(
   const cueIdx = cueBallId(state);
   for (const ball of state.balls) {
     if (ball.inHole) continue;
-    // Ball in hand: the cue ball is lifted off the table — only the
-    // placement ghost (drawn in the overlay) is visible.
-    if (ball.id === cueIdx && state.ballInHand) continue;
+    // While the cue ball is being carried only the placement ghost (drawn in
+    // the overlay) is visible.
+    if (ball.id === cueIdx && state.ballInHand && placing) continue;
     drawBall(ctx, ball.x, ball.y, ball, orientFor(ball.id, ball.x, ball.y));
   }
   drawDrops(); // finish any pocket FX still running after the replay ended
 
-  drawOverlay(ctx, props, mouse);
+  drawOverlay(ctx, props, mouse, placing);
 }
 
 function drawOverlay(
   ctx: CanvasRenderingContext2D,
   { state, interactive, power, showGuide }: SceneProps,
-  mouse: { x: number; y: number }
+  mouse: { x: number; y: number },
+  placing: boolean
 ) {
   if (!interactive || state.gameOver) return;
 
   const cue = state.balls[cueBallId(state)];
 
-  if (state.ballInHand) {
+  if (state.ballInHand) drawPlacementZone(ctx, state);
+
+  if (state.ballInHand && (placing || cue.inHole)) {
     const { x, y } = mouse;
-    const legal =
-      !isOutsideBorder(x, y) && !isInsideHole(x, y) && !overlapsBall(state, x, y);
+    const legal = cuePlacementError(state, x, y) === null;
     ctx.save();
     ctx.globalAlpha = 0.65;
     drawBall(ctx, x, y, cue, orientOf(cue.id));
@@ -646,10 +662,57 @@ function drawOverlay(
   }
 
   if (cue.inHole) return;
-  const angle = Math.atan2(mouse.y - cue.y, mouse.x - cue.x);
 
+  if (state.ballInHand) {
+    // The cue ball can still be picked up: mark it with a dashed ring. While
+    // the pointer is over it (about to grab) the cue stick is hidden, since
+    // aiming at your own cue ball is meaningless.
+    const hovering = Math.hypot(mouse.x - cue.x, mouse.y - cue.y) <= BALL_RADIUS * 1.8;
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.arc(cue.x, cue.y, BALL_RADIUS + 6, 0, Math.PI * 2);
+    ctx.strokeStyle = hovering ? "#e8c547" : "rgba(232, 197, 71, 0.7)";
+    ctx.lineWidth = hovering ? 3 : 2;
+    ctx.stroke();
+    ctx.restore();
+    if (hovering) return;
+  }
+
+  const angle = Math.atan2(mouse.y - cue.y, mouse.x - cue.x);
   if (showGuide) drawAimGuide(ctx, state, cue.x, cue.y, angle);
   drawCueStick(ctx, cue.x, cue.y, angle, power);
+}
+
+/**
+ * Shade where ball in hand may be placed: the kitchen (behind the head string)
+ * for a pool break, the D for snooker. Nothing for "anywhere".
+ */
+function drawPlacementZone(ctx: CanvasRenderingContext2D, state: TableState) {
+  const zone = state.placementZone ?? "table";
+  if (zone === "table") return;
+  const g = geomFor(state.gameType);
+  const top = g.TOP_BORDER_Y;
+  const bottom = g.BOTTOM_BORDER_Y;
+  ctx.save();
+  ctx.fillStyle = "rgba(232, 197, 71, 0.10)";
+  ctx.strokeStyle = "rgba(232, 197, 71, 0.75)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 8]);
+  if (zone === "d" && g.D) {
+    ctx.beginPath();
+    ctx.arc(g.D.x, g.D.y, g.D.r, Math.PI / 2, (3 * Math.PI) / 2); // left half
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillRect(g.LEFT_BORDER_X, top, g.HEAD_STRING_X - g.LEFT_BORDER_X, bottom - top);
+    ctx.beginPath();
+    ctx.moveTo(g.HEAD_STRING_X, top);
+    ctx.lineTo(g.HEAD_STRING_X, bottom);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** Aim line to the first contact, ghost ball there, and the object-ball tick. */

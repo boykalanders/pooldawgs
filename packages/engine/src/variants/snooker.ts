@@ -37,8 +37,8 @@ const SG = SNOOKER_GEOM;
 const M = (metres: number) => metres * PX_PER_M;
 const CENTER_X = SG.TABLE_WIDTH / 2;
 const CENTER_Y = SG.TABLE_HEIGHT / 2;
-const BAULK_X = SG.LEFT_BORDER_X + M(0.737); // baulk line, 0.737 m off the cushion
-const D_RADIUS = M(0.292); // the "D"
+const BAULK_X = SG.HEAD_STRING_X; // baulk line, 0.737 m off the cushion (geometry.ts)
+const D_RADIUS = SG.D!.r; // the "D", 0.292 m (geometry.ts)
 const PINK_X = (CENTER_X + SG.RIGHT_BORDER_X) / 2; // midway centre→top cushion
 const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
 
@@ -137,7 +137,9 @@ export const snooker: GameRules<FactsAcc> = {
       gameType: "snooker",
       balls,
       turn: 0,
-      ballInHand: false,
+      // The break is played from the D: the cue ball starts in hand there.
+      ballInHand: true,
+      placementZone: "d",
       gameOver: false,
       winner: null,
       playerColors: [null, null],
@@ -234,7 +236,7 @@ export const snooker: GameRules<FactsAcc> = {
       for (const b of pottedColours) respot(state, b);
       state.onColor = false;
       nextTurn = other;
-      ballInHand = acc.cuePotted;
+      ballInHand = acc.cuePotted; // in-off: ball in hand, from the D
       note = `Foul — ${penalty} to opponent`;
     }
 
@@ -245,7 +247,7 @@ export const snooker: GameRules<FactsAcc> = {
       return { gameOver: true, winner, foul, nextTurn: turn, ballInHand: false, note };
     }
 
-    return { gameOver: false, winner: null, foul, nextTurn, ballInHand, note };
+    return { gameOver: false, winner: null, foul, nextTurn, ballInHand, placementZone: "d", note };
   },
 };
 
