@@ -64,7 +64,7 @@ function bankShot(sim, gameType, thetaDeg, dx, power, spinX = 0) {
   const ev = r.events.find((e) => e.type === "cushion" && e.ballId === cueId);
   if (!ev) return { ok: false, why: "no cushion contact recorded" };
   const at = ballAt(frameAtStep(r.frames, ev.step), cueId);
-  if (!at || Math.abs(at.x - g.LEFT_BORDER_X) > g.BALL_RADIUS * 1.5) {
+  if (!at || Math.abs(at.x - g.LEFT_BORDER_X) > g.BALL_SIZE * 1.5) {
     return { ok: false, why: `contact wasn't on the left rail (x=${at?.x?.toFixed(0)})` };
   }
   const f0 = frameAtStep(r.frames, ev.step - 2);

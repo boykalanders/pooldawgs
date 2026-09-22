@@ -152,8 +152,9 @@ export const POSITIONAL_CORRECTION = 0.2;
  *  the fix-spec's 0.70 target (§7.2, §12 parity): at 0.88 a full-power ball kept
  *  ~28% of its speed through 10 banks and pinballed for ~10 table lengths. */
 export const CUSHION_RESTITUTION = 0.72;
-/** Cushion tangential friction — tuned to 0.16 for balanced bank angle/speed retention. */
-export const CUSHION_FRICTION = 0.16;
+/** Cushion tangential friction (Practice). Back to 0.12 to pair with the real
+ *  game's rail friction 0.20 the way v3 did — v3.1 moved both to 0.16. */
+export const CUSHION_FRICTION = 0.12;
 
 // ── TUNING KNOBS for the real game (Havok) ────────────────────────────────
 // Everything that shapes how a match plays, in one place. The TS engine

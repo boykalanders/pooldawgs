@@ -39,7 +39,11 @@ const CENTER_X = SG.TABLE_WIDTH / 2;
 const CENTER_Y = SG.TABLE_HEIGHT / 2;
 const BAULK_X = SG.HEAD_STRING_X; // baulk line, 0.737 m off the cushion (geometry.ts)
 const D_RADIUS = SG.D!.ry; // half-height of the D — where yellow and green sit (geometry.ts)
-const PINK_X = (CENTER_X + SG.RIGHT_BORDER_X) / 2; // midway centre→top cushion
+// Pink sits on the spot PAINTED on the table artwork (measured at x 1549;
+// midway centre→top cushion would be 1517). Blue's painted spot is at 1030,
+// which already matches CENTER_X, and no black spot is painted at all, so
+// black keeps its regulation distance from the cushion.
+const PINK_X = 1549;
 const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
 
 // A FROZEN triangle (matches the 8-ball rack): reds touch vertically at exactly
