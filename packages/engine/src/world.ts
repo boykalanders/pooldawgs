@@ -314,7 +314,9 @@ export function inPlacementZone(state: TableState, x: number, y: number): boolea
   const g = geomFor(state.gameType);
   if (x > g.HEAD_STRING_X) return false;
   if (zone === "kitchen" || !g.D) return true;
-  return Math.hypot(x - g.D.x, y - g.D.y) <= g.D.r;
+  const dx = (x - g.D.x) / g.D.rx;
+  const dy = (y - g.D.y) / g.D.ry;
+  return dx * dx + dy * dy <= 1;
 }
 
 /** Human wording for the zone, for errors and the HUD. */

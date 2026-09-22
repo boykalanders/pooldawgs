@@ -701,7 +701,7 @@ function drawPlacementZone(ctx: CanvasRenderingContext2D, state: TableState) {
   ctx.setLineDash([10, 8]);
   if (zone === "d" && g.D) {
     ctx.beginPath();
-    ctx.arc(g.D.x, g.D.y, g.D.r, Math.PI / 2, (3 * Math.PI) / 2); // left half
+    ctx.ellipse(g.D.x, g.D.y, g.D.rx, g.D.ry, 0, Math.PI / 2, (3 * Math.PI) / 2); // left half
     ctx.closePath();
     ctx.fill();
     ctx.stroke();

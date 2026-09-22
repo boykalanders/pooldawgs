@@ -38,7 +38,7 @@ const M = (metres: number) => metres * PX_PER_M;
 const CENTER_X = SG.TABLE_WIDTH / 2;
 const CENTER_Y = SG.TABLE_HEIGHT / 2;
 const BAULK_X = SG.HEAD_STRING_X; // baulk line, 0.737 m off the cushion (geometry.ts)
-const D_RADIUS = SG.D!.r; // the "D", 0.292 m (geometry.ts)
+const D_RADIUS = SG.D!.ry; // half-height of the D — where yellow and green sit (geometry.ts)
 const PINK_X = (CENTER_X + SG.RIGHT_BORDER_X) / 2; // midway centre→top cushion
 const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
 

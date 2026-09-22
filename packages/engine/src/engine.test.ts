@@ -354,9 +354,9 @@ describe("ball in hand placement", () => {
     expect(s.ballInHand).toBe(true);
     expect(s.placementZone).toBe("d");
     expect(validateShot(s, { angle: 0, power: 10 }).ok).toBe(true); // default spot is in the D
-    expect(placeCueBall(s, g.D!.x - 20, g.D!.y + g.D!.r - 30).ok).toBe(true);
+    expect(placeCueBall(s, g.D!.x - 20, g.D!.y + g.D!.ry - 30).ok).toBe(true);
     expect(placeCueBall(s, g.D!.x + 20, g.D!.y).ok).toBe(false); // past the baulk line
-    expect(placeCueBall(s, g.D!.x - 150, g.D!.y + 150).ok).toBe(false); // behind baulk, outside the D
+    expect(placeCueBall(s, g.D!.x - g.D!.rx + 20, g.D!.y + g.D!.ry - 20).ok).toBe(false); // behind baulk, outside the D
   });
 });
 

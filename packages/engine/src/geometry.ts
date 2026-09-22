@@ -50,9 +50,11 @@ export interface TableGeometry {
   /** Ball-in-hand "kitchen" limit: the cue ball's centre must be at x ≤ this.
    *  Pool: the head string (¼ of the playing length). Snooker: the baulk line. */
   HEAD_STRING_X: number;
-  /** Snooker's D (semicircle on the baulk line, opening toward the baulk
-   *  cushion); null on pool tables. */
-  D: { x: number; y: number; r: number } | null;
+  /** Snooker's D (half-ellipse on the baulk line, opening toward the baulk
+   *  cushion); null on pool tables. Slightly elliptical because it is matched
+   *  to the D painted on the table artwork, which is drawn with a slightly
+   *  different x/y scale. */
+  D: { x: number; y: number; rx: number; ry: number } | null;
 }
 
 const SQRT1_2 = Math.SQRT1_2;
@@ -129,9 +131,15 @@ const SNK_CORNER_R = 34 * SNK_POCKET_SCALE; // ≈ 27.8 (was 34)
 // Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
 // pool middle-pocket bump; also widens the rail gap and the drawn mouth.
 const SNK_MIDDLE_R = 42 * SNK_POCKET_SCALE; // ≈ 34.4 (was 42)
-// Baulk line 0.737 m off the baulk cushion; the D is a 0.292 m semicircle on it.
-const SNK_BAULK_X = SNK_BORDER + 0.737 * PX_PER_M;
-const SNK_D = { x: SNK_BAULK_X, y: SNK_H / 2, r: 0.292 * PX_PER_M };
+// Baulk line and D, MEASURED FROM THE TABLE ARTWORK (snooker_table.png) so the
+// painted D, the baulk colours and the ball-in-hand area all line up on screen.
+// The artwork is not drawn to regulation proportions: its baulk line is 0.833 m
+// off the cushion (regulation 0.737 m) and its D is ~0.34 m (regulation 0.292),
+// slightly elliptical because the photo is fitted with a different x and y
+// scale. Matching the picture matters more here than matching the rule book —
+// the player aims at what they can see.
+const SNK_BAULK_X = 511.8;
+const SNK_D = { x: SNK_BAULK_X, y: SNK_H / 2, rx: 190.7, ry: 180.4 };
 
 export const SNOOKER_GEOM: TableGeometry = {
   TABLE_WIDTH: SNK_W,
