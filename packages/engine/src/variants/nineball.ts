@@ -5,7 +5,7 @@
 //   • Foul (wrong first ball, no contact, scratch) ⇒ opponent ball-in-hand.
 //     The 9-ball potted on a foul is respotted; the frame continues.
 
-import { CUE_BALL_START } from "../constants.js";
+import { POOL_GEOM } from "../geometry.js";
 import type {
   BallColor,
   BallState,
@@ -37,24 +37,30 @@ const COLOR_BY_NUMBER: Record<number, BallColor> = {
   9: "yellow",
 };
 
-// A FROZEN diamond: columns step +33 px (≥ diameter·cos30°), balls within a
-// column step a full diameter (38 px) — vertical neighbours touch exactly and
-// diagonal neighbours sit 38.08 px apart. Visually frozen, always ≥ 1 diameter
-// so the pack never self-separates before the break; integer coords stay
-// deterministic across server and client.
-const RACK: ReadonlyArray<{ x: number; y: number; number: number }> = [
-  { x: 1022, y: 413, number: 1 },
-  { x: 1055, y: 394, number: 2 },
-  { x: 1055, y: 432, number: 3 },
-  { x: 1088, y: 375, number: 4 },
-  { x: 1088, y: 413, number: 9 }, // centre
-  { x: 1088, y: 451, number: 5 },
-  { x: 1121, y: 394, number: 6 },
-  { x: 1121, y: 432, number: 7 },
-  { x: 1154, y: 413, number: 8 },
-];
+// A FROZEN diamond generated from the ball diameter (v4), same spacing rules
+// as the 8-ball triangle: one diameter within a column, 0.88 diameter between
+// columns (just over d·cos30°), centred on the table's centre line.
+const RACK_LAYOUT: ReadonlyArray<ReadonlyArray<number>> = [[1], [2, 3], [4, 9, 5], [6, 7], [8]];
+const RACK_APEX_X = 1022;
+const RACK: ReadonlyArray<{ x: number; y: number; number: number }> = (() => {
+  // +0.001 px: with a fractional diameter, float rounding can otherwise put
+  // touching balls a hair INSIDE one diameter (an overlap at rest).
+  const d = POOL_GEOM.BALL_SIZE + 0.001;
+  const centerY = (POOL_GEOM.TOP_BORDER_Y + POOL_GEOM.BOTTOM_BORDER_Y) / 2;
+  return RACK_LAYOUT.flatMap((column, c) =>
+    column.map((number, k) => ({
+      number,
+      x: RACK_APEX_X + c * d * 0.88,
+      y: centerY + (k - (column.length - 1) / 2) * d,
+    }))
+  );
+})();
 
-const NINE_HOME = { x: 1090, y: 413 };
+// The 9 respots on its own rack spot (the diamond's centre).
+const NINE_HOME = (() => {
+  const nine = RACK.find((b) => b.number === 9)!;
+  return { x: nine.x, y: nine.y };
+})();
 
 export const nineBall: GameRules<FactsAcc> = {
   type: "9ball",
@@ -78,8 +84,8 @@ export const nineBall: GameRules<FactsAcc> = {
       color: "cue",
       number: 0,
       value: 0,
-      x: CUE_BALL_START.x,
-      y: CUE_BALL_START.y,
+      x: POOL_GEOM.CUE_BALL_START.x,
+      y: POOL_GEOM.CUE_BALL_START.y,
       vx: 0,
       vy: 0,
       moving: false,

@@ -20,18 +20,28 @@
  *   v1 = the original calibration (pre 9 Sep 2026)
  *   v2 = real per-pair contact friction, explicit rolling resistance,
  *        static-stop hysteresis, adaptive substepping
+ *   v3 = order-independent ball↔ball contact solve (break no longer drifts)
+ *   v3.1 = client calibration + energy-correct (Poisson) contact solve
+ *   v4 = regulation ball size (57.15 mm pool / 52.5 mm snooker); racks
+ *        generated from the diameter; pockets scaled with the ball
  */
-export const PHYSICS_VERSION = "pooldawgs-v3.1";
+export const PHYSICS_VERSION = "pooldawgs-v4";
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
 
-/** Minimum centre distance treated as a ball-ball collision (= 1 diameter). */
-export const BALL_SIZE = 38;
+/** Minimum centre distance treated as a ball-ball collision (= 1 diameter).
+ *  v4: 57.15 mm at the table's px/m scale (was 38 px — 1.22× oversize). */
+export const BALL_SIZE = 31.2;
+/** The pre-v4 ball diameter. Pockets are scaled by BALL_SIZE / this so they
+ *  keep exactly the same size MEASURED IN BALL WIDTHS — i.e. the same
+ *  potting difficulty — as before the ball shrank. */
+export const LEGACY_BALL_SIZE = 38;
+export const POCKET_SCALE = BALL_SIZE / LEGACY_BALL_SIZE;
 /** Physical ball radius in px (spec: 28.575 mm). */
 export const BALL_RADIUS = BALL_SIZE / 2;
 export const BORDER_SIZE = 57;
-export const HOLE_RADIUS = 46;
+export const HOLE_RADIUS = 46 * POCKET_SCALE; // ≈ 37.8 (was 46)
 
 export const LEFT_BORDER_X = BORDER_SIZE;
 export const RIGHT_BORDER_X = TABLE_WIDTH - BORDER_SIZE;
@@ -241,15 +251,17 @@ export const SIDE_ACCEPT = Math.cos((40 * Math.PI) / 180);
 
 /** Centre-pocket mouth radius — bigger than a corner so the generous side
  *  pocket takes the ball easily (also widens the rail gap and the drawn mouth). */
-export const MIDDLE_RADIUS = 64;
+export const MIDDLE_RADIUS = 64 * POCKET_SCALE; // ≈ 52.5 (was 64)
 
 export const HOLES: readonly Hole[] = [
   { x: 62, y: 62, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top left
   { x: 1435, y: 62, radius: HOLE_RADIUS, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top right
   { x: 62, y: 762, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom left
   { x: 1435, y: 762, radius: HOLE_RADIUS, tx: SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom right
-  { x: 750, y: 36, radius: MIDDLE_RADIUS, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
-  { x: 750, y: 789, radius: MIDDLE_RADIUS, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
+  // Centre pockets sit behind the cushion line (21 px pre-v4, scaled with the
+  // ball) so the mouth still reaches a ball frozen on the cushion.
+  { x: 750, y: TOP_BORDER_Y - 21 * POCKET_SCALE, radius: MIDDLE_RADIUS, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
+  { x: 750, y: BOTTOM_BORDER_Y + 21 * POCKET_SCALE, radius: MIDDLE_RADIUS, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
 ];
 
 /** Minimum inward speed (px/s) to be captured — rejects a ball that has all
@@ -266,7 +278,7 @@ export const POCKET_MAGNETISM = 0.0;
 export const HEAD_STRING_X = LEFT_BORDER_X + PLAY_LENGTH_PX / 4; // 403.5
 /** Default break spot, just behind the head string (was x 413 — in front of
  *  the line, i.e. not a legal break position). */
-export const CUE_BALL_START = { x: 400, y: 413 };
+export const CUE_BALL_START = { x: 400, y: (TOP_BORDER_Y + BOTTOM_BORDER_Y) / 2 }; // on the table's centre line (412.5), like the rack
 
 /** Where pocketed balls are parked, mirroring Ball.out() in the fork. */
 export const POCKETED_PARK = { x: 0, y: 900 };

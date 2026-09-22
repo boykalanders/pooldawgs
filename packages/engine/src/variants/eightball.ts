@@ -11,7 +11,7 @@
 //   • Potting an opponent ball: foul. Any foul ⇒ opponent ball-in-hand.
 //   • Legal pot ⇒ shoot again; otherwise turns switch.
 
-import { CUE_BALL_START } from "../constants.js";
+import { POOL_GEOM } from "../geometry.js";
 import type {
   BallColor,
   BallState,
@@ -35,28 +35,44 @@ interface Acc8 {
 }
 
 // id → { color, number } matches apps/web ball art (solids 1–7, 8, stripes 9–15).
-// A FROZEN triangle: columns step +33 px (≥ diameter·cos30°) and balls within a
-// column step a full diameter (38 px), so vertical neighbours touch exactly and
-// diagonal neighbours sit 38.08 px apart — visually frozen, but always ≥ 1
-// diameter so the pack never self-separates before the break (integer coords
-// keep this deterministic across server and client).
-const RACK: ReadonlyArray<{ x: number; y: number; color: BallColor; number: number }> = [
-  { x: 1022, y: 413, color: "yellow", number: 1 },
-  { x: 1055, y: 394, color: "yellow", number: 2 },
-  { x: 1055, y: 432, color: "red", number: 9 },
-  { x: 1088, y: 375, color: "red", number: 10 },
-  { x: 1088, y: 413, color: "black", number: 8 },
-  { x: 1088, y: 451, color: "yellow", number: 3 },
-  { x: 1121, y: 356, color: "yellow", number: 4 },
-  { x: 1121, y: 394, color: "red", number: 11 },
-  { x: 1121, y: 432, color: "yellow", number: 5 },
-  { x: 1121, y: 470, color: "red", number: 12 },
-  { x: 1154, y: 337, color: "red", number: 13 },
-  { x: 1154, y: 375, color: "red", number: 14 },
-  { x: 1154, y: 413, color: "yellow", number: 6 },
-  { x: 1154, y: 451, color: "red", number: 15 },
-  { x: 1154, y: 489, color: "yellow", number: 7 },
+// A FROZEN triangle generated from the ball diameter (v4 — the hand-placed
+// integer coordinates only fitted the old 38 px ball). Balls in a column are
+// exactly one diameter apart, so they touch; columns step 0.88 diameter, a
+// hair over d·cos30° (0.866), so diagonal neighbours sit just over one
+// diameter apart and the pack never self-separates at rest. Centred on the
+// table's centre line, the same line the cue ball starts on.
+const RACK_LAYOUT: ReadonlyArray<ReadonlyArray<{ color: BallColor; number: number }>> = [
+  [{ color: "yellow", number: 1 }],
+  [{ color: "yellow", number: 2 }, { color: "red", number: 9 }],
+  [{ color: "red", number: 10 }, { color: "black", number: 8 }, { color: "yellow", number: 3 }],
+  [
+    { color: "yellow", number: 4 },
+    { color: "red", number: 11 },
+    { color: "yellow", number: 5 },
+    { color: "red", number: 12 },
+  ],
+  [
+    { color: "red", number: 13 },
+    { color: "red", number: 14 },
+    { color: "yellow", number: 6 },
+    { color: "red", number: 15 },
+    { color: "yellow", number: 7 },
+  ],
 ];
+const RACK_APEX_X = 1022;
+const RACK: ReadonlyArray<{ x: number; y: number; color: BallColor; number: number }> = (() => {
+  // +0.001 px: with a fractional diameter, float rounding can otherwise put
+  // touching balls a hair INSIDE one diameter (an overlap at rest).
+  const d = POOL_GEOM.BALL_SIZE + 0.001;
+  const centerY = (POOL_GEOM.TOP_BORDER_Y + POOL_GEOM.BOTTOM_BORDER_Y) / 2;
+  return RACK_LAYOUT.flatMap((column, c) =>
+    column.map((ball, k) => ({
+      ...ball,
+      x: RACK_APEX_X + c * d * 0.88,
+      y: centerY + (k - (column.length - 1) / 2) * d,
+    }))
+  );
+})();
 
 function pocketedCount(state: TableState, color: BallColor): number {
   let n = 0;
@@ -90,8 +106,8 @@ export const eightBall: GameRules<Acc8> = {
       color: "cue",
       number: 0,
       value: 0,
-      x: CUE_BALL_START.x,
-      y: CUE_BALL_START.y,
+      x: POOL_GEOM.CUE_BALL_START.x,
+      y: POOL_GEOM.CUE_BALL_START.y,
       vx: 0,
       vy: 0,
       moving: false,

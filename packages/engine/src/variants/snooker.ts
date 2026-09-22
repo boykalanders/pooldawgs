@@ -49,7 +49,7 @@ const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
 // historical racking bug), so the column factor keeps a small safety margin over
 // cos30° (0.866). At SNK diameter 35: vertical 35 (touching), diagonal ≈ 35.6.
 const RED_STEP_X = Math.round(SG.BALL_SIZE * 0.88);
-const RED_STEP_Y = SG.BALL_SIZE;
+const RED_STEP_Y = SG.BALL_SIZE + 0.001; // +0.001 px: float rounding must never make touching reds overlap
 const REDS_APEX_X = PINK_X + SG.BALL_SIZE + 2; // apex just behind the pink
 
 /** Colour spots laid out for our landscape table (baulk on the left). */

@@ -117,13 +117,18 @@ const SNK_W = SNK_PLAY_LEN + 2 * SNK_BORDER;
 const SNK_H = SNK_PLAY_WID + 2 * SNK_BORDER;
 // Snooker balls (52.5 mm) are ~8% smaller than pool balls; keep the engine's
 // pool oversize factor so they read at the same on-cloth scale ratio as real.
-const SNK_BALL_SIZE = Math.round(POOL_BALL_SIZE * (52.5 / 57.15)); // ≈ 35 px
+// v4: regulation 52.5 mm at the shared px/m scale (was 35 px, derived by
+// rounding from the old oversized pool ball).
+const SNK_BALL_SIZE = 28.65;
+const SNK_LEGACY_BALL_SIZE = 35;
+/** Snooker pockets keep their pre-v4 size in ball widths (see POCKET_SCALE). */
+const SNK_POCKET_SCALE = SNK_BALL_SIZE / SNK_LEGACY_BALL_SIZE;
 const SNK_BALL_RADIUS = SNK_BALL_SIZE / 2;
 // Snooker pockets (86 / 89 mm) are tighter than pool's (115 / 125 mm).
-const SNK_CORNER_R = Math.round(POOL_HOLE_RADIUS * (86 / 115)); // ≈ 34
+const SNK_CORNER_R = 34 * SNK_POCKET_SCALE; // ≈ 27.8 (was 34)
 // Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
 // pool middle-pocket bump; also widens the rail gap and the drawn mouth.
-const SNK_MIDDLE_R = 42;
+const SNK_MIDDLE_R = 42 * SNK_POCKET_SCALE; // ≈ 34.4 (was 42)
 // Baulk line 0.737 m off the baulk cushion; the D is a 0.292 m semicircle on it.
 const SNK_BAULK_X = SNK_BORDER + 0.737 * PX_PER_M;
 const SNK_D = { x: SNK_BAULK_X, y: SNK_H / 2, r: 0.292 * PX_PER_M };
