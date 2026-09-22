@@ -162,8 +162,9 @@ export const CUSHION_FRICTION = 0.16;
 // Bump PHYSICS_VERSION whenever any of these change.
 /** Rail (cushion) Coulomb friction. Higher = the ball grips the cushion more
  *  and comes off at a narrower angle, losing more of its along-rail speed.
- *  History: v3 0.20 → v3.1 0.16. */
-export const HAVOK_RAIL_FRICTION = 0.16;
+ *  History: v3 0.20 → v3.1 0.16 → back to 0.20 (23 Sep 2026, approved by
+ *  Mr. Shredz — restores the v3 cushion rebounds and english off the rail). */
+export const HAVOK_RAIL_FRICTION = 0.2;
 /** Rail bounce (share of the speed INTO the cushion that comes back out). */
 export const HAVOK_RAIL_RESTITUTION = 0.72;
 /** Ball↔cloth sliding friction: how fast spin turns into roll (draw/follow). */
