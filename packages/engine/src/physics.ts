@@ -24,6 +24,7 @@ import {
   CONTACT_SLOP,
   MIN_COLLISION_SPEED,
   POSITION_ITERATIONS,
+  MAX_CONTACT_LAYERS,
   PACK_RESTITUTION_SCALE,
   POSITIONAL_CORRECTION,
   SOLVE_TOLERANCE,
@@ -131,20 +132,25 @@ export function stepWorld(
     // side regardless of aim (pack centre ~60 px off a dead-straight cue line,
     // flipping side when the rack was mirrored).
     //
-    // POISSON restitution, in three order-independent phases:
-    //   1. compression — converge every touching, approaching pair to zero
-    //      approach speed (accumulated impulse, clamped ≥ 0);
-    //   2. restitution — give each contact e × its compression impulse, all at
-    //      once;
-    //   3. clean-up — the same inelastic solve again, for any pair the bounce
-    //      drove back together.
-    // For a single contact this is exactly the old (1+e)·approach/2 impulse.
-    // For a cluster it can only lose energy (phase 1 is a projection, phase 2
-    // reflects back at most e of it, phase 3 is inelastic). Both earlier
-    // attempts failed here: re-deriving the bounce from the approach speed left
-    // after each Jacobi pass made the break almost inelastic (13 % of its energy
-    // kept 25 ms after impact), and fixing each contact's bounce speed at impact
-    // (Newton's law) made it CREATE energy (108–127 %).
+    // The collision travels through the pack in LAYERS, the way it does on a
+    // real table: the cue hits the front ball, that ball hits the two behind
+    // it, and so on. Each layer is the set of pairs that are approaching right
+    // now; every layer is solved on its own with POISSON restitution:
+    //   1. compression — converge the layer's pairs to zero approach speed
+    //      (accumulated impulse, clamped ≥ 0);
+    //   2. restitution — give each pair e × its compression impulse at once;
+    //   3. clean-up — the inelastic solve again for pairs the bounce drove
+    //      back together.
+    // Balls in the same layer are solved together (Jacobi), so the result never
+    // depends on ball order and a straight break stays straight.
+    //
+    // Solving the WHOLE pack as one simultaneous impact instead — which is what
+    // this did before — bleeds most of the break away: 57 % of the cue's energy
+    // reached the table, against 93 % with the original sequential solver.
+    // Layer by layer it keeps ~90 % AND stays symmetric. (Two earlier attempts
+    // failed differently: re-deriving the bounce from the approach speed left
+    // after each Jacobi pass made the break nearly dead at 13 %, and fixing each
+    // pair's bounce speed at impact — Newton's law — CREATED energy, 108–127 %.)
     const onNew = (b1: BallState, b2: BallState) => {
       // Report each physical contact once per outer step (spec §7.4).
       const key = b1.id * 64 + b2.id;
@@ -155,14 +161,28 @@ export function stepWorld(
     };
     slot.fill(-1);
     cs.length = 0;
-    solveInelastic(balls, dt, cs, slot, counts, dv, onNew);
-    if (cs.length > 0) {
-      countContacts(cs, counts);
+    for (let layer = 0; layer < MAX_CONTACT_LAYERS; layer++) {
+      const from = cs.length;
+      // A pair may collide again in a later layer — a ball squeezed between two
+      // others is struck from both sides — so each layer looks at every pair
+      // that is approaching NOW. Restitution is below 1, so a pair cannot keep
+      // bouncing: it separates and drops out.
+      slot.fill(-1);
+      detectContacts(balls, dt, cs, slot, onNew);
+      if (cs.length === from) break; // nothing new is approaching
+      solveInelastic(balls, dt, cs, from, counts, dv); // 1. compression
+      countContacts(cs, from, counts);
       dv.fill(0);
-      for (const c of cs) restitutionImpulse(balls, c, counts, dv);
+      for (let k = from; k < cs.length; k++) restitutionImpulse(balls, cs[k], counts, dv); // 2. bounce
       applyDv(balls, dv);
+      for (let k = from; k < cs.length; k++) cs[k].acc = 0;
+      solveInelastic(balls, dt, cs, from, counts, dv); // 3. clean-up
+    }
+    // Finally settle every pair of this substep together, inelastically, so a
+    // ball driven back into one it has already bounced off cannot overlap it.
+    if (cs.length > 0) {
       for (const c of cs) c.acc = 0;
-      solveInelastic(balls, dt, cs, slot, counts, dv, onNew);
+      solveInelastic(balls, dt, cs, 0, counts, dv);
     }
 
     for (const ball of balls) {
@@ -239,11 +259,46 @@ interface Contact {
   comp: number;
 }
 
-function countContacts(cs: Contact[], counts: Int32Array): void {
+/** Contacts per ball WITHIN the layer starting at `from` (for the Jacobi share). */
+function countContacts(cs: Contact[], from: number, counts: Int32Array): void {
   counts.fill(0);
-  for (const c of cs) {
-    counts[c.i]++;
-    counts[c.j]++;
+  for (let k = from; k < cs.length; k++) {
+    counts[cs[k].i]++;
+    counts[cs[k].j]++;
+  }
+}
+
+/**
+ * Append every pair that is touching (at the predicted positions) and
+ * approaching, and that isn't already in this substep's contact list. `slot`
+ * maps a pair to its contact, so a pair is created once per substep.
+ */
+function detectContacts(
+  balls: BallState[],
+  dt: number,
+  cs: Contact[],
+  slot: Int32Array,
+  onNew: (a: BallState, b: BallState) => void
+): void {
+  const n = balls.length;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (slot[i * n + j] >= 0 || !detectContact(balls[i], balls[j], dt)) continue;
+      const b1 = balls[i];
+      const b2 = balls[j];
+      const approach = -((b1.vx - b2.vx) * contactNx + (b1.vy - b2.vy) * contactNy);
+      slot[i * n + j] = cs.length;
+      cs.push({
+        i,
+        j,
+        nx: contactNx,
+        ny: contactNy,
+        e: approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION,
+        acc: 0,
+        comp: 0,
+      });
+      onNew(b1, b2);
+    }
   }
 }
 
@@ -259,49 +314,25 @@ function applyDv(balls: BallState[], dv: Float64Array): void {
   }
 }
 
-/**
- * Jacobi-iterate every contact to zero approach speed. Contacts that start
- * approaching part-way through (a ball the pass just set moving) join the set;
- * `slot` maps a pair to its contact so each pair appears once per substep.
- */
+/** Jacobi-iterate the contacts from `from` onward to zero approach speed. */
 function solveInelastic(
   balls: BallState[],
   dt: number,
   cs: Contact[],
-  slot: Int32Array,
+  from: number,
   counts: Int32Array,
-  dv: Float64Array,
-  onNew: (a: BallState, b: BallState) => void
+  dv: Float64Array
 ): void {
-  const n = balls.length;
+  if (cs.length === from) return;
+  countContacts(cs, from, counts);
   for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
-    const before = cs.length;
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (slot[i * n + j] >= 0 || !detectContact(balls[i], balls[j], dt)) continue;
-        const b1 = balls[i];
-        const b2 = balls[j];
-        const approach = -((b1.vx - b2.vx) * contactNx + (b1.vy - b2.vy) * contactNy);
-        slot[i * n + j] = cs.length;
-        cs.push({
-          i,
-          j,
-          nx: contactNx,
-          ny: contactNy,
-          e: approach < MIN_COLLISION_SPEED ? 0 : BALL_RESTITUTION,
-          acc: 0,
-          comp: 0,
-        });
-        onNew(b1, b2);
-      }
-    }
-    if (cs.length === 0) return;
-    countContacts(cs, counts);
     dv.fill(0);
     let worst = 0;
-    for (const c of cs) worst = Math.max(worst, contactImpulse(balls, c, counts, dv));
+    for (let k = from; k < cs.length; k++) {
+      worst = Math.max(worst, contactImpulse(balls, cs[k], counts, dv));
+    }
     applyDv(balls, dv);
-    if (worst < SOLVE_TOLERANCE && cs.length === before) return; // converged
+    if (worst < SOLVE_TOLERANCE) return; // converged
   }
 }
 

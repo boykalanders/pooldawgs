@@ -143,6 +143,10 @@ export const VELOCITY_ITERATIONS = 24;
 /** Contact solve is converged when no pass moves any contact by more than this
  *  normal impulse (px/s per unit mass). */
 export const SOLVE_TOLERANCE = 0.01;
+/** How far a collision may travel through touching balls in one substep — the
+ *  rows of a rack, one layer per pass. A ceiling, not a cost: the loop stops as
+ *  soon as nothing else is approaching. */
+export const MAX_CONTACT_LAYERS = 24;
 export const POSITION_ITERATIONS = 8;
 /** Overlap tolerated before positional correction acts (spec §6.3: 1–3 mm). */
 export const CONTACT_SLOP = 0.002 * PX_PER_M; // ≈ 1.1 px
@@ -180,13 +184,17 @@ export const HAVOK_FOLLOW_DRAW_GAIN = 1.2;
 export const HAVOK_ENGLISH_GAIN = 1.15;
 /**
  * Break liveliness, BOTH engines: scales the bounce of collisions inside a
- * cluster (a ball touching two or more others at once — i.e. the rack). 1 =
- * full BALL_RESTITUTION (a lively, spread-out break); lower = the pack absorbs
- * more of the hit (a tighter, softer break). Single ball↔ball hits — every
- * normal shot — are unaffected. See scripts/break-symmetry.mjs for the energy
- * a break keeps at a given value.
+ * cluster (a ball struck while touching two or more others — i.e. the rack).
+ * Single ball↔ball hits — every normal shot — are unaffected.
+ *
+ * Above 1 because balls that meet at the same instant are solved as one group,
+ * which absorbs more than a real rack does, where the hit runs through the pack
+ * ball by ball. 1.1 compensates: a full-power break puts ~90% of the cue's
+ * energy on the table, matching the original sequential solver (93%) without
+ * its sideways drift. 1.0 gives ~61%, 1.2 overshoots past 100% (energy from
+ * nowhere). scripts/break-symmetry.mjs measures it and fails outside 40–100%.
  */
-export const PACK_RESTITUTION_SCALE = 1.0;
+export const PACK_RESTITUTION_SCALE = 1.1;
 /** Below this relative normal speed a contact is resolved inelastically
  *  (no bounce) to prevent jitter/micro-bouncing (spec 0.02 m/s). */
 export const MIN_COLLISION_SPEED = 0.02 * PX_PER_M; // ≈ 11 px/s

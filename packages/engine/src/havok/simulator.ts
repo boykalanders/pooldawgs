@@ -41,6 +41,7 @@ import {
   PACK_RESTITUTION_SCALE,
   MAX_POWER,
   MAX_STEPS,
+  MAX_CONTACT_LAYERS,
   MIN_COLLISION_SPEED,
   PHYSICS_VERSION,
   POOL_BALL_MASS,
@@ -502,11 +503,12 @@ function applyContact(c: HContact, jn: number, R: number): void {
   }
 }
 
-function countHContacts(): void {
+/** Contacts per ball WITHIN the layer starting at `from` (the Jacobi share). */
+function countHContacts(from: number): void {
   CNT.fill(0);
-  for (const c of hcs) {
-    CNT[c.i]++;
-    CNT[c.j]++;
+  for (let k = from; k < hcs.length; k++) {
+    CNT[hcs[k].i]++;
+    CNT[hcs[k].j]++;
   }
 }
 
@@ -517,41 +519,45 @@ function commitDeltas(n: number): void {
   }
 }
 
-/** Jacobi-iterate every touching, approaching pair to zero approach speed. */
-function solveInelasticHv(w: HavokWorld, n: number, h: number): void {
+/** Append every pair touching (at the predicted positions) and approaching. */
+function detectHContacts(w: HavokWorld, n: number, h: number): void {
   const D = 2 * w.R;
   const minSpeed = M(MIN_COLLISION_SPEED);
-  const tol = M(SOLVE_TOLERANCE);
-  for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
-    const before = hcs.length;
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (pairSlot[i * MAX_BALLS + j] >= 0) continue;
-        const dx = P[3 * i] + V[3 * i] * h - (P[3 * j] + V[3 * j] * h);
-        const dy = P[3 * i + 1] + V[3 * i + 1] * h - (P[3 * j + 1] + V[3 * j + 1] * h);
-        const dz = P[3 * i + 2] + V[3 * i + 2] * h - (P[3 * j + 2] + V[3 * j + 2] * h);
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist >= D || dist < 1e-12) continue;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const nz = dz / dist;
-        const vn =
-          (V[3 * i] - V[3 * j]) * nx + (V[3 * i + 1] - V[3 * j + 1]) * ny + (V[3 * i + 2] - V[3 * j + 2]) * nz;
-        if (vn >= 0) continue; // separating
-        pairSlot[i * MAX_BALLS + j] = hcs.length;
-        hcs.push({ i, j, nx, ny, nz, e: -vn < minSpeed ? 0 : BALL_RESTITUTION, acc: 0, comp: 0 });
-        if (!REPORTED[i * MAX_BALLS + j]) {
-          REPORTED[i * MAX_BALLS + j] = 1;
-          w.collisions.push({ a: live[i].id, b: live[j].id });
-        }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (pairSlot[i * MAX_BALLS + j] >= 0) continue;
+      const dx = P[3 * i] + V[3 * i] * h - (P[3 * j] + V[3 * j] * h);
+      const dy = P[3 * i + 1] + V[3 * i + 1] * h - (P[3 * j + 1] + V[3 * j + 1] * h);
+      const dz = P[3 * i + 2] + V[3 * i + 2] * h - (P[3 * j + 2] + V[3 * j + 2] * h);
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist >= D || dist < 1e-12) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const nz = dz / dist;
+      const vn =
+        (V[3 * i] - V[3 * j]) * nx + (V[3 * i + 1] - V[3 * j + 1]) * ny + (V[3 * i + 2] - V[3 * j + 2]) * nz;
+      if (vn >= 0) continue; // separating
+      pairSlot[i * MAX_BALLS + j] = hcs.length;
+      hcs.push({ i, j, nx, ny, nz, e: -vn < minSpeed ? 0 : BALL_RESTITUTION, acc: 0, comp: 0 });
+      if (!REPORTED[i * MAX_BALLS + j]) {
+        REPORTED[i * MAX_BALLS + j] = 1;
+        w.collisions.push({ a: live[i].id, b: live[j].id });
       }
     }
-    if (hcs.length === 0) return;
-    countHContacts();
+  }
+}
+
+/** Jacobi-iterate the contacts from `from` onward to zero approach speed. */
+function solveInelasticHv(w: HavokWorld, n: number, from: number): void {
+  if (hcs.length === from) return;
+  const tol = M(SOLVE_TOLERANCE);
+  countHContacts(from);
+  for (let it = 0; it < VELOCITY_ITERATIONS; it++) {
     DV.fill(0);
     DW.fill(0);
     let worst = 0;
-    for (const c of hcs) {
+    for (let k = from; k < hcs.length; k++) {
+      const c = hcs[k];
       const { i, j, nx, ny, nz } = c;
       const vn =
         (V[3 * i] - V[3 * j]) * nx + (V[3 * i + 1] - V[3 * j + 1]) * ny + (V[3 * i + 2] - V[3 * j + 2]) * nz;
@@ -565,17 +571,17 @@ function solveInelasticHv(w: HavokWorld, n: number, h: number): void {
       worst = Math.max(worst, Math.abs(jn));
     }
     commitDeltas(n);
-    if (worst < tol && hcs.length === before) return; // converged
+    if (worst < tol) return; // converged
   }
 }
 
 /**
  * Velocity solve for every ball↔ball contact in the coming substep `h` — the
- * same three-phase POISSON solve as the TS engine (physics.ts stepWorld):
- * converge every contact to zero approach speed, give each e × its compression
- * impulse all at once, then clean up anything the bounce drove back together.
- * Every phase is Jacobi (one snapshot, applied together), so the result does
- * not depend on body order, and a cluster can only lose energy.
+ * same LAYERED POISSON solve as the TS engine (see physics.ts stepWorld): the
+ * collision travels through the pack one layer of touching balls at a time,
+ * and each layer is compressed, given its bounce, then cleaned up. Balls in the
+ * same layer are solved together (Jacobi), so body order never decides the
+ * outcome.
  */
 function solveBallContacts(w: HavokWorld, h: number): void {
   const n = gatherLive(w);
@@ -600,18 +606,30 @@ function solveBallContacts(w: HavokWorld, h: number): void {
   pairSlot.fill(-1);
   hcs.length = 0;
 
-  solveInelasticHv(w, n, h); // 1. compression
-  if (hcs.length > 0) {
-    countHContacts(); // 2. restitution, all at once
+  for (let layer = 0; layer < MAX_CONTACT_LAYERS; layer++) {
+    const from = hcs.length;
+    // A pair may collide again in a later layer (a ball squeezed from both
+    // sides), so every layer looks at whatever is approaching now.
+    pairSlot.fill(-1);
+    detectHContacts(w, n, h);
+    if (hcs.length === from) break;
+    solveInelasticHv(w, n, from); // 1. compression
+    countHContacts(from); // 2. bounce, all at once
     DV.fill(0);
     DW.fill(0);
-    for (const c of hcs) {
+    for (let k = from; k < hcs.length; k++) {
+      const c = hcs[k];
       const pack = CNT[c.i] > 1 || CNT[c.j] > 1 ? PACK_RESTITUTION_SCALE : 1;
       applyContact(c, c.e * pack * c.comp, w.R);
     }
     commitDeltas(n);
+    for (let k = from; k < hcs.length; k++) hcs[k].acc = 0;
+    solveInelasticHv(w, n, from); // 3. clean-up
+  }
+  // Settle every pair of this substep together so nothing is left overlapping.
+  if (hcs.length > 0) {
     for (const c of hcs) c.acc = 0;
-    solveInelasticHv(w, n, h); // 3. clean-up
+    solveInelasticHv(w, n, 0);
   }
 
   for (let k = 0; k < n; k++) {
