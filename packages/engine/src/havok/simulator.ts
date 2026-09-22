@@ -30,6 +30,15 @@ import {
   BALL_RESTITUTION,
   CONTACT_SLOP,
   GRAVITY_MS2,
+  HAVOK_ANGULAR_DAMPING,
+  HAVOK_CLOTH_FRICTION,
+  HAVOK_ENGLISH_GAIN,
+  HAVOK_FOLLOW_DRAW_GAIN,
+  HAVOK_LINEAR_DAMPING,
+  HAVOK_RAIL_FRICTION,
+  HAVOK_RAIL_RESTITUTION,
+  MAX_SHOT_SPEED_MS,
+  PACK_RESTITUTION_SCALE,
   MAX_POWER,
   MAX_STEPS,
   MIN_COLLISION_SPEED,
@@ -76,16 +85,16 @@ const DT = 1 / 120; // fixed Havok timestep (matches PHYSICS_FPS)
 const SLEEP_SPEED = STATIC_STOP_SPEED_MS;
 /** Full-power launch speed (m/s). Real cue-ball break tops out ~7–8 m/s; this
  *  also keeps per-step travel below the rail thickness (no tunnelling). */
-const MAX_SPEED_MS = 8.5;
+const MAX_SPEED_MS = MAX_SHOT_SPEED_MS;
 /**
  * Residual drag only (spec §4.1). The cloth is modelled by explicit rolling
  * resistance below — damping is velocity-proportional, so it fades exactly when
  * a ball is nearly stopped, which is what produced the low-speed drift. Was
  * 0.24, doing the cloth's whole job.
  */
-const LINEAR_DAMPING = 0.04;
+const LINEAR_DAMPING = HAVOK_LINEAR_DAMPING;
 /** Low, so cue-ball spin survives the roll to first contact (draw/follow). */
-const ANGULAR_DAMPING = 0.12;
+const ANGULAR_DAMPING = HAVOK_ANGULAR_DAMPING;
 /**
  * Spin authority: multiples of the natural rolling rate (v/R) at full spin.
  * Reduced from 2.0 / 1.5 to the spec's §5.3 range (follow-draw 1.0–1.4, english
@@ -93,8 +102,8 @@ const ANGULAR_DAMPING = 0.12;
  * real cue can impart, which over-drove draw and made english unrealistically
  * strong off the cushion.
  */
-const FOLLOW_DRAW_GAIN = 1.2;
-const ENGLISH_GAIN = 1.15;
+const FOLLOW_DRAW_GAIN = HAVOK_FOLLOW_DRAW_GAIN;
+const ENGLISH_GAIN = HAVOK_ENGLISH_GAIN;
 
 interface BallBody {
   node: TransformNode;
@@ -236,16 +245,16 @@ export function isHavokReady(): boolean {
 // MINIMUM restitution combine is unchanged: ball↔floor → 0 (no vertical bounce),
 // ball↔rail → 0.72, ball↔ball → 0.93.
 const clothMaterial = {
-  friction: 0.2,
+  friction: HAVOK_CLOTH_FRICTION,
   restitution: 0,
   frictionCombine: PhysicsMaterialCombineMode.MAXIMUM,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
 const railMaterial = {
-  friction: 0.16,
+  friction: HAVOK_RAIL_FRICTION,
   // Real cushions bleed more energy than the spec's 0.88; ~0.72 keeps banks
   // lively but stops the full-power ball ricocheting for ~9 s ("no pinball").
-  restitution: 0.72,
+  restitution: HAVOK_RAIL_RESTITUTION,
   frictionCombine: PhysicsMaterialCombineMode.MAXIMUM,
   restitutionCombine: PhysicsMaterialCombineMode.MINIMUM,
 };
@@ -596,7 +605,10 @@ function solveBallContacts(w: HavokWorld, h: number): void {
     countHContacts(); // 2. restitution, all at once
     DV.fill(0);
     DW.fill(0);
-    for (const c of hcs) applyContact(c, c.e * c.comp, w.R);
+    for (const c of hcs) {
+      const pack = CNT[c.i] > 1 || CNT[c.j] > 1 ? PACK_RESTITUTION_SCALE : 1;
+      applyContact(c, c.e * pack * c.comp, w.R);
+    }
     commitDeltas(n);
     for (const c of hcs) c.acc = 0;
     solveInelasticHv(w, n, h); // 3. clean-up

@@ -59,7 +59,8 @@ export const POWER_EXPONENT = 1.4;
  * break, which is why the TS backend needed unphysical drag to stop a ball and
  * still felt different from the server. A real cue-ball break tops out ~7–8 m/s.
  */
-export const MAX_SHOT_SPEED = 8.5 * PX_PER_M; // ≈ 4638 px/s
+export const MAX_SHOT_SPEED_MS = 8.5;
+export const MAX_SHOT_SPEED = MAX_SHOT_SPEED_MS * PX_PER_M; // ≈ 4638 px/s
 
 // ── cloth friction (spec §4: ≈3–4 table lengths on full power) ────────────
 // Constant-deceleration rolling model (real billiards) rather than the fork's
@@ -143,6 +144,37 @@ export const POSITIONAL_CORRECTION = 0.2;
 export const CUSHION_RESTITUTION = 0.72;
 /** Cushion tangential friction — tuned to 0.16 for balanced bank angle/speed retention. */
 export const CUSHION_FRICTION = 0.16;
+
+// ── TUNING KNOBS for the real game (Havok) ────────────────────────────────
+// Everything that shapes how a match plays, in one place. The TS engine
+// (Practice) has its own equivalents above (CUSHION_RESTITUTION,
+// CUSHION_FRICTION, ROLL_DECEL, VISCOUS_DRAG, TOP_SPIN/BACK_SPIN, …).
+// Bump PHYSICS_VERSION whenever any of these change.
+/** Rail (cushion) Coulomb friction. Higher = the ball grips the cushion more
+ *  and comes off at a narrower angle, losing more of its along-rail speed.
+ *  History: v3 0.20 → v3.1 0.16. */
+export const HAVOK_RAIL_FRICTION = 0.16;
+/** Rail bounce (share of the speed INTO the cushion that comes back out). */
+export const HAVOK_RAIL_RESTITUTION = 0.72;
+/** Ball↔cloth sliding friction: how fast spin turns into roll (draw/follow). */
+export const HAVOK_CLOTH_FRICTION = 0.2;
+/** Residual velocity damping (the cloth itself is POOL/SNOOKER_ROLLING_RESISTANCE). */
+export const HAVOK_LINEAR_DAMPING = 0.04;
+/** Spin damping — low so spin survives the roll to first contact. */
+export const HAVOK_ANGULAR_DAMPING = 0.12;
+/** Full follow/draw spin as a multiple of the natural roll rate v/R. */
+export const HAVOK_FOLLOW_DRAW_GAIN = 1.2;
+/** Full side english as a multiple of v/R. */
+export const HAVOK_ENGLISH_GAIN = 1.15;
+/**
+ * Break liveliness, BOTH engines: scales the bounce of collisions inside a
+ * cluster (a ball touching two or more others at once — i.e. the rack). 1 =
+ * full BALL_RESTITUTION (a lively, spread-out break); lower = the pack absorbs
+ * more of the hit (a tighter, softer break). Single ball↔ball hits — every
+ * normal shot — are unaffected. See scripts/break-symmetry.mjs for the energy
+ * a break keeps at a given value.
+ */
+export const PACK_RESTITUTION_SCALE = 1.0;
 /** Below this relative normal speed a contact is resolved inelastically
  *  (no bounce) to prevent jitter/micro-bouncing (spec 0.02 m/s). */
 export const MIN_COLLISION_SPEED = 0.02 * PX_PER_M; // ≈ 11 px/s

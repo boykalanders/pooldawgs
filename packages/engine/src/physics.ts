@@ -24,6 +24,7 @@ import {
   CONTACT_SLOP,
   MIN_COLLISION_SPEED,
   POSITION_ITERATIONS,
+  PACK_RESTITUTION_SCALE,
   POSITIONAL_CORRECTION,
   SOLVE_TOLERANCE,
   VELOCITY_ITERATIONS,
@@ -306,7 +307,9 @@ function solveInelastic(
 
 /** Phase 2: each contact's bounce, e × its compression impulse, plus friction. */
 function restitutionImpulse(balls: BallState[], c: Contact, counts: Int32Array, dv: Float64Array): void {
-  const jn = c.e * c.comp;
+  // Inside a cluster (the rack) the bounce is scaled by PACK_RESTITUTION_SCALE.
+  const pack = counts[c.i] > 1 || counts[c.j] > 1 ? PACK_RESTITUTION_SCALE : 1;
+  const jn = c.e * pack * c.comp;
   if (jn <= 0) return;
   const b1 = balls[c.i];
   const b2 = balls[c.j];
