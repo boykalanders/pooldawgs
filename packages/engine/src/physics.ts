@@ -14,7 +14,7 @@
 import {
   BALL_RESTITUTION,
   CUSHION_FRICTION,
-  CUSHION_RESTITUTION,
+  cushionRestitution,
   DELTA,
   type Hole,
   MAX_POWER,
@@ -476,6 +476,26 @@ function capturingHole(ball: BallState, x: number, y: number): Hole | null {
 }
 
 /**
+ * Bounce off a cushion (or a jaw) along the unit normal (nx, ny).
+ * The bounce shrinks as the ball arrives harder (cushionRestitution), and
+ * friction along the cushion is Coulomb-limited: it can only take µ × the
+ * normal impulse, so a shallow ball slides along the rail keeping its pace
+ * while a square hit loses more. Both together are what stops the cushion
+ * behaving like a mirror.
+ */
+function cushionBounce(ball: BallState, nx: number, ny: number): void {
+  const vn = ball.vx * nx + ball.vy * ny; // negative = into the cushion
+  if (vn >= 0) return;
+  const e = cushionRestitution(vn);
+  const tx = -ny;
+  const ty = nx;
+  const vtOut = (ball.vx * tx + ball.vy * ty) * (1 - CUSHION_FRICTION);
+  const vnOut = -vn * e;
+  ball.vx = nx * vnOut + tx * vtOut;
+  ball.vy = ny * vnOut + ty * vtOut;
+}
+
+/**
  * The cushions stop at the jaw tips, which are rounded. A ball arriving at a
  * mouth off-line clips a tip and rattles instead of dropping — the piece that
  * was missing while pockets were plain capture circles, and the reason cushion
@@ -492,14 +512,8 @@ function bounceOffJaw(ball: BallState, x: number, y: number): boolean {
       if (dist >= reach || dist < 1e-9) continue;
       const nx = dx / dist;
       const ny = dy / dist;
-      const vn = ball.vx * nx + ball.vy * ny;
-      if (vn >= 0) continue; // already moving away from the jaw
-      const tx = -ny;
-      const ty = nx;
-      const vt = (ball.vx * tx + ball.vy * ty) * (1 - CUSHION_FRICTION);
-      const out = -vn * CUSHION_RESTITUTION;
-      ball.vx = nx * out + tx * vt;
-      ball.vy = ny * out + ty * vt;
+      if (ball.vx * nx + ball.vy * ny >= 0) continue; // already moving away
+      cushionBounce(ball, nx, ny);
       ball.x = jaw.x + nx * reach;
       ball.y = jaw.y + ny * reach;
       return true;
@@ -600,24 +614,20 @@ function integrateBall(
 
   let collision = false;
   if (newX - G.BALL_RADIUS < G.LEFT_BORDER_X && !railOpenY(newY, -1)) {
-    ball.vx = -ball.vx * CUSHION_RESTITUTION;
-    ball.vy *= 1 - CUSHION_FRICTION;
+    cushionBounce(ball, 1, 0);
     ball.x = G.LEFT_BORDER_X + G.BALL_RADIUS;
     collision = true;
   } else if (newX + G.BALL_RADIUS > G.RIGHT_BORDER_X && !railOpenY(newY, 1)) {
-    ball.vx = -ball.vx * CUSHION_RESTITUTION;
-    ball.vy *= 1 - CUSHION_FRICTION;
+    cushionBounce(ball, -1, 0);
     ball.x = G.RIGHT_BORDER_X - G.BALL_RADIUS;
     collision = true;
   }
   if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y && !railOpenX(newX, -1)) {
-    ball.vy = -ball.vy * CUSHION_RESTITUTION;
-    ball.vx *= 1 - CUSHION_FRICTION;
+    cushionBounce(ball, 0, 1);
     ball.y = G.TOP_BORDER_Y + G.BALL_RADIUS;
     collision = true;
   } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y && !railOpenX(newX, 1)) {
-    ball.vy = -ball.vy * CUSHION_RESTITUTION;
-    ball.vx *= 1 - CUSHION_FRICTION;
+    cushionBounce(ball, 0, -1);
     ball.y = G.BOTTOM_BORDER_Y - G.BALL_RADIUS;
     collision = true;
   }

@@ -164,8 +164,26 @@ export const POSITIONAL_CORRECTION = 0.2;
  *  the fix-spec's 0.70 target (§7.2, §12 parity): at 0.88 a full-power ball kept
  *  ~28% of its speed through 10 banks and pinballed for ~10 table lengths. */
 export const CUSHION_RESTITUTION = 0.72;
-/** Cushion tangential friction (Practice). Back to 0.12 to pair with the real
- *  game's rail friction 0.20 the way v3 did — v3.1 moved both to 0.16. */
+/**
+ * Real cushions are springy when tapped and squash when hammered, so the
+ * bounce depends on how hard the ball arrives — a constant is the one thing a
+ * real cushion is not. These are the ends of the range, in the normal
+ * (into-the-cushion) direction: gentle roll keeps ~0.85 of its approach speed,
+ * a full-power smash ~0.58.
+ */
+export const CUSHION_RESTITUTION_SLOW = 0.84;
+export const CUSHION_RESTITUTION_FAST = 0.65;
+/** Impact speed (m/s) at which the cushion is fully squashed. */
+export const CUSHION_FAST_SPEED_MS = 5;
+
+/** Cushion bounce for an impact at `normalSpeed` px/s into the cushion. */
+export function cushionRestitution(normalSpeed: number): number {
+  const t = Math.min(1, Math.abs(normalSpeed) / (CUSHION_FAST_SPEED_MS * PX_PER_M));
+  return CUSHION_RESTITUTION_SLOW + (CUSHION_RESTITUTION_FAST - CUSHION_RESTITUTION_SLOW) * t;
+}
+/** Cushion friction: the share of the ball's speed ALONG the rail that the
+ *  cushion nap takes (Practice). The rebound angle comes from this together
+ *  with the speed-dependent bounce above, so it is no longer a fixed mirror. */
 export const CUSHION_FRICTION = 0.12;
 
 // ── TUNING KNOBS for the real game (Havok) ────────────────────────────────

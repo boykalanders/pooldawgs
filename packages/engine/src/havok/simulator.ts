@@ -33,6 +33,7 @@ import {
   BALL_BALL_FRICTION,
   BALL_RESTITUTION,
   CONTACT_SLOP,
+  cushionRestitution,
   GRAVITY_MS2,
   HAVOK_ANGULAR_DAMPING,
   HAVOK_CLOTH_FRICTION,
@@ -665,6 +666,47 @@ function solveBallContacts(w: HavokWorld, h: number): void {
   }
 }
 
+/** Velocity of each live ball before the step, for the cushion fix below. */
+const PREV_V = new Float64Array(MAX_BALLS * 3);
+function snapshotForCushions(w: HavokWorld): void {
+  const n = gatherLive(w);
+  for (let k = 0; k < n; k++) {
+    const v = live[k].body.getLinearVelocity();
+    PREV_V[3 * k] = v.x;
+    PREV_V[3 * k + 1] = v.y;
+    PREV_V[3 * k + 2] = v.z;
+  }
+}
+
+/**
+ * Real cushions are springy when tapped and squash when hammered, so how much
+ * of the ball's speed comes back depends on how hard it arrives. Havok's rail
+ * material is one fixed number and cannot do that, so any ball that bounced off
+ * a cushion during this step has its speed INTO the cushion re-set to the
+ * speed-dependent value (constants.ts cushionRestitution), measured against the
+ * speed it had when the step began. Speed along the rail, spin and everything
+ * else Havok worked out are left alone.
+ */
+function applyCushionRestitution(w: HavokWorld): void {
+  const n = gatherLive(w);
+  for (const c of w.collisions) {
+    if (!("rail" in c)) continue;
+    const k = live.findIndex((bb) => bb.id === c.rail);
+    if (k < 0 || k >= n) continue;
+    const bb = live[k];
+    const v = bb.body.getLinearVelocity();
+    const bx = PREV_V[3 * k];
+    const bz = PREV_V[3 * k + 2];
+    // Which axis turned around? That is the cushion it came off.
+    const flipX = Math.abs(bx) > 0.05 && Math.sign(v.x) === -Math.sign(bx);
+    const flipZ = Math.abs(bz) > 0.05 && Math.sign(v.z) === -Math.sign(bz);
+    if (!flipX && !flipZ) continue;
+    const vx = flipX ? Math.sign(v.x) * cushionRestitution(PX(Math.abs(bx))) * Math.abs(bx) : v.x;
+    const vz = flipZ ? Math.sign(v.z) * cushionRestitution(PX(Math.abs(bz))) * Math.abs(bz) : v.z;
+    bb.body.setLinearVelocity(new Vector3(vx, v.y, vz));
+  }
+}
+
 /**
  * Positional correction (spec §6.3), Jacobi like the TS engine: overlapping
  * pairs are pushed apart by a fraction of the penetration beyond the slop,
@@ -854,11 +896,13 @@ export function simulateShotHavok(
 
     w.collisions.length = 0;
     const h = DT / substeps;
+    snapshotForCushions(w); // speed before this step, for the cushion bounce
     for (let s = 0; s < substeps; s++) {
       solveBallContacts(w, h);
       w.step(h);
       correctBallOverlaps(w);
     }
+    applyCushionRestitution(w);
 
     // Emit collisions captured this step, in order, and feed the rules.
     // De-duplicated (spec §7.4): a ball riding a rail or a bevel reports a
