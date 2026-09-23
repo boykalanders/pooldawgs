@@ -16,7 +16,11 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin.js";
 import { PhysicsBody } from "@babylonjs/core/Physics/v2/physicsBody.js";
-import { PhysicsShapeSphere, PhysicsShapeBox } from "@babylonjs/core/Physics/v2/physicsShape.js";
+import {
+  PhysicsShapeSphere,
+  PhysicsShapeBox,
+  PhysicsShapeCylinder,
+} from "@babylonjs/core/Physics/v2/physicsShape.js";
 import {
   PhysicsMotionType,
   PhysicsEventType,
@@ -44,6 +48,7 @@ import {
   MAX_CONTACT_LAYERS,
   MIN_COLLISION_SPEED,
   PHYSICS_VERSION,
+  POCKET_MIN_INWARD,
   POOL_BALL_MASS,
   POOL_ROLLING_RESISTANCE,
   POSITION_ITERATIONS,
@@ -80,6 +85,8 @@ const PX = (m: number) => m * PX_PER_M;
 const geomKey = (gameType: GameType): string => (gameType === "snooker" ? "snooker" : "pool");
 
 const DT = 1 / 120; // fixed Havok timestep (matches PHYSICS_FPS)
+/** Rounded cushion end at a jaw tip (~10 mm), same as the TS engine. */
+const KNUCKLE_RADIUS = 5.5;
 /** Global settle threshold (m/s). Keep this equal to the per-ball static-stop
  * threshold so the shot cannot finish while a ball still has meaningful
  * residual motion awaiting its static-stop hysteresis. */
@@ -304,33 +311,35 @@ function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): vo
   const spanZ = bottom - top;
   const spanX = right - left;
 
-  // Middle pockets (tx === 0) open a real GAP in the top/bottom rails: a ball
-  // whose centre is within `g` of the pocket rolls into the throat instead of
-  // rebounding off a phantom wall behind the pocket. Mirrors the TS engine's
-  // railMouthHole so both backends take a middle-pocket ball the same way.
-  const midHole = geom.HOLES.find((hh) => hh.tx === 0);
-  const g = midHole ? Math.max(0, M(midHole.radius - geom.BALL_RADIUS)) : 0;
+  // The cushions STOP at the jaw tips, exactly as on a real table: each rail is
+  // cut by the middle-pocket mouth and by the corner mouths, and the box ends
+  // left behind are the jaws a misplaced ball rattles off. (Previously the
+  // rails ran corner to corner and pockets were plain capture circles, which
+  // swallowed balls a real pocket rejects.)
+  const midHole = geom.HOLES.find((hh) => hh.tx === 0)!;
+  const cornerHole = geom.HOLES.find((hh) => hh.tx !== 0)!;
+  const g = M(midHole.mouth) / 2; // half the middle-pocket mouth
+  const back = M(cornerHole.mouth) * Math.SQRT1_2; // corner jaws, set back along each cushion
   const topZ = top - t / 2;
   const botZ = bottom + t / 2;
-  const leftEnd = left - t; // outer x of the left corner block
-  const rightEnd = right + t; // outer x of the right corner block
+  const xA = left + back; // first jaw tip on the top/bottom cushions
+  const xB = right - back;
+  const zA = top + back; // first jaw tip on the left/right cushions
+  const zB = bottom - back;
 
+  const seg = (a: number, b: number): [number, number] => [(a + b) / 2, b - a];
+  const [leftZc, leftZe] = seg(zA, zB);
+  const [topXa, topXea] = seg(xA, midX - g);
+  const [topXb, topXeb] = seg(midX + g, xB);
   const walls: Array<[number, number, number, number]> = [
     // [centerX, centerZ, extentX, extentZ]
-    [left - t / 2, midZ, t, spanZ + t * 2], // left
-    [right + t / 2, midZ, t, spanZ + t * 2], // right
+    [left - t / 2, leftZc, t, leftZe], // left cushion, corner to corner mouth
+    [right + t / 2, leftZc, t, leftZe], // right cushion
+    [topXa, topZ, topXea, t], // top cushion, left of the middle pocket
+    [topXb, topZ, topXeb, t], // top cushion, right of it
+    [topXa, botZ, topXea, t], // bottom cushion, left
+    [topXb, botZ, topXeb, t], // bottom cushion, right
   ];
-  if (g > 0) {
-    // Top rail — split into two segments either side of the middle-pocket gap.
-    walls.push([(leftEnd + (midX - g)) / 2, topZ, midX - g - leftEnd, t]);
-    walls.push([(midX + g + rightEnd) / 2, topZ, rightEnd - (midX + g), t]);
-    // Bottom rail — same gap.
-    walls.push([(leftEnd + (midX - g)) / 2, botZ, midX - g - leftEnd, t]);
-    walls.push([(midX + g + rightEnd) / 2, botZ, rightEnd - (midX + g), t]);
-  } else {
-    walls.push([midX, topZ, spanX + t * 2, t]); // top (full)
-    walls.push([midX, botZ, spanX + t * 2, t]); // bottom (full)
-  }
   for (const [cx, cz, ex, ez] of walls) {
     const node = new TransformNode("rail", scene);
     node.position = new Vector3(cx, h / 2, cz);
@@ -344,6 +353,27 @@ function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): vo
     shape.material = railMaterial;
     body.shape = shape;
     railIds.add(node.uniqueId);
+  }
+
+  // The jaws themselves: a rounded post at each tip, like the rubber end of a
+  // real cushion. Without them a ball could slide along the flat cut end of a
+  // rail and fall in from an angle the pocket should have rejected.
+  const knuckle = M(KNUCKLE_RADIUS);
+  for (const hole of geom.HOLES) {
+    for (const jaw of hole.jaws) {
+      const node = new TransformNode("jaw", scene);
+      node.position = new Vector3(M(jaw.x), h / 2, M(jaw.y));
+      const body = new PhysicsBody(node, PhysicsMotionType.STATIC, false, scene);
+      const shape = new PhysicsShapeCylinder(
+        new Vector3(0, -h / 2, 0),
+        new Vector3(0, h / 2, 0),
+        knuckle,
+        scene
+      );
+      shape.material = railMaterial;
+      body.shape = shape;
+      railIds.add(node.uniqueId);
+    }
   }
 }
 
@@ -375,24 +405,19 @@ function park(b: BallBody): void {
 }
 
 /** Analytic pocket capture (reuses the calibrated throat gate, per-variant). */
+/**
+ * Geometric capture, the same rule as the TS engine: the ball drops once its
+ * centre crosses the line between the two jaw tips, between those tips. A ball
+ * that arrives off-line hits a jaw (the cut end of a rail) and rattles.
+ */
 function capturedHole(x: number, y: number, vx: number, vy: number): boolean {
   for (const hole of G.HOLES) {
-    // Middle-pocket throat: a ball that has rolled through the rail gap and
-    // pushed its centre past the rail line is physically in the pocket, so it
-    // drops at any angle (matches the TS engine). Rail-skimmers travel along the
-    // rail and never cross the line, so they are still rejected below.
-    if (hole.tx === 0) {
-      const half = hole.radius - G.BALL_RADIUS;
-      const pastLine = hole.ty === -1 ? y <= G.TOP_BORDER_Y : y >= G.BOTTOM_BORDER_Y;
-      if (half > 0 && Math.abs(x - hole.x) < half && pastLine) return true;
-    }
-    const dx = x - hole.x;
-    const dy = y - hole.y;
-    if (Math.sqrt(dx * dx + dy * dy) >= hole.radius) continue;
-    const vIn = vx * hole.tx + vy * hole.ty;
-    if (vIn < 35) continue;
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    if (speed < 1e-6 || vIn / speed < hole.acceptCos) continue;
+    const dx = x - hole.mx;
+    const dy = y - hole.my;
+    if (dx * hole.tx + dy * hole.ty <= 0) continue; // not past the mouth yet
+    // Clear passage between the jaws (half the mouth minus the ball's radius).
+    if (Math.abs(dx * hole.ux + dy * hole.uy) > hole.mouth / 2 - G.BALL_RADIUS) continue;
+    if (vx * hole.tx + vy * hole.ty < POCKET_MIN_INWARD) continue; // nudged, not potted
     return true;
   }
   return false;

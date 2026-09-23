@@ -41,7 +41,6 @@ export const POCKET_SCALE = BALL_SIZE / LEGACY_BALL_SIZE;
 /** Physical ball radius in px (spec: 28.575 mm). */
 export const BALL_RADIUS = BALL_SIZE / 2;
 export const BORDER_SIZE = 57;
-export const HOLE_RADIUS = 46 * POCKET_SCALE; // ≈ 37.8 (was 46)
 
 export const LEFT_BORDER_X = BORDER_SIZE;
 export const RIGHT_BORDER_X = TABLE_WIDTH - BORDER_SIZE;
@@ -53,6 +52,15 @@ export const BOTTOM_BORDER_Y = TABLE_HEIGHT - BORDER_SIZE;
 export const PLAY_LENGTH_PX = RIGHT_BORDER_X - LEFT_BORDER_X; // 1386
 /** Pixel ↔ metre conversion derived from the 8-ball table length. */
 export const PX_PER_M = PLAY_LENGTH_PX / 2.54; // ≈ 545.7
+
+/** px per millimetre — the ball is regulation size, so everything measured in
+ *  mm on a real table converts straight through. */
+export const MM = (mm: number) => (mm / 1000) * PX_PER_M;
+/** Corner-pocket mouth — regulation 115 mm between the jaw tips (WPA 114–117). */
+export const CORNER_MOUTH = MM(115); // ≈ 62.8 px = 2.01 ball widths
+/** Half the corner mouth. Kept under the old name for call sites that just want
+ *  "how big is a pocket" (aim assist, placement checks, drop FX). */
+export const HOLE_RADIUS = CORNER_MOUTH / 2;
 
 // ── update rate (spec §9: target 120 Hz) ─────────────────────────────────
 export const PHYSICS_FPS = 120;
@@ -237,14 +245,98 @@ export const SHOT_VELOCITY_FACTOR = MAX_SHOT_SPEED; // back-compat alias
 // that are on-line so they drop satisfyingly.
 
 export interface Hole {
+  /** Pocket centre — for aiming, the drop animation and placement checks. */
   x: number;
   y: number;
+  /** Half the mouth: kept as the "how big is this pocket" number for the UI. */
   radius: number;
   /** Unit vector pointing from the table interior INTO the pocket throat. */
   tx: number;
   ty: number;
   /** cos(acceptance half-angle): a ball's inward direction must exceed this. */
   acceptCos: number;
+  /** Mouth width between the two jaw tips (px) — the real table dimension. */
+  mouth: number;
+  /** Middle of the mouth, on the line joining the jaw tips. */
+  mx: number;
+  my: number;
+  /** Unit vector along the mouth line (perpendicular to tx/ty). */
+  ux: number;
+  uy: number;
+  /** The two jaw tips: where the cushions stop and the pocket begins. */
+  jaws: readonly [{ x: number; y: number }, { x: number; y: number }];
+}
+
+/**
+ * Build the six pockets from REAL mouth widths — the distance between the two
+ * jaw tips, which is what a table is actually specified by (WPA pool: corner
+ * 114–117 mm, side 127–130 mm; snooker: corner 86 mm, middle 89 mm).
+ *
+ * The cushions stop at the jaw tips, so a ball only drops if its centre
+ * crosses the mouth line with the jaws clear; anything else hits a jaw and
+ * rattles. That is why a pocket is described here by its mouth and its jaws
+ * rather than by a capture circle — a circle swallowed balls that a real
+ * pocket rejects, especially off a cushion into the middle pockets.
+ */
+export function buildPockets(
+  width: number,
+  height: number,
+  border: number,
+  cornerMouth: number,
+  middleMouth: number
+): Hole[] {
+  const L = border;
+  const R = width - border;
+  const T = border;
+  const B = height - border;
+  const midX = width / 2;
+  // A 90° corner with the jaws set back `a` along each cushion has a mouth of
+  // a·√2 across the diagonal.
+  const a = cornerMouth * Math.SQRT1_2;
+  // sx / sy point OUT of the table, so the jaws are set back INTO it.
+  const corner = (cx: number, cy: number, sx: number, sy: number): Hole => {
+    const j1 = { x: cx - sx * a, y: cy }; // on the top/bottom cushion
+    const j2 = { x: cx, y: cy - sy * a }; // on the left/right cushion
+    const mx = (j1.x + j2.x) / 2;
+    const my = (j1.y + j2.y) / 2;
+    const len = Math.hypot(j2.x - j1.x, j2.y - j1.y);
+    return {
+      // Centre sits a little way into the throat, past the mouth.
+      x: mx + sx * SQRT1_2 * cornerMouth * 0.3,
+      y: my + sy * SQRT1_2 * cornerMouth * 0.3,
+      radius: cornerMouth / 2,
+      tx: sx * SQRT1_2,
+      ty: sy * SQRT1_2,
+      acceptCos: CORNER_ACCEPT,
+      mouth: cornerMouth,
+      mx,
+      my,
+      ux: (j2.x - j1.x) / len,
+      uy: (j2.y - j1.y) / len,
+      jaws: [j1, j2],
+    };
+  };
+  const middle = (sy: number): Hole => {
+    const lineY = sy < 0 ? T : B;
+    return {
+      x: midX,
+      y: lineY + sy * middleMouth * 0.3,
+      radius: middleMouth / 2,
+      tx: 0,
+      ty: sy,
+      acceptCos: SIDE_ACCEPT,
+      mouth: middleMouth,
+      mx: midX,
+      my: lineY,
+      ux: 1,
+      uy: 0,
+      jaws: [
+        { x: midX - middleMouth / 2, y: lineY },
+        { x: midX + middleMouth / 2, y: lineY },
+      ],
+    };
+  };
+  return [corner(L, T, -1, -1), corner(R, T, 1, -1), corner(L, B, -1, 1), corner(R, B, 1, 1), middle(-1), middle(1)];
 }
 
 const SQRT1_2 = Math.SQRT1_2;
@@ -259,20 +351,16 @@ export const CORNER_ACCEPT = Math.cos((52 * Math.PI) / 180);
  *  gate, not this cone, is what still rejects true rail-skims. */
 export const SIDE_ACCEPT = Math.cos((40 * Math.PI) / 180);
 
-/** Centre-pocket mouth radius — bigger than a corner so the generous side
- *  pocket takes the ball easily (also widens the rail gap and the drawn mouth). */
-export const MIDDLE_RADIUS = 64 * POCKET_SCALE; // ≈ 52.5 (was 64)
+/** Centre-pocket mouth — regulation 127 mm between the jaw tips. */
+export const MIDDLE_MOUTH = MM(127); // ≈ 69.3 px = 2.22 ball widths
 
-export const HOLES: readonly Hole[] = [
-  { x: 62, y: 62, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top left
-  { x: 1435, y: 62, radius: HOLE_RADIUS, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT }, // top right
-  { x: 62, y: 762, radius: HOLE_RADIUS, tx: -SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom left
-  { x: 1435, y: 762, radius: HOLE_RADIUS, tx: SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT }, // bottom right
-  // Centre pockets sit behind the cushion line (21 px pre-v4, scaled with the
-  // ball) so the mouth still reaches a ball frozen on the cushion.
-  { x: 750, y: TOP_BORDER_Y - 21 * POCKET_SCALE, radius: MIDDLE_RADIUS, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT }, // top centre
-  { x: 750, y: BOTTOM_BORDER_Y + 21 * POCKET_SCALE, radius: MIDDLE_RADIUS, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT }, // bottom centre
-];
+export const HOLES: readonly Hole[] = buildPockets(
+  TABLE_WIDTH,
+  TABLE_HEIGHT,
+  BORDER_SIZE,
+  CORNER_MOUTH,
+  MIDDLE_MOUTH
+);
 
 /** Minimum inward speed (px/s) to be captured — rejects a ball that has all
  *  but stopped at the jaw. The acceptance cone (not this) rejects directional

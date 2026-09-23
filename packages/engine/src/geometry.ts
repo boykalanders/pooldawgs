@@ -12,6 +12,8 @@
 // snooker ball is far smaller relative to the cloth (the "finer" snooker feel).
 
 import {
+  MM,
+  buildPockets,
   BALL_RADIUS as POOL_BALL_RADIUS,
   BALL_SIZE as POOL_BALL_SIZE,
   BORDER_SIZE as POOL_BORDER_SIZE,
@@ -57,40 +59,9 @@ export interface TableGeometry {
   D: { x: number; y: number; rx: number; ry: number } | null;
 }
 
-const SQRT1_2 = Math.SQRT1_2;
-// CORNER_ACCEPT / SIDE_ACCEPT come from constants.ts — snooker's pockets share
-// the same acceptance cones as pool's (previously duplicated here with a stale
-// 26° centre-pocket cone, from before that was widened to 31° on client
-// feedback that the middle pocket felt too narrow; only the pool copy got
-// fixed, so snooker's middle pockets kept rejecting balls that visually
-// looked like clean pots).
-
-/** Build the six pockets for a table of the given size and pocket radii. */
-function buildHoles(
-  width: number,
-  height: number,
-  border: number,
-  ballRadius: number,
-  cornerR: number,
-  middleR: number
-): Hole[] {
-  const inset = border + 5; // corner mouth, slightly inside the rail corner
-  const midX = width / 2;
-  // Centre pockets must reach a ball resting at the cushion (its centre is
-  // clamped at border + ballRadius). Place the centre so that ball sits ~0.78r
-  // inside the mouth — otherwise, with a small radius (snooker), the pocket
-  // ends short of the cushion line and never captures.
-  const clamp = border + ballRadius;
-  const topMid = clamp - middleR * 0.78;
-  return [
-    { x: inset, y: inset, radius: cornerR, tx: -SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT },
-    { x: width - inset, y: inset, radius: cornerR, tx: SQRT1_2, ty: -SQRT1_2, acceptCos: CORNER_ACCEPT },
-    { x: inset, y: height - inset, radius: cornerR, tx: -SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT },
-    { x: width - inset, y: height - inset, radius: cornerR, tx: SQRT1_2, ty: SQRT1_2, acceptCos: CORNER_ACCEPT },
-    { x: midX, y: topMid, radius: middleR, tx: 0, ty: -1, acceptCos: SIDE_ACCEPT },
-    { x: midX, y: height - topMid, radius: middleR, tx: 0, ty: 1, acceptCos: SIDE_ACCEPT },
-  ];
-}
+// Pockets are built from REAL mouth widths by buildPockets() in constants.ts
+// (see the note there): the cushions stop at the jaw tips and a ball only drops
+// if it crosses the mouth with the jaws clear.
 
 /** 8-ball / 9-ball — the engine's existing, calibrated geometry (unchanged). */
 export const POOL_GEOM: TableGeometry = {
@@ -127,10 +98,12 @@ const SNK_LEGACY_BALL_SIZE = 35;
 const SNK_POCKET_SCALE = SNK_BALL_SIZE / SNK_LEGACY_BALL_SIZE;
 const SNK_BALL_RADIUS = SNK_BALL_SIZE / 2;
 // Snooker pockets (86 / 89 mm) are tighter than pool's (115 / 125 mm).
-const SNK_CORNER_R = 34 * SNK_POCKET_SCALE; // ≈ 27.8 (was 34)
+/** Snooker corner mouth — regulation 86 mm between the jaw tips. */
+const SNK_CORNER_MOUTH = MM(86); // ≈ 46.9 px = 1.64 ball widths
 // Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
 // pool middle-pocket bump; also widens the rail gap and the drawn mouth.
-const SNK_MIDDLE_R = 42 * SNK_POCKET_SCALE; // ≈ 34.4 (was 42)
+/** Snooker middle mouth — regulation 89 mm. Snooker middles are tight. */
+const SNK_MIDDLE_MOUTH = MM(89); // ≈ 48.6 px = 1.70 ball widths
 // Baulk line and D, MEASURED FROM THE TABLE ARTWORK (snooker_table.png) so the
 // painted D, the baulk colours and the ball-in-hand area all line up on screen.
 // The artwork is not drawn to regulation proportions: its baulk line is 0.833 m
@@ -151,8 +124,8 @@ export const SNOOKER_GEOM: TableGeometry = {
   RIGHT_BORDER_X: SNK_W - SNK_BORDER,
   TOP_BORDER_Y: SNK_BORDER,
   BOTTOM_BORDER_Y: SNK_H - SNK_BORDER,
-  HOLE_RADIUS: SNK_CORNER_R,
-  HOLES: buildHoles(SNK_W, SNK_H, SNK_BORDER, SNK_BALL_RADIUS, SNK_CORNER_R, SNK_MIDDLE_R),
+  HOLE_RADIUS: SNK_CORNER_MOUTH / 2,
+  HOLES: buildPockets(SNK_W, SNK_H, SNK_BORDER, SNK_CORNER_MOUTH, SNK_MIDDLE_MOUTH),
   CUE_BALL_START: { x: SNK_BORDER + Math.round(0.6 * PX_PER_M), y: Math.round(SNK_H / 2) },
   POCKETED_PARK: { x: 0, y: SNK_H + 120 },
   HEAD_STRING_X: SNK_BAULK_X,

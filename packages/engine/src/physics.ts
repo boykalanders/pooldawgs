@@ -47,12 +47,17 @@ import type { BallState, ShotEvent } from "./types.js";
 /** Geometric "is this point inside any pocket mouth" — for placement / UI. */
 export function isInsideHole(x: number, y: number): boolean {
   for (const hole of G.HOLES) {
-    const dx = x - hole.x;
-    const dy = y - hole.y;
-    if (Math.sqrt(dx * dx + dy * dy) < hole.radius) return true;
+    const dx = x - hole.mx;
+    const dy = y - hole.my;
+    const into = dx * hole.tx + dy * hole.ty;
+    const along = dx * hole.ux + dy * hole.uy;
+    if (into > -G.BALL_RADIUS && Math.abs(along) < hole.mouth / 2) return true;
   }
   return false;
 }
+
+/** Radius of the rounded cushion end at a jaw tip (~10 mm on a real table). */
+const KNUCKLE_RADIUS = 5.5;
 
 export function isOutsideBorder(x: number, y: number): boolean {
   return (
@@ -455,16 +460,75 @@ function capturingHole(ball: BallState, x: number, y: number): Hole | null {
   // hole regardless of where it is. Never capture on a bad number.
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   for (const hole of G.HOLES) {
-    const dx = x - hole.x;
-    const dy = y - hole.y;
-    if (Math.sqrt(dx * dx + dy * dy) >= hole.radius) continue;
-    const vIn = inwardSpeed(ball, hole);
-    if (vIn < POCKET_MIN_INWARD) continue;
-    const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-    if (speed < 1e-9 || vIn / speed < hole.acceptCos) continue;
+    // Real geometry: the ball drops once its centre crosses the line between
+    // the jaw tips, between those tips. Anything arriving off-line hits a jaw
+    // first (bounceOffJaw) instead of being swallowed.
+    const dx = x - hole.mx;
+    const dy = y - hole.my;
+    if (dx * hole.tx + dy * hole.ty <= 0) continue; // not past the mouth yet
+    // Clear passage: the ball fits between the jaws only if its centre is
+    // within half the mouth MINUS its own radius. Anything wider clips a jaw.
+    if (Math.abs(dx * hole.ux + dy * hole.uy) > hole.mouth / 2 - G.BALL_RADIUS) continue;
+    if (inwardSpeed(ball, hole) < POCKET_MIN_INWARD) continue; // nudged, not potted
     return hole;
   }
   return null;
+}
+
+/**
+ * The cushions stop at the jaw tips, which are rounded. A ball arriving at a
+ * mouth off-line clips a tip and rattles instead of dropping — the piece that
+ * was missing while pockets were plain capture circles, and the reason cushion
+ * shots were being swallowed by the middle pockets.
+ * Returns true if a jaw was hit (velocity and position already updated).
+ */
+function bounceOffJaw(ball: BallState, x: number, y: number): boolean {
+  const reach = G.BALL_RADIUS + KNUCKLE_RADIUS;
+  for (const hole of G.HOLES) {
+    for (const jaw of hole.jaws) {
+      const dx = x - jaw.x;
+      const dy = y - jaw.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= reach || dist < 1e-9) continue;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      const vn = ball.vx * nx + ball.vy * ny;
+      if (vn >= 0) continue; // already moving away from the jaw
+      const tx = -ny;
+      const ty = nx;
+      const vt = (ball.vx * tx + ball.vy * ty) * (1 - CUSHION_FRICTION);
+      const out = -vn * CUSHION_RESTITUTION;
+      ball.vx = nx * out + tx * vt;
+      ball.vy = ny * out + ty * vt;
+      ball.x = jaw.x + nx * reach;
+      ball.y = jaw.y + ny * reach;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Is the top/bottom cushion open at this x — a pocket mouth, not rubber? */
+function railOpenX(x: number, ty: -1 | 1): boolean {
+  for (const hole of G.HOLES) {
+    if (hole.tx === 0) {
+      if (hole.ty === ty && Math.abs(x - hole.mx) < hole.mouth / 2) return true;
+    } else if (hole.ty === ty) {
+      const tip = hole.jaws[0]; // the tip on this cushion
+      if (hole.tx < 0 ? x < tip.x : x > tip.x) return true;
+    }
+  }
+  return false;
+}
+
+/** Is the left/right cushion open at this y? */
+function railOpenY(y: number, tx: -1 | 1): boolean {
+  for (const hole of G.HOLES) {
+    if (hole.tx === 0 || Math.sign(hole.tx) !== tx) continue;
+    const tip = hole.jaws[1]; // the tip on this cushion
+    if (hole.ty < 0 ? y < tip.y : y > tip.y) return true;
+  }
+  return false;
 }
 
 /**
@@ -494,22 +558,6 @@ function applyMagnetism(ball: BallState, dt: number): void {
   }
 }
 
-/**
- * A middle pocket (tx === 0) opens a real GAP in its rail. Within the mouth the
- * cushion must not bounce the ball — otherwise it rebounds off a phantom wall
- * behind the pocket instead of rolling in, which is exactly the "middle pocket
- * won't take the ball" feel. Returns the middle hole whose mouth spans `x` on
- * the given rail (`ty` = -1 top, +1 bottom), or null. `half` is the clear
- * opening for a ball centre; below the corner jaws the rail is solid as before.
- */
-function railMouthHole(x: number, ty: -1 | 1): Hole | null {
-  for (const hole of G.HOLES) {
-    if (hole.tx !== 0 || hole.ty !== ty) continue;
-    const half = hole.radius - G.BALL_RADIUS;
-    if (half > 0 && Math.abs(x - hole.x) < half) return hole;
-  }
-  return null;
-}
 
 function integrateBall(
   ball: BallState,
@@ -525,17 +573,8 @@ function integrateBall(
   const newX = ball.x + ball.vx * dt;
   const newY = ball.y + ball.vy * dt;
 
-  // Directional capture (acceptance cone): on-line pots drop; rail-skims don't.
-  let hole = capturingHole(ball, newX, newY);
-  // Middle-pocket throat: with the rail gap open (below), a ball that has rolled
-  // through the mouth and pushed its centre past the rail line is physically in
-  // the pocket, so it drops at any angle — a clean-looking cut no longer clips a
-  // phantom cushion. Rail-skimmers travel along the rail and never cross the
-  // line, so they are still rejected.
-  if (!hole) {
-    if (newY <= G.TOP_BORDER_Y) hole = railMouthHole(newX, -1);
-    else if (newY >= G.BOTTOM_BORDER_Y) hole = railMouthHole(newX, 1);
-  }
+  // Geometric capture: past the mouth line, between the jaw tips.
+  const hole = capturingHole(ball, newX, newY);
   if (hole) {
     ball.x = G.POCKETED_PARK.x;
     ball.y = G.POCKETED_PARK.y;
@@ -553,24 +592,30 @@ function integrateBall(
   // mismatch left a visible gap of felt between a resting ball and the rail.
   // The top/bottom rails skip the bounce across a middle-pocket mouth so the
   // ball rolls into the throat (captured above) instead of rebounding.
+  // A jaw tip is hit before any cushion, and ends the step.
+  if (bounceOffJaw(ball, newX, newY)) {
+    events.push({ type: "cushion", ballId: ball.id, step });
+    return;
+  }
+
   let collision = false;
-  if (newX - G.BALL_RADIUS < G.LEFT_BORDER_X) {
+  if (newX - G.BALL_RADIUS < G.LEFT_BORDER_X && !railOpenY(newY, -1)) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
     ball.x = G.LEFT_BORDER_X + G.BALL_RADIUS;
     collision = true;
-  } else if (newX + G.BALL_RADIUS > G.RIGHT_BORDER_X) {
+  } else if (newX + G.BALL_RADIUS > G.RIGHT_BORDER_X && !railOpenY(newY, 1)) {
     ball.vx = -ball.vx * CUSHION_RESTITUTION;
     ball.vy *= 1 - CUSHION_FRICTION;
     ball.x = G.RIGHT_BORDER_X - G.BALL_RADIUS;
     collision = true;
   }
-  if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y && !railMouthHole(newX, -1)) {
+  if (newY - G.BALL_RADIUS < G.TOP_BORDER_Y && !railOpenX(newX, -1)) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
     ball.y = G.TOP_BORDER_Y + G.BALL_RADIUS;
     collision = true;
-  } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y && !railMouthHole(newX, 1)) {
+  } else if (newY + G.BALL_RADIUS > G.BOTTOM_BORDER_Y && !railOpenX(newX, 1)) {
     ball.vy = -ball.vy * CUSHION_RESTITUTION;
     ball.vx *= 1 - CUSHION_FRICTION;
     ball.y = G.BOTTOM_BORDER_Y - G.BALL_RADIUS;
