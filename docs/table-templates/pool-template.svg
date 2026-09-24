@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="1100" viewBox="0 0 2000 1100">
+<rect width="2000" height="1100" fill="#5a3a22"/>
+<rect x="39.6" y="39.6" width="1920.8" height="1020.8" fill="#1f7a4d"/>
+<rect x="76.0" y="76.0" width="1848.0" height="948.0" fill="#0f6b3f"/>
+<polygon fill="#050505" points="135.2,76.0 99.1,47.8 47.8,99.1 76.0,135.2"/>
+<circle cx="55.5" cy="55.5" r="36.3" fill="#050505"/>
+<polygon fill="#050505" points="1864.8,76.0 1900.9,47.8 1952.2,99.1 1924.0,135.2"/>
+<circle cx="1944.5" cy="55.5" r="36.3" fill="#050505"/>
+<polygon fill="#050505" points="135.2,1024.0 99.1,1052.2 47.8,1000.9 76.0,964.8"/>
+<circle cx="55.5" cy="1044.5" r="36.3" fill="#050505"/>
+<polygon fill="#050505" points="1864.8,1024.0 1900.9,1052.2 1952.2,1000.9 1924.0,964.8"/>
+<circle cx="1944.5" cy="1044.5" r="36.3" fill="#050505"/>
+<polygon fill="#050505" points="953.8,76.0 965.1,30.5 1034.9,30.5 1046.2,76.0"/>
+<circle cx="1000.0" cy="6.1" r="34.9" fill="#050505"/>
+<polygon fill="#050505" points="953.8,1024.0 965.1,1069.5 1034.9,1069.5 1046.2,1024.0"/>
+<circle cx="1000.0" cy="1093.9" r="34.9" fill="#050505"/>
+<circle cx="1000.0" cy="550.0" r="310.0" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="3" stroke-dasharray="14 10"/>
+<text x="1000.0" y="550.0" fill="#ffffff" fill-opacity="0.3" font-family="Arial" font-size="33.3" text-anchor="middle" dominant-baseline="middle">POOL DAWGS crest · 0.3 opacity</text>
+<circle cx="1362.7" cy="550.0" r="4" fill="#ffffff"/>
+<circle cx="538.0" cy="550.0" r="4" fill="#ffffff"/>
+<line x1="135.2" y1="76.0" x2="76.0" y2="135.2" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="135.2" cy="76.0" r="4" fill="#ff3b30"/>
+<circle cx="76.0" cy="135.2" r="4" fill="#ff3b30"/>
+<line x1="1864.8" y1="76.0" x2="1924.0" y2="135.2" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="1864.8" cy="76.0" r="4" fill="#ff3b30"/>
+<circle cx="1924.0" cy="135.2" r="4" fill="#ff3b30"/>
+<line x1="135.2" y1="1024.0" x2="76.0" y2="964.8" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="135.2" cy="1024.0" r="4" fill="#ff3b30"/>
+<circle cx="76.0" cy="964.8" r="4" fill="#ff3b30"/>
+<line x1="1864.8" y1="1024.0" x2="1924.0" y2="964.8" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="1864.8" cy="1024.0" r="4" fill="#ff3b30"/>
+<circle cx="1924.0" cy="964.8" r="4" fill="#ff3b30"/>
+<line x1="953.8" y1="76.0" x2="1046.2" y2="76.0" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="953.8" cy="76.0" r="4" fill="#ff3b30"/>
+<circle cx="1046.2" cy="76.0" r="4" fill="#ff3b30"/>
+<line x1="953.8" y1="1024.0" x2="1046.2" y2="1024.0" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="953.8" cy="1024.0" r="4" fill="#ff3b30"/>
+<circle cx="1046.2" cy="1024.0" r="4" fill="#ff3b30"/>
+<circle cx="813.3" cy="803.3" r="20.8" fill="#ffffff" fill-opacity="0.85"/>
+<text x="854.9" y="809.3" fill="#ffffff" font-family="Arial" font-size="22.2">ball 41.6 px</text>
+</svg>

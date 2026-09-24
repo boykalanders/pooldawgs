@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2576" height="1355" viewBox="0 0 2576 1355">
+<rect width="2576" height="1355" fill="#5a3a22"/>
+<rect x="37.1" y="37.1" width="2501.7" height="1280.6" fill="#1f7a4d"/>
+<rect x="71.2" y="71.2" width="2433.5" height="1212.4" fill="#0f6b3f"/>
+<polygon fill="#050505" points="112.7,71.2 78.9,44.8 44.8,78.9 71.2,112.7"/>
+<circle cx="49.9" cy="49.9" r="24.1" fill="#050505"/>
+<polygon fill="#050505" points="2463.3,71.2 2497.1,44.8 2531.2,78.9 2504.8,112.7"/>
+<circle cx="2526.1" cy="49.9" r="24.1" fill="#050505"/>
+<polygon fill="#050505" points="112.7,1283.6 78.9,1310.1 44.8,1276.0 71.2,1242.2"/>
+<circle cx="49.9" cy="1305.0" r="24.1" fill="#050505"/>
+<polygon fill="#050505" points="2463.3,1283.6 2497.1,1310.1 2531.2,1276.0 2504.8,1242.2"/>
+<circle cx="2526.1" cy="1305.0" r="24.1" fill="#050505"/>
+<polygon fill="#050505" points="1257.7,71.2 1268.3,28.6 1307.7,28.6 1318.3,71.2"/>
+<circle cx="1288.0" cy="14.8" r="19.7" fill="#050505"/>
+<polygon fill="#050505" points="1257.7,1283.6 1268.3,1326.3 1307.7,1326.3 1318.3,1283.6"/>
+<circle cx="1288.0" cy="1340.1" r="19.7" fill="#050505"/>
+<circle cx="1288.0" cy="677.4" r="350.0" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="3" stroke-dasharray="14 10"/>
+<text x="1288.0" y="677.4" fill="#ffffff" fill-opacity="0.3" font-family="Arial" font-size="42.9" text-anchor="middle" dominant-baseline="middle">POOL DAWGS crest · 0.3 opacity</text>
+<line x1="573.9" y1="71.2" x2="573.9" y2="1283.6" stroke="#ffffff" stroke-width="3"/>
+<path d="M 573.9 478.3 A 199.1 199.1 0 0 0 573.9 876.6" fill="none" stroke="#ffffff" stroke-width="3"/>
+<circle cx="573.9" cy="478.3" r="4" fill="#ffffff"/>
+<circle cx="573.9" cy="876.6" r="4" fill="#ffffff"/>
+<circle cx="573.9" cy="677.4" r="4" fill="#ffffff"/>
+<circle cx="1288.0" cy="677.4" r="4" fill="#ffffff"/>
+<circle cx="1896.4" cy="677.4" r="4" fill="#ffffff"/>
+<circle cx="2283.8" cy="677.4" r="4" fill="#ffffff"/>
+<line x1="112.7" y1="71.2" x2="71.2" y2="112.7" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="112.7" cy="71.2" r="4" fill="#ff3b30"/>
+<circle cx="71.2" cy="112.7" r="4" fill="#ff3b30"/>
+<line x1="2463.3" y1="71.2" x2="2504.8" y2="112.7" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="2463.3" cy="71.2" r="4" fill="#ff3b30"/>
+<circle cx="2504.8" cy="112.7" r="4" fill="#ff3b30"/>
+<line x1="112.7" y1="1283.6" x2="71.2" y2="1242.2" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="112.7" cy="1283.6" r="4" fill="#ff3b30"/>
+<circle cx="71.2" cy="1242.2" r="4" fill="#ff3b30"/>
+<line x1="2463.3" y1="1283.6" x2="2504.8" y2="1242.2" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="2463.3" cy="1283.6" r="4" fill="#ff3b30"/>
+<circle cx="2504.8" cy="1242.2" r="4" fill="#ff3b30"/>
+<line x1="1257.7" y1="71.2" x2="1318.3" y2="71.2" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="1257.7" cy="71.2" r="4" fill="#ff3b30"/>
+<circle cx="1318.3" cy="71.2" r="4" fill="#ff3b30"/>
+<line x1="1257.7" y1="1283.6" x2="1318.3" y2="1283.6" stroke="#ff3b30" stroke-width="2"/>
+<circle cx="1257.7" cy="1283.6" r="4" fill="#ff3b30"/>
+<circle cx="1318.3" cy="1283.6" r="4" fill="#ff3b30"/>
+<circle cx="1113.0" cy="914.9" r="17.9" fill="#ffffff" fill-opacity="0.85"/>
+<text x="1148.8" y="920.9" fill="#ffffff" font-family="Arial" font-size="28.6">ball 35.8 px</text>
+</svg>
