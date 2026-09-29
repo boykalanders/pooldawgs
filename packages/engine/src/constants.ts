@@ -24,21 +24,29 @@
  *   v3.1 = client calibration + energy-correct (Poisson) contact solve
  *   v4 = regulation ball size (57.15 mm pool / 52.5 mm snooker); racks
  *        generated from the diameter; pockets scaled with the ball
+ *   v4.1 = pool ball sized to the new table art's pockets (40.5 px)
  */
-export const PHYSICS_VERSION = "pooldawgs-v4";
+export const PHYSICS_VERSION = "pooldawgs-v4.1";
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;
 
-/** Minimum centre distance treated as a ball-ball collision (= 1 diameter).
- *  v4: 57.15 mm at the table's px/m scale (was 38 px — 1.22× oversize). */
-export const BALL_SIZE = 31.2;
-/** The pre-v4 ball diameter. Pockets are scaled by BALL_SIZE / this so they
- *  keep exactly the same size MEASURED IN BALL WIDTHS — i.e. the same
- *  potting difficulty — as before the ball shrank. */
+/**
+ * Pool ball diameter (px) — also the minimum centre distance for a collision.
+ *
+ * Sized so the ball-to-POCKET ratio matches a real table, against the pockets
+ * as painted on the pool art (HOLES below): corner mouths average 80.1 px →
+ * 1.98 ball widths (WPA 2.00–2.05), side mouths 92.5 px → 2.28 (WPA 2.22–2.28).
+ * That is what decides how hard a pot is. The price is the ball-to-TABLE ratio:
+ * 40.5 px is 1.30× a regulation 57.15 mm ball on this cloth, the same trade
+ * most mobile pool games make so balls read clearly on a phone.
+ * (v4 was a regulation 31.2 px, which made these painted pockets ~30% too easy.)
+ */
+export const BALL_SIZE = 40.5;
+/** The pre-v4 ball diameter, for the record. */
 export const LEGACY_BALL_SIZE = 38;
 export const POCKET_SCALE = BALL_SIZE / LEGACY_BALL_SIZE;
-/** Physical ball radius in px (spec: 28.575 mm). */
+/** Ball radius in px. */
 export const BALL_RADIUS = BALL_SIZE / 2;
 export const BORDER_SIZE = 57;
 
