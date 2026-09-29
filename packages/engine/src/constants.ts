@@ -296,6 +296,36 @@ export interface Hole {
  * rather than by a capture circle — a circle swallowed balls that a real
  * pocket rejects, especially off a cushion into the middle pockets.
  */
+export function pocketFromJaws(
+  j1: { x: number; y: number },
+  j2: { x: number; y: number },
+  tx: number,
+  ty: number,
+  acceptCos: number,
+  centre?: { x: number; y: number }
+): Hole {
+  const mx = (j1.x + j2.x) / 2;
+  const my = (j1.y + j2.y) / 2;
+  const mouth = Math.hypot(j2.x - j1.x, j2.y - j1.y);
+  return {
+    // Centre: where the hole is drawn (drop animation, aim assist). Defaults to
+    // a little way into the throat, past the mouth.
+    x: centre?.x ?? mx + tx * mouth * 0.3,
+    y: centre?.y ?? my + ty * mouth * 0.3,
+    radius: mouth / 2,
+    tx,
+    ty,
+    acceptCos,
+    mouth,
+    mx,
+    my,
+    ux: (j2.x - j1.x) / mouth,
+    uy: (j2.y - j1.y) / mouth,
+    jaws: [j1, j2],
+  };
+}
+
+/** Regulation pockets: equal setbacks at every corner, centred side pockets. */
 export function buildPockets(
   width: number,
   height: number,
@@ -312,47 +342,23 @@ export function buildPockets(
   // a·√2 across the diagonal.
   const a = cornerMouth * Math.SQRT1_2;
   // sx / sy point OUT of the table, so the jaws are set back INTO it.
-  const corner = (cx: number, cy: number, sx: number, sy: number): Hole => {
-    const j1 = { x: cx - sx * a, y: cy }; // on the top/bottom cushion
-    const j2 = { x: cx, y: cy - sy * a }; // on the left/right cushion
-    const mx = (j1.x + j2.x) / 2;
-    const my = (j1.y + j2.y) / 2;
-    const len = Math.hypot(j2.x - j1.x, j2.y - j1.y);
-    return {
-      // Centre sits a little way into the throat, past the mouth.
-      x: mx + sx * SQRT1_2 * cornerMouth * 0.3,
-      y: my + sy * SQRT1_2 * cornerMouth * 0.3,
-      radius: cornerMouth / 2,
-      tx: sx * SQRT1_2,
-      ty: sy * SQRT1_2,
-      acceptCos: CORNER_ACCEPT,
-      mouth: cornerMouth,
-      mx,
-      my,
-      ux: (j2.x - j1.x) / len,
-      uy: (j2.y - j1.y) / len,
-      jaws: [j1, j2],
-    };
-  };
+  const corner = (cx: number, cy: number, sx: number, sy: number): Hole =>
+    pocketFromJaws(
+      { x: cx - sx * a, y: cy }, // tip on the top/bottom cushion
+      { x: cx, y: cy - sy * a }, // tip on the left/right cushion
+      sx * SQRT1_2,
+      sy * SQRT1_2,
+      CORNER_ACCEPT
+    );
   const middle = (sy: number): Hole => {
     const lineY = sy < 0 ? T : B;
-    return {
-      x: midX,
-      y: lineY + sy * middleMouth * 0.3,
-      radius: middleMouth / 2,
-      tx: 0,
-      ty: sy,
-      acceptCos: SIDE_ACCEPT,
-      mouth: middleMouth,
-      mx: midX,
-      my: lineY,
-      ux: 1,
-      uy: 0,
-      jaws: [
-        { x: midX - middleMouth / 2, y: lineY },
-        { x: midX + middleMouth / 2, y: lineY },
-      ],
-    };
+    return pocketFromJaws(
+      { x: midX - middleMouth / 2, y: lineY },
+      { x: midX + middleMouth / 2, y: lineY },
+      0,
+      sy,
+      SIDE_ACCEPT
+    );
   };
   return [corner(L, T, -1, -1), corner(R, T, 1, -1), corner(L, B, -1, 1), corner(R, B, 1, 1), middle(-1), middle(1)];
 }
@@ -372,7 +378,31 @@ export const SIDE_ACCEPT = Math.cos((40 * Math.PI) / 180);
 /** Centre-pocket mouth — regulation 127 mm between the jaw tips. */
 export const MIDDLE_MOUTH = MM(127); // ≈ 69.3 px = 2.22 ball widths
 
-export const HOLES: readonly Hole[] = buildPockets(
+/**
+ * Pool pockets, MEASURED FROM THE TABLE ARTWORK (apps/web/public/assets/
+ * tables/pool_table.webp, 30 Sep 2026). Each jaw tip is where the painted
+ * cushion facing meets the cushion nose line, so a ball drops — or rattles —
+ * exactly where the player sees the pocket, and each centre is the middle of
+ * the painted hole (for the drop animation).
+ *
+ * The painted mouths are wider than regulation (corners 2.48–2.70 ball widths
+ * against 2.01, sides 2.85 / 3.07 against 2.22), and the side pockets sit about
+ * 5 px right of the table's centre line. That is the art, and the physics
+ * follows it: a jaw the player cannot see would read as a bug. Narrow the
+ * mouths in the artwork and re-measure to play at regulation difficulty.
+ * (buildPockets(... CORNER_MOUTH, MIDDLE_MOUTH) still gives the regulation set.)
+ */
+export const HOLES: readonly Hole[] = [
+  pocketFromJaws({ x: 112.7, y: TOP_BORDER_Y }, { x: LEFT_BORDER_X, y: 114.2 }, -SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 48.7, y: 43.6 }), // top left
+  pocketFromJaws({ x: 1391.8, y: TOP_BORDER_Y }, { x: RIGHT_BORDER_X, y: 115.0 }, SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 1454.1, y: 44.1 }), // top right
+  pocketFromJaws({ x: 111.9, y: BOTTOM_BORDER_Y }, { x: LEFT_BORDER_X, y: 704.3 }, -SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 43.5, y: 778.2 }), // bottom left
+  pocketFromJaws({ x: 1389.4, y: BOTTOM_BORDER_Y }, { x: RIGHT_BORDER_X, y: 710.0 }, SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 1455.5, y: 778.0 }), // bottom right
+  pocketFromJaws({ x: 711.8, y: TOP_BORDER_Y }, { x: 800.8, y: TOP_BORDER_Y }, 0, -1, SIDE_ACCEPT, { x: 756.9, y: 36.8 }), // top side
+  pocketFromJaws({ x: 706.7, y: BOTTOM_BORDER_Y }, { x: 802.6, y: BOTTOM_BORDER_Y }, 0, 1, SIDE_ACCEPT, { x: 754.0, y: 795.0 }), // bottom side
+];
+
+/** The regulation pool pockets, for reference and for tests. */
+export const REGULATION_POOL_HOLES: readonly Hole[] = buildPockets(
   TABLE_WIDTH,
   TABLE_HEIGHT,
   BORDER_SIZE,

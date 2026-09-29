@@ -307,39 +307,38 @@ function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): vo
   const right = M(geom.RIGHT_BORDER_X);
   const top = M(geom.TOP_BORDER_Y);
   const bottom = M(geom.BOTTOM_BORDER_Y);
-  const midZ = (top + bottom) / 2;
-  const midX = (left + right) / 2;
-  const spanZ = bottom - top;
-  const spanX = right - left;
 
   // The cushions STOP at the jaw tips, exactly as on a real table: each rail is
   // cut by the middle-pocket mouth and by the corner mouths, and the box ends
   // left behind are the jaws a misplaced ball rattles off. (Previously the
   // rails ran corner to corner and pockets were plain capture circles, which
   // swallowed balls a real pocket rejects.)
-  const midHole = geom.HOLES.find((hh) => hh.tx === 0)!;
-  const cornerHole = geom.HOLES.find((hh) => hh.tx !== 0)!;
-  const g = M(midHole.mouth) / 2; // half the middle-pocket mouth
-  const back = M(cornerHole.mouth) * Math.SQRT1_2; // corner jaws, set back along each cushion
+  // Every cushion runs from one pocket's jaw tip to the next, using each
+  // pocket's own tips — pockets measured from artwork are not all identical.
+  const find = (tx: number, ty: number) =>
+    geom.HOLES.find((hh) => Math.sign(hh.tx) === tx && Math.sign(hh.ty) === ty)!;
+  const tl = find(-1, -1), tr = find(1, -1), bl = find(-1, 1), br = find(1, 1);
+  const ts = find(0, -1), bs = find(0, 1);
+  // Corner holes: jaws[0] is on the top/bottom cushion, jaws[1] on the side one.
+  // Side holes: jaws[0] is the left tip, jaws[1] the right.
   const topZ = top - t / 2;
   const botZ = bottom + t / 2;
-  const xA = left + back; // first jaw tip on the top/bottom cushions
-  const xB = right - back;
-  const zA = top + back; // first jaw tip on the left/right cushions
-  const zB = bottom - back;
 
   const seg = (a: number, b: number): [number, number] => [(a + b) / 2, b - a];
-  const [leftZc, leftZe] = seg(zA, zB);
-  const [topXa, topXea] = seg(xA, midX - g);
-  const [topXb, topXeb] = seg(midX + g, xB);
+  const [leftZc, leftZe] = seg(M(tl.jaws[1].y), M(bl.jaws[1].y));
+  const [rightZc, rightZe] = seg(M(tr.jaws[1].y), M(br.jaws[1].y));
+  const [topXa, topXea] = seg(M(tl.jaws[0].x), M(ts.jaws[0].x));
+  const [topXb, topXeb] = seg(M(ts.jaws[1].x), M(tr.jaws[0].x));
+  const [botXa, botXea] = seg(M(bl.jaws[0].x), M(bs.jaws[0].x));
+  const [botXb, botXeb] = seg(M(bs.jaws[1].x), M(br.jaws[0].x));
   const walls: Array<[number, number, number, number]> = [
     // [centerX, centerZ, extentX, extentZ]
-    [left - t / 2, leftZc, t, leftZe], // left cushion, corner to corner mouth
-    [right + t / 2, leftZc, t, leftZe], // right cushion
-    [topXa, topZ, topXea, t], // top cushion, left of the middle pocket
+    [left - t / 2, leftZc, t, leftZe], // left cushion, corner mouth to corner mouth
+    [right + t / 2, rightZc, t, rightZe], // right cushion
+    [topXa, topZ, topXea, t], // top cushion, left of the side pocket
     [topXb, topZ, topXeb, t], // top cushion, right of it
-    [topXa, botZ, topXea, t], // bottom cushion, left
-    [topXb, botZ, topXeb, t], // bottom cushion, right
+    [botXa, botZ, botXea, t], // bottom cushion, left
+    [botXb, botZ, botXeb, t], // bottom cushion, right
   ];
   for (const [cx, cz, ex, ez] of walls) {
     const node = new TransformNode("rail", scene);
