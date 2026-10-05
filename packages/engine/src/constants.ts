@@ -34,13 +34,14 @@ export const TABLE_HEIGHT = 825;
 /**
  * Pool ball diameter (px) — also the minimum centre distance for a collision.
  *
- * Sized so the ball-to-POCKET ratio matches a real table, against the pockets
- * as painted on the pool art (HOLES below): corner mouths average 80.1 px →
- * 1.98 ball widths (WPA 2.00–2.05), side mouths 92.5 px → 2.28 (WPA 2.22–2.28).
- * That is what decides how hard a pot is. The price is the ball-to-TABLE ratio:
- * 40.5 px is 1.30× a regulation 57.15 mm ball on this cloth, the same trade
- * most mobile pool games make so balls read clearly on a phone.
- * (v4 was a regulation 31.2 px, which made these painted pockets ~30% too easy.)
+ * Sized against the pockets as painted on the pool art (HOLES below), so the
+ * ball-to-POCKET ratio — what decides how hard a pot is — is a real table's:
+ * side mouths average 91.8 px → 2.27 ball widths (WPA 2.22–2.28). The art
+ * paints its corners relatively small (74.0 px → 1.83, WPA 2.00–2.05), so the
+ * corners play a little tighter than a real table's; a smaller ball would
+ * loosen the sides, which were the pockets players found too forgiving.
+ * The price is the ball-to-TABLE ratio: 1.30× a regulation 57.15 mm ball on
+ * this cloth, the trade most mobile pool games make so balls read on a phone.
  */
 export const BALL_SIZE = 40.5;
 /** The pre-v4 ball diameter, for the record. */
@@ -388,25 +389,23 @@ export const MIDDLE_MOUTH = MM(127); // ≈ 69.3 px = 2.22 ball widths
 
 /**
  * Pool pockets, MEASURED FROM THE TABLE ARTWORK (apps/web/public/assets/
- * tables/pool_table.webp, 30 Sep 2026). Each jaw tip is where the painted
- * cushion facing meets the cushion nose line, so a ball drops — or rattles —
- * exactly where the player sees the pocket, and each centre is the middle of
- * the painted hole (for the drop animation).
+ * tables/pool_table.jpg — the brass-ring version, 6 Oct 2026). Each jaw tip is
+ * where the painted cushion facing meets the cushion nose line, so a ball
+ * drops — or rattles — exactly where the player sees the pocket; each centre
+ * is the middle of the painted hole (for the drop animation).
  *
- * The painted mouths are wider than regulation (corners 2.48–2.70 ball widths
- * against 2.01, sides 2.85 / 3.07 against 2.22), and the side pockets sit about
- * 5 px right of the table's centre line. That is the art, and the physics
- * follows it: a jaw the player cannot see would read as a bug. Narrow the
- * mouths in the artwork and re-measure to play at regulation difficulty.
+ * Mouths: corners 70.7–76.6 px (avg 74.0), sides 90.1 / 93.5 px. A jaw the
+ * player cannot see would read as a bug, so the physics follows the art; the
+ * ball size (BALL_SIZE) is what sets how they play against a real table.
  * (buildPockets(... CORNER_MOUTH, MIDDLE_MOUTH) still gives the regulation set.)
  */
 export const HOLES: readonly Hole[] = [
-  pocketFromJaws({ x: 112.7, y: TOP_BORDER_Y }, { x: LEFT_BORDER_X, y: 114.2 }, -SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 48.7, y: 43.6 }), // top left
-  pocketFromJaws({ x: 1391.8, y: TOP_BORDER_Y }, { x: RIGHT_BORDER_X, y: 115.0 }, SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 1454.1, y: 44.1 }), // top right
-  pocketFromJaws({ x: 111.9, y: BOTTOM_BORDER_Y }, { x: LEFT_BORDER_X, y: 704.3 }, -SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 43.5, y: 778.2 }), // bottom left
-  pocketFromJaws({ x: 1389.4, y: BOTTOM_BORDER_Y }, { x: RIGHT_BORDER_X, y: 710.0 }, SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 1455.5, y: 778.0 }), // bottom right
-  pocketFromJaws({ x: 711.8, y: TOP_BORDER_Y }, { x: 800.8, y: TOP_BORDER_Y }, 0, -1, SIDE_ACCEPT, { x: 756.9, y: 36.8 }), // top side
-  pocketFromJaws({ x: 706.7, y: BOTTOM_BORDER_Y }, { x: 802.6, y: BOTTOM_BORDER_Y }, 0, 1, SIDE_ACCEPT, { x: 754.0, y: 795.0 }), // bottom side
+  pocketFromJaws({ x: 112.8, y: TOP_BORDER_Y }, { x: LEFT_BORDER_X, y: 105.7 }, -SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 46.0, y: 40.2 }), // top left
+  pocketFromJaws({ x: 1391.8, y: TOP_BORDER_Y }, { x: RIGHT_BORDER_X, y: 105.7 }, SQRT1_2, -SQRT1_2, CORNER_ACCEPT, { x: 1455.2, y: 42.6 }), // top right
+  pocketFromJaws({ x: 111.1, y: BOTTOM_BORDER_Y }, { x: LEFT_BORDER_X, y: 713.8 }, -SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 46.5, y: 784.9 }), // bottom left
+  pocketFromJaws({ x: 1392.6, y: BOTTOM_BORDER_Y }, { x: RIGHT_BORDER_X, y: 713.0 }, SQRT1_2, SQRT1_2, CORNER_ACCEPT, { x: 1454.4, y: 782.8 }), // bottom right
+  pocketFromJaws({ x: 711.3, y: TOP_BORDER_Y }, { x: 801.4, y: TOP_BORDER_Y }, 0, -1, SIDE_ACCEPT, { x: 756.4, y: 33.5 }), // top side
+  pocketFromJaws({ x: 708.8, y: BOTTOM_BORDER_Y }, { x: 802.3, y: BOTTOM_BORDER_Y }, 0, 1, SIDE_ACCEPT, { x: 756.5, y: 791.1 }), // bottom side
 ];
 
 /** The regulation pool pockets, for reference and for tests. */

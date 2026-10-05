@@ -64,21 +64,21 @@ interface TableSkin {
 // actually bounces) land on the engine play boundary (BORDER_SIZE inset), not
 // the pockets. Aligning pockets left a ~1-ball gap at the rails. Noses + wood
 // margins measured per image (scratchpad/fit_nose3, measure_wood).
-// Pool table art (30 Sep 2026, 2000 × 1125). Fitted by its cushion nose line —
-// painted at x 148.5–1854, y 124.5–1000.5 — onto the engine's nose rectangle
-// (57,57)–(1443,768): a near-uniform 1.2305 × 1.2320 image px per engine px.
+// Pool table art (6 Oct 2026, brass-ring version, 2000 × 1125). Fitted by its
+// cushion nose line — painted at x 155–1845.5, y 139–985.5 — onto the engine's
+// nose rectangle (57,57)–(1443,768): 1.2197 × 1.1906 image px per engine px.
 // The margins take in the wood out to its outer edge. The pockets in
 // constants.ts HOLES are measured from this same image.
 const POOL_SKIN: TableSkin = {
-  src: "/assets/tables/pool_table.webp",
-  dx: -63.68,
-  dy: -44.06,
-  dw: 1625.33,
-  dh: 913.18,
-  ml: 30,
-  mr: 27,
+  src: "/assets/tables/pool_table.jpg",
+  dx: -70.08,
+  dy: -59.75,
+  dw: 1639.75,
+  dh: 944.92,
+  ml: 28,
+  mr: 24,
   mt: 22,
-  mb: 23,
+  mb: 21,
 };
 const SNOOKER_SKIN: TableSkin = {
   src: "/assets/tables/snooker_table.png",
