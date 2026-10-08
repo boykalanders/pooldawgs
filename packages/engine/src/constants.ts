@@ -25,8 +25,11 @@
  *   v4 = regulation ball size (57.15 mm pool / 52.5 mm snooker); racks
  *        generated from the diameter; pockets scaled with the ball
  *   v4.1 = pool ball sized to the new table art's pockets (40.5 px)
+ *   v4.2 = brass-ring pool art and the new snooker art: pockets, snooker
+ *          table width, baulk line, D, spots and snooker ball (43 px) all
+ *          measured from the art
  */
-export const PHYSICS_VERSION = "pooldawgs-v4.1";
+export const PHYSICS_VERSION = "pooldawgs-v4.2";
 
 export const TABLE_WIDTH = 1500;
 export const TABLE_HEIGHT = 825;

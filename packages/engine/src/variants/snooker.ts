@@ -31,20 +31,18 @@ import {
   respot,
 } from "./shared.js";
 
-// Snooker spots derived from the real snooker table (geometry.ts SNOOKER_GEOM)
-// and standard proportions, laid out in landscape with the baulk on the LEFT.
+// Spots are the ones PAINTED on the table art (snooker_table.webp), measured
+// alongside its pockets in geometry.ts, so every colour sits on its mark.
+// Baulk on the LEFT, landscape. Note the art places blue, pink and black
+// further toward baulk than a real table does — blue is 65 px left of the
+// middle pockets — so the layout follows the art, not the rule book.
 const SG = SNOOKER_GEOM;
 const M = (metres: number) => metres * PX_PER_M;
-const CENTER_X = SG.TABLE_WIDTH / 2;
-const CENTER_Y = SG.TABLE_HEIGHT / 2;
-const BAULK_X = SG.HEAD_STRING_X; // baulk line, 0.737 m off the cushion (geometry.ts)
-const D_RADIUS = SG.D!.ry; // half-height of the D — where yellow and green sit (geometry.ts)
-// Pink sits on the spot PAINTED on the table artwork (measured at x 1549;
-// midway centre→top cushion would be 1517). Blue's painted spot is at 1030,
-// which already matches CENTER_X, and no black spot is painted at all, so
-// black keeps its regulation distance from the cushion.
-const PINK_X = 1549;
-const BLACK_X = SG.RIGHT_BORDER_X - M(0.324); // 0.324 m off the top cushion
+const CENTER_Y = 501.8; // the painted spots' line (the cloth's centre is 502.5)
+const BAULK_X = SG.HEAD_STRING_X; // baulk line (geometry.ts)
+const BLUE_X = 965.0;
+const PINK_X = 1442.0;
+const BLACK_X = 1798.6;
 
 // A FROZEN triangle (matches the 8-ball rack): reds touch vertically at exactly
 // one diameter, and sit a hair over a diameter on the diagonals — tight enough
@@ -58,10 +56,14 @@ const REDS_APEX_X = PINK_X + SG.BALL_SIZE + 2; // apex just behind the pink
 
 /** Colour spots laid out for our landscape table (baulk on the left). */
 const COLOURS: ReadonlyArray<{ color: BallColor; value: number; x: number; y: number }> = [
-  { color: "yellow", value: 2, x: BAULK_X, y: CENTER_Y + D_RADIUS },
-  { color: "green", value: 3, x: BAULK_X, y: CENTER_Y - D_RADIUS },
+  // Yellow and green: on their painted dots, just inside the ends of the D.
+  // The art paints yellow at the TOP end; by the rules (seen from baulk, yellow
+  // on the right) it belongs at the bottom. Kept on the dot so the ball and the
+  // painted colour match — swap both here once the art is corrected.
+  { color: "yellow", value: 2, x: BAULK_X, y: 322.7 },
+  { color: "green", value: 3, x: BAULK_X, y: 678.5 },
   { color: "brown", value: 4, x: BAULK_X, y: CENTER_Y },
-  { color: "blue", value: 5, x: CENTER_X, y: CENTER_Y },
+  { color: "blue", value: 5, x: BLUE_X, y: CENTER_Y },
   { color: "pink", value: 6, x: PINK_X, y: CENTER_Y },
   { color: "black", value: 7, x: BLACK_X, y: CENTER_Y },
 ];

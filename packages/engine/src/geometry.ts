@@ -12,8 +12,7 @@
 // snooker ball is far smaller relative to the cloth (the "finer" snooker feel).
 
 import {
-  MM,
-  buildPockets,
+  pocketFromJaws,
   BALL_RADIUS as POOL_BALL_RADIUS,
   BALL_SIZE as POOL_BALL_SIZE,
   BORDER_SIZE as POOL_BORDER_SIZE,
@@ -82,37 +81,51 @@ export const POOL_GEOM: TableGeometry = {
   D: null,
 };
 
-// ── Snooker: real 3.569 m × 1.778 m, same px/m as pool ──────────────────────
+// ── Snooker: fitted to the table art (snooker_table.webp, 8 Oct 2026) ──────
+// Everything here is measured from the painted table, fitted by its cushion
+// nose line (x 126–1873, y 139–938.5 in the 2000 × 1130 image) at ONE scale,
+// 0.89728 image px per engine px, so circles stay circles.
 const SNK_BORDER = 57;
-const SNK_PLAY_LEN = Math.round(3.569 * PX_PER_M); // ≈ 1948 px
-const SNK_PLAY_WID = Math.round(1.778 * PX_PER_M); // ≈ 970 px
+// The art's cloth is 1747 × 799.5 px: 3.569 m long at our scale, as a real
+// table, but 1.633 m wide where a real one is 1.778 m (an aspect of 2.185, not
+// 2.007). The engine follows the art rather than stretching it: squeezing the
+// picture 9% to regulation width would turn every pocket and the D into ovals.
+const SNK_PLAY_LEN = Math.round(3.569 * PX_PER_M); // ≈ 1947 px
+const SNK_PLAY_WID = 891; // the art's width — regulation 1.778 m would be 970
 const SNK_W = SNK_PLAY_LEN + 2 * SNK_BORDER;
 const SNK_H = SNK_PLAY_WID + 2 * SNK_BORDER;
-// Snooker balls (52.5 mm) are ~8% smaller than pool balls; keep the engine's
-// pool oversize factor so they read at the same on-cloth scale ratio as real.
-// v4: regulation 52.5 mm at the shared px/m scale (was 35 px, derived by
-// rounding from the old oversized pool ball).
-const SNK_BALL_SIZE = 28.65;
-const SNK_LEGACY_BALL_SIZE = 35;
-/** Snooker pockets keep their pre-v4 size in ball widths (see POCKET_SCALE). */
-const SNK_POCKET_SCALE = SNK_BALL_SIZE / SNK_LEGACY_BALL_SIZE;
+/**
+ * Snooker ball, sized to the PAINTED pockets so the ball-to-pocket ratio — what
+ * decides how hard a pot is — is a real snooker table's: corners 69.5 px →
+ * 1.62 ball widths (WPBSA 86 mm = 1.64), middles 74.7 px → 1.74 (89 mm = 1.70).
+ * That is 1.5× a regulation 52.5 mm ball on this cloth, the same trade the pool
+ * table makes (1.3×) for clear balls on a phone.
+ */
+const SNK_BALL_SIZE = 43;
 const SNK_BALL_RADIUS = SNK_BALL_SIZE / 2;
-// Snooker pockets (86 / 89 mm) are tighter than pool's (115 / 125 mm).
-/** Snooker corner mouth — regulation 86 mm between the jaw tips. */
-const SNK_CORNER_MOUTH = MM(86); // ≈ 46.9 px = 1.64 ball widths
-// Enlarged for a generous, easy-to-pot side pocket (was ≈37) — matches the
-// pool middle-pocket bump; also widens the rail gap and the drawn mouth.
-/** Snooker middle mouth — regulation 89 mm. Snooker middles are tight. */
-const SNK_MIDDLE_MOUTH = MM(89); // ≈ 48.6 px = 1.70 ball widths
-// Baulk line and D, MEASURED FROM THE TABLE ARTWORK (snooker_table.png) so the
-// painted D, the baulk colours and the ball-in-hand area all line up on screen.
-// The artwork is not drawn to regulation proportions: its baulk line is 0.833 m
-// off the cushion (regulation 0.737 m) and its D is ~0.34 m (regulation 0.292),
-// slightly elliptical because the photo is fitted with a different x and y
-// scale. Matching the picture matters more here than matching the rule book —
-// the player aims at what they can see.
-const SNK_BAULK_X = 511.8;
-const SNK_D = { x: SNK_BAULK_X, y: SNK_H / 2, rx: 190.7, ry: 180.4 };
+/** Corner mouth on the art (for HOLE_RADIUS and reference). */
+const SNK_CORNER_MOUTH = 69.5;
+// Baulk line and D, measured from the art: the baulk line is 0.742 m off the
+// baulk cushion (regulation 0.737), the D a true semicircle of 0.334 m
+// (regulation 0.292 — the art paints it larger).
+const SNK_BAULK_X = 461.6;
+const SNK_D = { x: SNK_BAULK_X, y: 501.1, rx: 182.2, ry: 182.2 };
+const L = SNK_BORDER, R = SNK_W - SNK_BORDER, T = SNK_BORDER, B = SNK_H - SNK_BORDER;
+/**
+ * Pockets measured from the art. Corner jaw tips are where each painted facing
+ * meets the nose line. The middle pockets' facings converge sharply behind the
+ * nose (89 px apart there, 67 px at the back), so their mouth is taken at that
+ * narrowest point — the gap a ball actually has to pass — centred on the
+ * pocket. Centres are the middles of the painted holes (drop animation).
+ */
+const SNK_HOLES = [
+  pocketFromJaws({ x: 102.7, y: T }, { x: L, y: 109.4 }, -Math.SQRT1_2, -Math.SQRT1_2, CORNER_ACCEPT, { x: 40.8, y: 39.1 }), // top left
+  pocketFromJaws({ x: 1958.3, y: T }, { x: R, y: 109.4 }, Math.SQRT1_2, -Math.SQRT1_2, CORNER_ACCEPT, { x: 2017.4, y: 39.2 }), // top right
+  pocketFromJaws({ x: 102.7, y: B }, { x: L, y: 895.6 }, -Math.SQRT1_2, Math.SQRT1_2, CORNER_ACCEPT, { x: 38.5, y: 969.6 }), // bottom left
+  pocketFromJaws({ x: 1958.3, y: B }, { x: R, y: 895.6 }, Math.SQRT1_2, Math.SQRT1_2, CORNER_ACCEPT, { x: 2022.5, y: 967.7 }), // bottom right
+  pocketFromJaws({ x: 994.3, y: T }, { x: 1068.9, y: T }, 0, -1, SIDE_ACCEPT, { x: 1028.9, y: 24.7 }), // top middle
+  pocketFromJaws({ x: 994.3, y: B }, { x: 1068.9, y: B }, 0, 1, SIDE_ACCEPT, { x: 1031.5, y: 981.6 }), // bottom middle
+];
 
 export const SNOOKER_GEOM: TableGeometry = {
   TABLE_WIDTH: SNK_W,
@@ -125,7 +138,7 @@ export const SNOOKER_GEOM: TableGeometry = {
   TOP_BORDER_Y: SNK_BORDER,
   BOTTOM_BORDER_Y: SNK_H - SNK_BORDER,
   HOLE_RADIUS: SNK_CORNER_MOUTH / 2,
-  HOLES: buildPockets(SNK_W, SNK_H, SNK_BORDER, SNK_CORNER_MOUTH, SNK_MIDDLE_MOUTH),
+  HOLES: SNK_HOLES,
   CUE_BALL_START: { x: SNK_BORDER + Math.round(0.6 * PX_PER_M), y: Math.round(SNK_H / 2) },
   POCKETED_PARK: { x: 0, y: SNK_H + 120 },
   HEAD_STRING_X: SNK_BAULK_X,

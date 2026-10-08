@@ -80,16 +80,20 @@ const POOL_SKIN: TableSkin = {
   mt: 22,
   mb: 21,
 };
+// Snooker table art (8 Oct 2026, 2000 × 1130). Fitted by its cushion nose line
+// (x 126–1873, y 139–938.5) onto the engine's (57,57)–(2004,948) at one scale,
+// 0.89728 image px per engine px, so its round pockets and D stay round. The
+// pockets, baulk line, D and spots in the engine are measured from this image.
 const SNOOKER_SKIN: TableSkin = {
-  src: "/assets/tables/snooker_table.png",
-  dx: -96,
-  dy: -262,
-  dw: 2252,
-  dh: 1687,
-  ml: 27,
-  mr: 34,
-  mt: 19,
-  mb: 53,
+  src: "/assets/tables/snooker_table.webp",
+  dx: -83.4,
+  dy: -97.9,
+  dw: 2229.0,
+  dh: 1259.4,
+  ml: 31,
+  mr: 31,
+  mt: 21,
+  mb: 24,
 };
 let TABLE_SKIN = POOL_SKIN;
 // The visible canvas window in engine coords: the play area plus the skin's
