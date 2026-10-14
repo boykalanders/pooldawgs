@@ -7,7 +7,7 @@ export {
   stepWorld,
   type StepHooks,
 } from "./physics.js";
-export { getRules } from "./variants/index.js";
+export { getRules, mustCallPocket, POCKET_NAMES } from "./variants/index.js";
 export {
   geomFor,
   POOL_GEOM,

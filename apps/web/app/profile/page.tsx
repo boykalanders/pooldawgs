@@ -29,6 +29,11 @@ export default function ProfilePage() {
 /** On-chain game tuple: [p1, p2, isCompleted, winner, stake, rewardClaimed, …]. */
 type ChainGame = readonly [string, string, boolean, string, bigint, boolean, ...unknown[]];
 
+/** A won game still waiting for its payout. `settled`: the result is already
+ *  recorded on-chain (finishGame), so it's claimed with plain claimReward — the
+ *  voucher only works while the game is still open on-chain. */
+type UnclaimedWin = WonGame & { settled?: boolean };
+
 
 function Profile() {
   const { address } = useAccount();
@@ -42,7 +47,7 @@ function Profile() {
   // gameId currently being claimed, and the set of confirmed-claimed ids.
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
-  const [unclaimed, setUnclaimed] = useState<WonGame[]>([]);
+  const [unclaimed, setUnclaimed] = useState<UnclaimedWin[]>([]);
   const [checking, setChecking] = useState(false);
   const [refresh, setRefresh] = useState(0);
 
@@ -72,7 +77,7 @@ function Profile() {
     let cancelled = false;
     setChecking(true);
     (async () => {
-      const open: WonGame[] = [];
+      const open: UnclaimedWin[] = [];
       for (const g of wonGames) {
         try {
           const game = (await publicClient.readContract({
@@ -82,7 +87,8 @@ function Profile() {
             args: [g.gameId],
           })) as unknown as ChainGame;
           if (game[5]) continue; // rewardClaimed — already paid out
-          open.push(g); // claimable now if it carries a voucher
+          const settled = game[2] && game[3].toLowerCase() === address.toLowerCase();
+          open.push({ ...g, settled }); // claimable now if settled or it carries a voucher
         } catch (e) {
           log.info("profile: reward check skipped for", g.gameId, e instanceof Error ? e.message : e);
           open.push(g);
@@ -99,18 +105,27 @@ function Profile() {
   }, [wonGames, publicClient, address, refresh]);
 
   const claim = useCallback(
-    async (gameId: string, voucher: string) => {
-      if (!POOLDAWGS_ADDRESS || !voucher) return;
+    async (g: UnclaimedWin) => {
+      const gameId = g.gameId;
+      if (!POOLDAWGS_ADDRESS || (!g.settled && !g.voucher)) return;
       setClaimError(null);
       setClaiming(gameId);
       try {
-        const tx = await writeContractAsync({
-          address: POOLDAWGS_ADDRESS,
-          abi: POOL_DAWGS_ABI,
-          functionName: "claimRewardSigned",
-          args: [gameId, voucher as `0x${string}`],
-          chainId: CHAIN_ID,
-        });
+        const tx = g.settled
+          ? await writeContractAsync({
+              address: POOLDAWGS_ADDRESS,
+              abi: POOL_DAWGS_ABI,
+              functionName: "claimReward",
+              args: [gameId],
+              chainId: CHAIN_ID,
+            })
+          : await writeContractAsync({
+              address: POOLDAWGS_ADDRESS,
+              abi: POOL_DAWGS_ABI,
+              functionName: "claimRewardSigned",
+              args: [gameId, g.voucher as `0x${string}`],
+              chainId: CHAIN_ID,
+            });
         if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
         setRefresh((n) => n + 1); // re-check on-chain claimed state
       } catch (e) {
@@ -236,11 +251,11 @@ function Profile() {
                     <span className="text-gold-bright">{formatStake(g.reward)}</span>
                   </p>
                 </div>
-                {g.voucher ? (
+                {g.settled || g.voucher ? (
                   <button
                     className="btn-gold"
                     disabled={claiming === g.gameId}
-                    onClick={() => claim(g.gameId, g.voucher!)}
+                    onClick={() => claim(g)}
                   >
                     {claiming === g.gameId ? "Claiming…" : "Claim"}
                   </button>

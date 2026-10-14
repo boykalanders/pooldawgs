@@ -7,6 +7,12 @@ import { createPoolDawgsServer } from "./server.js";
 
 const config = loadConfig();
 
+// A stray rejected promise (e.g. a WebSocket write after the socket closed) must
+// be logged, not crash the process and take every live table down with it.
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandled rejection:", reason);
+});
+
 // Bring up the authoritative Havok physics backend before accepting play, then
 // inject it so every room's simulateShot() runs on Havok. The SERVER is the
 // sole authority — it simulates each shot and the clients replay the result —
@@ -21,14 +27,15 @@ async function main() {
     console.log("Physics backend: built-in TS engine");
   }
 
-  // Persistent leaderboard: Postgres if configured + reachable, else SQLite.
-  // Load the saved rows so the ranking survives restarts; the chain indexer
-  // then resumes from the saved block (or backfills from the deploy block).
+  // Persistent storage: Postgres if configured + reachable, else SQLite. Results,
+  // live tables, the lobby, the leaderboard and the chain cursor all survive
+  // restarts; the chain monitor resumes from its saved block.
   const persistence = await createPersistence(config);
   const leaderboard = new LeaderboardStore(persistence);
   await leaderboard.load();
 
-  const server = createPoolDawgsServer(config, undefined, undefined, leaderboard);
+  const server = createPoolDawgsServer(config, undefined, undefined, leaderboard, { persist: persistence });
+  await server.ready; // results + live tables loaded before any player can connect
   server.httpServer.listen(config.port, () => {
     console.log(
       `PoolDawgs server on :${config.port} ` +

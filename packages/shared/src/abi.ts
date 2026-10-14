@@ -156,6 +156,14 @@ export const POOL_DAWGS_ABI = [
   },
   // ── platform stats (read straight from the chain for the leaderboard) ──
   {
+    // Relayer: return both stakes of a paid game that never started.
+    type: "function",
+    name: "refundUnstarted",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "gameId", type: "string" }],
+    outputs: [],
+  },
+  {
     type: "function",
     name: "platformStats",
     stateMutability: "view",
@@ -216,6 +224,44 @@ export const POOL_DAWGS_ABI = [
   {
     type: "event",
     name: "DrawRewardClaimed",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "player", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    // Every winner payout (claimReward and claimRewardSigned).
+    type: "event",
+    name: "RewardClaimed",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "winner", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "GameExited",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "totalCompanyRevenue", type: "uint256", indexed: false },
+      { name: "totalBurnedAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "GameRefunded",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "playerOne", type: "address", indexed: true },
+      { name: "playerTwo", type: "address", indexed: true },
+      { name: "stakeEach", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "OwnerWithdrawal",
     inputs: [
       { name: "gameId", type: "string", indexed: false },
       { name: "player", type: "address", indexed: true },

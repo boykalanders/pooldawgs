@@ -145,6 +145,10 @@ function GameRoom() {
   const cg = CONTRACTS_CONFIGURED && chainGame ? (chainGame as ChainGame) : null;
   const chainClaimed = cg ? Boolean(cg[5]) : false;
   const rewardClaimed = claimed || chainClaimed;
+  // Already recorded on-chain for us (the server's backstop finishGame for a win
+  // left unclaimed): claim with plain claimReward — the voucher no longer applies.
+  const chainSettledForMe =
+    cg !== null && Boolean(cg[2]) && !!address && String(cg[3]).toLowerCase() === address.toLowerCase();
 
   // Per-seat avatars: each player's NFT artwork (or a wallet-derived identicon),
   // resolved up here so the hooks run before the pre-game early returns.
@@ -426,21 +430,29 @@ function GameRoom() {
     // The winner redeems the backend's voucher: claimRewardSigned settles the
     // game AND pays out in this single winner-paid tx — no settlement wait.
     const voucher = snapshot?.over?.voucher;
-    if (!voucher) {
+    if (!voucher && !chainSettledForMe) {
       setActionError("Reward voucher isn't ready yet — you can also claim from your Profile.");
       return;
     }
     setActionError(null);
     setWorking("claim");
-    log.info("claim: redeeming voucher for", gameId);
+    log.info("claim:", chainSettledForMe ? "claimReward (settled on-chain)" : "redeeming voucher", "for", gameId);
     try {
-      const tx = await writeContractAsync({
-        address: POOLDAWGS_ADDRESS,
-        abi: POOL_DAWGS_ABI,
-        functionName: "claimRewardSigned",
-        args: [gameId, voucher as `0x${string}`],
-        chainId: CHAIN_ID,
-      });
+      const tx = chainSettledForMe
+        ? await writeContractAsync({
+            address: POOLDAWGS_ADDRESS,
+            abi: POOL_DAWGS_ABI,
+            functionName: "claimReward",
+            args: [gameId],
+            chainId: CHAIN_ID,
+          })
+        : await writeContractAsync({
+            address: POOLDAWGS_ADDRESS,
+            abi: POOL_DAWGS_ABI,
+            functionName: "claimRewardSigned",
+            args: [gameId, voucher as `0x${string}`],
+            chainId: CHAIN_ID,
+          });
       log.info("claim: tx sent", tx);
       if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
       log.info("claim: confirmed");
@@ -617,7 +629,10 @@ function GameRoom() {
     );
   }
 
-  const myTurn = mySeat !== null && !state.gameOver && state.turn === mySeat && !snapshot.over;
+  // Waiting room: both paid, not both at the table yet — no clock, no shots.
+  const waitingRoom = Boolean(snapshot.waiting) && !snapshot.over;
+  const refund = snapshot.refund ?? null;
+  const myTurn = mySeat !== null && !state.gameOver && state.turn === mySeat && !snapshot.over && !waitingRoom;
   const iWon = snapshot.over && address && snapshot.over.winner.toLowerCase() === address.toLowerCase();
 
   const shellPlayers = snapshot.players.map((p): ShellPlayer => {
@@ -637,7 +652,13 @@ function GameRoom() {
 
   const statusText = snapshot.over
     ? `${shortAddress(snapshot.over.winner)} wins by ${snapshot.over.reason}`
-    : myTurn
+    : refund
+      ? refund.done
+        ? "Game never started — both stakes returned"
+        : "Game never started — returning both stakes"
+      : waitingRoom
+        ? "Waiting for your opponent to come to the table — no clock yet"
+        : myTurn
       ? "Your shot"
       : mySeat === null
         ? "Spectating"
@@ -665,14 +686,14 @@ function GameRoom() {
       interactive={Boolean(myTurn)}
       potLabel={snapshot.stake ? formatStake(BigInt(snapshot.stake) * 2n) : null}
       balanceLabel={myBalance !== undefined ? Number(formatUnits(myBalance, 18)).toLocaleString() : null}
-      clockExpiresAt={snapshot.over ? null : snapshot.clockExpiresAt}
+      clockExpiresAt={snapshot.over || waitingRoom ? null : snapshot.clockExpiresAt}
       statusText={statusText}
       banner={
         serverError ??
         (myTurn && state.ballInHand ? ballInHandHint(state) : null)
       }
       menuItems={[
-        ...(mySeat !== null && !snapshot.over
+        ...(mySeat !== null && !snapshot.over && !waitingRoom
           ? [
               {
                 label: "Resign (forfeit the pot)",
@@ -704,7 +725,7 @@ function GameRoom() {
                 <>
                   {CONTRACTS_CONFIGURED &&
                     !rewardClaimed &&
-                    (over.voucher ? (
+                    (over.voucher || chainSettledForMe ? (
                       <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
                         {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
                       </button>
@@ -739,6 +760,18 @@ function GameRoom() {
               }
             />
           )
+        ) : refund ? (
+          <div className="panel mx-auto max-w-sm space-y-3 p-6 text-center">
+            <h3 className="heading-display text-xl">Game never started</h3>
+            <p className="text-sm text-cream/70">
+              {refund.done
+                ? "Both players' stakes have been returned in full."
+                : "Both players weren't at the table in time, so both stakes are being returned in full. This takes a minute or two."}
+            </p>
+            <button className="btn-outline" onClick={() => router.push("/lobby")}>
+              Back to lobby
+            </button>
+          </div>
         ) : null
       }
     />

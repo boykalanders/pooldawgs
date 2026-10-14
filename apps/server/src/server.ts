@@ -1,22 +1,29 @@
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
+import type { AbstractProvider } from "ethers";
 import {
   MAX_CHAT_LENGTH,
   gameTypeFromId,
   type Address,
   type ClientToServerEvents,
+  type GameOverReason,
   type LobbyGame,
+  type ServerError,
   type ServerToClientEvents,
 } from "@pooldawgs/shared";
 import { verifyAuth } from "./auth.js";
-import { createChainReader, ZeroAddress, type ChainReader } from "./chain.js";
-import { startChainListener } from "./chain-events.js";
+import { ChainUnavailableError, createChainReader, ZeroAddress, type ChainReader } from "./chain.js";
+import { startChainListener, type ChainListener } from "./chain-events.js";
 import type { ServerConfig } from "./config.js";
+import { createMemoryPersistence, type Persistence } from "./db/persistence.js";
 import { LeaderboardStore } from "./leaderboard.js";
 import { LobbyStore } from "./lobby.js";
 import { ProfileStore } from "./profile.js";
+import { startRecovery, type Recovery } from "./recovery.js";
 import { createRelayer, type Relayer } from "./relayer.js";
-import { GameRoom, type RoomEmitter } from "./room.js";
+import { ResultStore } from "./results.js";
+import { GameRoom, type RoomEmitter, type RoomHooks, type SerializedRoom } from "./room.js";
+import { createRpcProvider, providerStatus, rpcMetrics } from "./rpc.js";
 
 interface SocketData {
   address?: Address;
@@ -28,21 +35,48 @@ export interface PoolDawgsServer {
   httpServer: HttpServer;
   io: IoServer;
   lobby: LobbyStore;
+  results: ResultStore;
   rooms: Map<string, GameRoom>;
+  /** Resolves once stored results, the lobby and live tables are loaded. */
+  ready: Promise<void>;
   close(): Promise<void>;
+}
+
+export interface ServerOptions {
+  /** Storage (defaults to in-memory — tests/dev). */
+  persist?: Persistence;
+  /** HTTP provider for chain reads/backfills (defaults to the failover provider). */
+  provider?: AbstractProvider;
+  /** Start the chain event listener and recovery sweeps (default: true). */
+  background?: boolean;
 }
 
 const roomChannel = (gameId: string) => `game:${gameId}`;
 
+/** Winner's payout: 80% of the two-stake pot. */
+const winnerShare = (stakeWei: string | null | undefined) =>
+  ((BigInt(stakeWei ?? "0") * 2n * 8000n) / 10000n).toString();
+
 export function createPoolDawgsServer(
   config: ServerConfig,
   relayer: Relayer = createRelayer(config),
-  chainReader: ChainReader = createChainReader(config),
+  chainReaderArg?: ChainReader,
   // Built (with persistence) and pre-loaded by the caller; defaults to an
   // ephemeral in-memory store for tests/dev.
-  leaderboard: LeaderboardStore = new LeaderboardStore()
+  leaderboard: LeaderboardStore = new LeaderboardStore(),
+  options: ServerOptions = {}
 ): PoolDawgsServer {
-  const profiles = new ProfileStore(config.dataDir);
+  const profiles = new ProfileStore(config.dataDir ?? process.cwd());
+  const persist = options.persist ?? createMemoryPersistence();
+  const provider =
+    options.provider ??
+    (config.chainEnabled ? createRpcProvider(config.rpcUrls ?? [config.rpcUrl!], config.chainId) : null);
+  const chainReader = chainReaderArg ?? createChainReader(config, provider ?? undefined);
+  const results = new ResultStore(persist);
+  const lobby = new LobbyStore(persist);
+  const rooms = new Map<string, GameRoom>();
+  let chainListener: ChainListener | null = null;
+  let recovery: Recovery | null = null;
 
   // Accept the configured origins PLUS any localhost / 127.0.0.1 origin (any
   // port). This avoids the common local-testing trap where the page is opened
@@ -54,19 +88,37 @@ export function createPoolDawgsServer(
     return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
   };
 
+  const json = (res: import("node:http").ServerResponse, cors: Record<string, string>, body: unknown) => {
+    res.writeHead(200, { "content-type": "application/json", ...cors });
+    res.end(JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+  };
+
   const httpServer = createHttpServer((req, res) => {
     const origin = req.headers.origin;
     const cors = {
       "access-control-allow-origin": isAllowedOrigin(origin) ? origin ?? "*" : "null",
     };
     if (req.url === "/health") {
-      res.writeHead(200, { "content-type": "application/json", ...cors });
-      res.end(JSON.stringify({ ok: true, chainEnabled: config.chainEnabled }));
+      json(res, cors, { ok: true, chainEnabled: config.chainEnabled, storage: persist.kind });
+      return;
+    }
+    if (req.url === "/health/chain") {
+      // Monitoring: event stream, RPC usage and recovery backlog. No secrets.
+      const pending = results.all().filter((r) => r.onchain === "pending");
+      json(res, cors, {
+        storage: persist.kind,
+        events: chainListener?.status() ?? null,
+        providers: providerStatus(),
+        rpc: rpcMetrics.snapshot(),
+        liveTables: [...rooms.values()].filter((r) => !r.isOver()).length,
+        unclaimedWins: pending.length,
+        backstopFinishesInFlight: pending.filter((r) => r.finishTx).length,
+        recovery: recovery?.status() ?? null,
+      });
       return;
     }
     if (req.url === "/leaderboard") {
-      res.writeHead(200, { "content-type": "application/json", ...cors });
-      res.end(JSON.stringify({ entries: leaderboard.top(), stats: leaderboard.stats() }));
+      json(res, cors, { entries: leaderboard.top(), stats: leaderboard.stats() });
       return;
     }
     res.writeHead(404);
@@ -76,10 +128,6 @@ export function createPoolDawgsServer(
   const io: IoServer = new Server(httpServer, {
     cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) },
   });
-
-  const lobby = new LobbyStore();
-  const rooms = new Map<string, GameRoom>();
-  const stopChainListener = startChainListener(config, lobby, leaderboard);
 
   // Decorate lobby rows with playerOne's display name so the browse list and
   // join screens can show who's hosting.
@@ -99,52 +147,245 @@ export function createPoolDawgsServer(
       broadcastOver: (p) => {
         io.to(channel).emit("game:over", p);
         lobby.markStatus(gameId, "finished");
-        const room = rooms.get(gameId);
-        if (room && !p.txHash) {
-          // Record once, on the first (pre-settlement) game:over emit.
-          const loser = room.seats.find((s) => s !== p.winner);
-          // Winner takes 80% of the 2-stake pot.
-          const stake = lobby.get(gameId)?.stake ?? room.stakeWei() ?? "0";
-          const winnings = ((BigInt(stake) * 2n * 8000n) / 10000n).toString();
-          if (loser) leaderboard.record(gameId, p.winner, loser, winnings);
-          // Surface as a claimable win immediately (idempotent with the chain
-          // backfill, which also records it once finishGame mines).
-          leaderboard.recordWonGame(p.winner, gameId, winnings);
-        }
       },
     };
   }
 
+  // ── storage hooks for rooms ──
+  // Saves for one table are chained so they land in order (and the delete after them).
+  const roomWrites = new Map<string, Promise<void>>();
+  const queueRoomWrite = (gameId: string, write: () => Promise<void>) => {
+    const next = (roomWrites.get(gameId) ?? Promise.resolve())
+      .then(write)
+      .catch((e) => console.error(`[room] ${gameId}: could not save the table:`, e instanceof Error ? e.message : e));
+    roomWrites.set(gameId, next);
+    void next.then(() => {
+      if (roomWrites.get(gameId) === next) roomWrites.delete(gameId);
+    });
+  };
+
+  /** Record a decided game in the results store and the leaderboard. Throws if
+   *  it can't be stored. The first result for a game always stands. */
+  async function recordResult(input: {
+    gameId: string;
+    winner: Address;
+    loser: Address | string;
+    reason: string;
+    reward?: string;
+    onchain?: "pending" | "finished" | "claimed";
+  }) {
+    const stake = lobby.get(input.gameId)?.stake ?? rooms.get(input.gameId)?.stakeWei() ?? "0";
+    const stored = await results.record({
+      gameId: input.gameId,
+      winner: input.winner,
+      loser: input.loser,
+      reason: input.reason,
+      reward: input.reward ?? winnerShare(stake),
+      onchain: input.onchain,
+    });
+    if (stored.loser) leaderboard.record(input.gameId, stored.winner as Address, stored.loser as Address, stored.reward);
+    leaderboard.recordWonGame(stored.winner as Address, input.gameId, stored.reward);
+    return stored;
+  }
+
+  const hooks: RoomHooks = {
+    recordResult: (r) => recordResult(r),
+    saveState: (room) => queueRoomWrite(room.gameId, () => persist.saveRoom(room.gameId, JSON.stringify(room.serialize()))),
+    ended: (room) => queueRoomWrite(room.gameId, () => persist.deleteRoom(room.gameId)),
+  };
+
+  const newRoom = (
+    gameId: string,
+    seats: [Address, Address],
+    stake: string | null,
+    opts: ConstructorParameters<typeof GameRoom>[8] = {}
+  ) =>
+    new GameRoom(
+      gameId,
+      seats,
+      makeEmitter(gameId),
+      relayer,
+      config.shotClockMs,
+      stake,
+      gameTypeFromId(gameId), // variant is encoded in the code's prefix
+      (addr) => profiles.getName(addr),
+      { hooks, waitingTimeoutMs: config.waitingRoomTimeoutMs, ...opts }
+    );
+
+  /** A room showing an already-decided game: no play, just the result (and the
+   *  winner's voucher while the chain still has the game open). */
+  async function decidedRoom(gameId: string, seats: [Address, Address], stake: string | null): Promise<GameRoom> {
+    const r = results.get(gameId)!;
+    const voucher = r.onchain === "pending" ? (await relayer.signResult(gameId, r.winner as Address)) ?? undefined : undefined;
+    return newRoom(gameId, seats, stake, {
+      decided: { winner: r.winner as Address, reason: r.reason as GameOverReason, voucher },
+    });
+  }
+
   /**
-   * Resolve the two seats (and stake) for a game. With the chain enabled,
-   * seats are read straight from the contract — authoritative and immune to
-   * event-listener lag. In dev mode the first two distinct authenticated
-   * wallets to join an unknown gameId become the players.
+   * Open (or return) the room for a game. With the chain enabled, seats are
+   * read straight from the contract — authoritative and immune to event lag.
+   * A game that already has a result opens as decided: it is never played again.
    */
   const devSeats = new Map<string, Address[]>();
-  async function resolveSeats(
-    gameId: string,
-    joiner: Address
-  ): Promise<{ seats: [Address, Address]; stake: string | null } | null> {
-    if (config.chainEnabled) {
-      const game = await chainReader.getGame(gameId);
-      if (!game || game.isCompleted) return null;
-      if (game.playerTwo === ZeroAddress) return null; // no opponent yet
-      const seats: [Address, Address] = [
-        game.playerOne.toLowerCase() as Address,
-        game.playerTwo.toLowerCase() as Address,
-      ];
-      if (!seats.includes(joiner)) return null;
-      return { seats, stake: game.stake.toString() };
+  const opening = new Map<string, Promise<GameRoom | ServerError>>();
+
+  function openRoom(gameId: string, joiner: Address | null): Promise<GameRoom | ServerError> {
+    const existing = rooms.get(gameId);
+    if (existing) return Promise.resolve(existing);
+    let pending = opening.get(gameId);
+    if (!pending) {
+      pending = resolveRoom(gameId, joiner).finally(() => opening.delete(gameId));
+      opening.set(gameId, pending);
     }
-    const pending = devSeats.get(gameId) ?? [];
-    if (!pending.includes(joiner)) {
-      if (pending.length >= 2) return null;
-      pending.push(joiner);
-      devSeats.set(gameId, pending);
-    }
-    return pending.length === 2 ? { seats: [pending[0], pending[1]], stake: null } : null;
+    return pending;
   }
+
+  async function resolveRoom(gameId: string, joiner: Address | null): Promise<GameRoom | ServerError> {
+    let seats: [Address, Address];
+    let stake: string | null;
+    if (config.chainEnabled) {
+      let game;
+      try {
+        game = await chainReader.getGame(gameId);
+      } catch (e) {
+        if (e instanceof ChainUnavailableError) {
+          return { code: "chain-unavailable", message: "couldn't reach the chain — retrying shortly" };
+        }
+        throw e;
+      }
+      if (!game) return { code: "unknown-game", message: "game not found on-chain" };
+      if (game.playerTwo === ZeroAddress) return { code: "unknown-game", message: "waiting for an opponent to join" };
+      seats = [game.playerOne.toLowerCase() as Address, game.playerTwo.toLowerCase() as Address];
+      stake = game.stake.toString();
+      if (!results.get(gameId) && game.isCompleted && !game.drawCompleted && game.winner !== ZeroAddress) {
+        // Settled on-chain without a result here (e.g. before results were stored):
+        // the chain is the record.
+        const winner = game.winner.toLowerCase() as Address;
+        await recordResult({
+          gameId,
+          winner,
+          loser: seats.find((s) => s !== winner) ?? "",
+          reason: "pot",
+          onchain: game.rewardClaimed ? "claimed" : "finished",
+        });
+      }
+      if (game.isCompleted && !results.get(gameId)) {
+        return { code: "unknown-game", message: "this game is already settled on-chain" }; // a draw or a refund
+      }
+    } else {
+      const pendingSeats = devSeats.get(gameId) ?? [];
+      if (joiner && !pendingSeats.includes(joiner)) {
+        if (pendingSeats.length >= 2) return { code: "unknown-game", message: "game is full" };
+        pendingSeats.push(joiner);
+        devSeats.set(gameId, pendingSeats);
+      }
+      if (pendingSeats.length < 2) return { code: "unknown-game", message: "waiting for an opponent" };
+      seats = [pendingSeats[0], pendingSeats[1]];
+      stake = null;
+    }
+    if (joiner && !seats.includes(joiner)) {
+      return { code: "not-a-player", message: "spectating not yet supported" };
+    }
+    const room = rooms.get(gameId) ?? (results.get(gameId) ? await decidedRoom(gameId, seats, stake) : newRoom(gameId, seats, stake));
+    if (!rooms.has(gameId)) {
+      rooms.set(gameId, room);
+      if (!room.isOver()) hooks.saveState(room);
+    }
+    return room;
+  }
+
+  /** Both seats are paid: open the table as a waiting room (no shot clock until both
+   *  players are here), so the server tracks it — and refunds both stakes if the
+   *  game never starts — instead of the pot sitting forever. */
+  async function ensureLive(gameId: string): Promise<void> {
+    if (rooms.has(gameId) || results.get(gameId)) return;
+    const outcome = await openRoom(gameId, null);
+    if (!(outcome instanceof GameRoom) && outcome.code !== "unknown-game") {
+      console.warn(`[room] ${gameId}: could not open the table yet (${outcome.message}); will retry`);
+    }
+  }
+
+  /** Restore stored live tables (mid-game when the server stopped). */
+  async function restoreRooms(): Promise<void> {
+    let restored = 0;
+    for (const row of await persist.loadRooms()) {
+      let data: SerializedRoom;
+      try {
+        data = JSON.parse(row.data) as SerializedRoom;
+      } catch {
+        continue;
+      }
+      if (results.get(data.gameId)) {
+        await persist.deleteRoom(data.gameId); // decided while we were down
+        continue;
+      }
+      const room = newRoom(data.gameId, data.seats, data.stake, {
+        restore: {
+          state: data.state,
+          messages: data.messages ?? [],
+          started: data.started,
+          waitingSince: data.waitingSince,
+          refund: data.refund ?? null,
+        },
+      });
+      rooms.set(data.gameId, room);
+      restored++;
+    }
+    if (restored) console.log(`[room] restored ${restored} live table(s) — each player to shoot gets a fresh shot clock`);
+  }
+
+  /** Both stakes are back with the players (seen on-chain): close the waiting room. */
+  async function finishRefund(gameId: string): Promise<void> {
+    lobby.markStatus(gameId, "cancelled");
+    const room = rooms.get(gameId);
+    if (!room) return;
+    room.refundDone();
+    room.dispose();
+    rooms.delete(gameId);
+    hooks.ended(room);
+    console.log(`[room] ${gameId}: never started — both stakes refunded`);
+  }
+
+  const ready = (async () => {
+    await results.load(leaderboard.allWonGames());
+    await lobby.load();
+    await restoreRooms();
+  })();
+
+  ready
+    .then(() => {
+      if (options.background === false || !config.chainEnabled || !provider) return;
+      chainListener = startChainListener(config, persist, provider, {
+        lobby,
+        leaderboard,
+        onGameJoined: (gameId) => ensureLive(gameId),
+        async onGameFinished(gameId, winner, reward) {
+          const game = lobby.get(gameId);
+          const loser = game?.playerTwo ? (game.playerOne === winner ? game.playerTwo : game.playerOne) : "";
+          const existing = results.get(gameId);
+          if (existing && existing.winner !== winner) {
+            console.error(
+              `[results] ${gameId}: CHAIN WINNER ${winner} differs from the recorded winner ${existing.winner} — the chain paid out; investigate`
+            );
+          }
+          await recordResult({ gameId, winner, loser, reason: "pot", reward, onchain: "finished" });
+          await results.markOnchain(gameId, "finished");
+          const room = rooms.get(gameId);
+          if (room && !room.isOver()) {
+            // Recorded on-chain while a table was still open (only possible via an
+            // admin action): close the table, the chain's result stands.
+            room.dispose();
+            rooms.delete(gameId);
+            hooks.ended(room);
+          }
+        },
+        onPaidOut: (gameId) => results.markOnchain(gameId, "claimed"),
+        onRefunded: (gameId) => finishRefund(gameId),
+      });
+      recovery = startRecovery({ config, relayer, chainReader, results, lobby, rooms, ensureLive, finishRefund });
+    })
+    .catch((e) => console.error("[server] startup failed:", e));
 
   io.on("connection", (socket) => {
     socket.on("lobby:subscribe", () => {
@@ -165,45 +406,39 @@ export function createPoolDawgsServer(
       }
       socket.data.address = address;
       console.log(`[room] join ${gameId} by ${address}`);
+      await ready;
 
-      let room = rooms.get(gameId);
-      if (!room) {
-        const resolved = await resolveSeats(gameId, address);
-        if (!resolved) {
-          console.warn(`[room] join ${gameId}: not joinable for ${address}`);
-          // Dev mode: first player waits for an opponent before a room exists.
-          if (!config.chainEnabled && devSeats.get(gameId)?.includes(address)) {
-            void socket.join(roomChannel(gameId));
-            return;
-          }
-          socket.emit("server:error", {
-            code: "unknown-game",
-            message: "game not joinable (not active on-chain, or not a player)",
-          });
+      let outcome: GameRoom | ServerError;
+      try {
+        outcome = await openRoom(gameId, address);
+      } catch (e) {
+        console.error(`[room] join ${gameId} failed:`, e);
+        socket.emit("server:error", { code: "internal", message: "could not open the game" });
+        return;
+      }
+      if (!(outcome instanceof GameRoom)) {
+        console.warn(`[room] join ${gameId}: ${outcome.message} (${address})`);
+        // Dev mode: first player waits for an opponent before a room exists.
+        if (!config.chainEnabled && devSeats.get(gameId)?.includes(address)) {
+          void socket.join(roomChannel(gameId));
           return;
         }
-        // Another join may have created the room while we awaited the chain.
-        room =
-          rooms.get(gameId) ??
-          new GameRoom(
-            gameId,
-            resolved.seats,
-            makeEmitter(gameId),
-            relayer,
-            config.shotClockMs,
-            resolved.stake,
-            gameTypeFromId(gameId), // variant is encoded in the code's prefix
-            (addr) => profiles.getName(addr)
-          );
-        rooms.set(gameId, room);
+        socket.emit("server:error", outcome);
+        return;
       }
-
+      const room = outcome;
       if (room.seatOf(address) === null) {
         console.warn(`[room] join ${gameId}: ${address} is not a seated player`);
         socket.emit("server:error", { code: "not-a-player", message: "spectating not yet supported" });
         return;
       }
 
+      // A player already waiting on this game's channel (dev mode: before the room
+      // existed) is at the table too — the waiting room starts once both are here.
+      for (const other of await io.in(roomChannel(gameId)).fetchSockets()) {
+        const a = other.data.address;
+        if (a && a !== address && room.seatOf(a) !== null) room.connect(a);
+      }
       void socket.join(roomChannel(gameId));
       room.connect(address);
       socket.emit("room:state", room.snapshot());
@@ -228,10 +463,7 @@ export function createPoolDawgsServer(
       socket.emit("room:state", room.snapshot());
     });
 
-    const withRoom = (
-      gameId: string,
-      fn: (room: GameRoom, address: Address) => void
-    ): void => {
+    const withRoom = (gameId: string, fn: (room: GameRoom, address: Address) => void): void => {
       const address = socket.data.address;
       if (!address) {
         socket.emit("server:error", { code: "unauthorized", message: "join the room first" });
@@ -281,15 +513,18 @@ export function createPoolDawgsServer(
     });
 
     const emitProfile = async (address: Address): Promise<void> => {
+      await ready;
       const key = address.toLowerCase() as Address;
       const stats = leaderboard.entry(key);
-      // Sign a fresh voucher for each won game so the winner can claim it from
-      // the profile (deterministic — re-signing yields the same voucher).
+      // A voucher only for a win that is this wallet's recorded result and still
+      // open on-chain (deterministic — re-signing yields the same voucher). Once
+      // the chain has the result, the winner claims with plain claimReward.
       const wonGames = await Promise.all(
-        leaderboard.wonGames(key).map(async (g) => ({
-          ...g,
-          voucher: (await relayer.signResult(g.gameId, key)) ?? null,
-        }))
+        leaderboard.wonGames(key).map(async (g) => {
+          const r = results.get(g.gameId);
+          const signable = r && r.winner === key && r.onchain === "pending";
+          return { ...g, voucher: signable ? (await relayer.signResult(g.gameId, key)) ?? null : null };
+        })
       );
       socket.emit("profile:state", {
         address: key,
@@ -334,11 +569,15 @@ export function createPoolDawgsServer(
     httpServer,
     io,
     lobby,
+    results,
     rooms,
+    ready,
     async close() {
-      stopChainListener();
+      chainListener?.stop();
+      recovery?.stop();
       for (const room of rooms.values()) room.dispose();
       rooms.clear();
+      await Promise.all([...roomWrites.values()]);
       await io.close();
     },
   };

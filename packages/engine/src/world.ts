@@ -14,7 +14,7 @@ import {
 } from "./constants.js";
 import { G, geomFor, setActiveGeometry } from "./geometry.js";
 import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.js";
-import { getRules } from "./variants/index.js";
+import { getRules, mustCallPocket, POCKET_NAMES } from "./variants/index.js";
 import type {
   PlacementZone,
   BallColor,
@@ -87,6 +87,14 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
       return { ok: false, reason: "spin must be within [-1, 1]" };
     }
   }
+  // 8-ball: shooting at the black, the pocket must be called (classic rule).
+  if (shot.calledPocket !== undefined) {
+    if (!Number.isInteger(shot.calledPocket) || shot.calledPocket < 0 || shot.calledPocket >= POCKET_NAMES.length) {
+      return { ok: false, reason: "called pocket must be one of the six pockets" };
+    }
+  } else if (mustCallPocket(state)) {
+    return { ok: false, reason: "call your pocket for the 8-ball" };
+  }
   // A potted cue ball must be placed before the next shot. With ball in hand
   // and the cue ball still on the table the player may shoot from where it
   // lies — as long as that spot is inside the zone (the kitchen / the D).
@@ -141,7 +149,7 @@ export function simulateShot(
   const next = cloneState(state);
   setActiveGeometry(next.gameType); // select this variant's table/ball geometry
   const rules: GameRules<unknown> = getRules(next.gameType);
-  const turnAcc = rules.createTurn();
+  const turnAcc = rules.createTurn(shot);
   const events: ShotEvent[] = [];
   const frames: Frame[] | undefined = opts.recordFrames ? [] : undefined;
   const frameStride = opts.frameStride ?? 2;
@@ -186,7 +194,7 @@ export function simulateShot(
       }
       rules.onBallsCollide(next, turnAcc, a, b);
     },
-    onPocket: (ball: BallState) => rules.onPocket(next, turnAcc, ball),
+    onPocket: (ball: BallState, pocket: number) => rules.onPocket(next, turnAcc, ball, pocket),
   };
 
   shootBall(cueBall(next), shot.power, shot.angle);

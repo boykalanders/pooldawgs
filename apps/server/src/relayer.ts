@@ -1,6 +1,7 @@
-import { Contract, JsonRpcProvider, Wallet } from "ethers";
+import { Contract, Wallet } from "ethers";
 import { POOL_DAWGS_ABI, type Address } from "@pooldawgs/shared";
 import type { ServerConfig } from "./config.js";
+import { createRpcProvider } from "./rpc.js";
 
 export interface Relayer {
   /**
@@ -9,11 +10,23 @@ export interface Relayer {
    * contract validates the recovered signer == resultSigner. Null in dev mode.
    */
   signResult(gameId: string, winner: Address): Promise<string | null>;
-  /** Legacy owner/operator path: record the winner on-chain. Kept as a backstop. */
+  /**
+   * Backstop: record the winner on-chain with finishGame (operator/owner key).
+   * Sends ONE transaction and returns its hash without waiting for it to mine —
+   * the caller tracks it with txStatus() and never sends another while it is
+   * pending. Null when no key is configured.
+   */
   finishGame(gameId: string, winner: Address): Promise<string | null>;
+  /** Return both stakes of a paid game that never started (refundUnstarted). Sends
+   *  ONE transaction and returns its hash; null when no key is configured. */
+  refundUnstarted(gameId: string): Promise<string | null>;
+  /** Where a previously sent transaction stands. A receipt that isn't there yet
+   *  is "pending" (or "dropped" once the node no longer knows the tx) — never
+   *  "failed": an RPC timeout is not a failed transaction. */
+  txStatus(hash: string): Promise<"pending" | "succeeded" | "failed" | "dropped">;
+  /** The relayer wallet's ETH balance (wei), for low-gas alerts. Null in dev. */
+  balance(): Promise<bigint | null>;
 }
-
-const RETRIES = 3;
 
 /**
  * The relayer holds a backend signing key. In the voucher model it is used ONLY
@@ -35,10 +48,20 @@ export function createRelayer(config: ServerConfig): Relayer {
         console.log(`[relayer:dev] finishGame(${gameId}, ${winner}) — no chain/key configured`);
         return null;
       },
+      async refundUnstarted(gameId) {
+        console.log(`[relayer:dev] refundUnstarted(${gameId}) — no chain/key configured`);
+        return null;
+      },
+      async txStatus() {
+        return "dropped";
+      },
+      async balance() {
+        return null;
+      },
     };
   }
 
-  const provider = new JsonRpcProvider(config.rpcUrl!);
+  const provider = createRpcProvider(config.rpcUrls ?? [config.rpcUrl!], config.chainId);
   const wallet = new Wallet(signerKey, provider);
   console.log(
     `[relayer] signing as ${wallet.address} (${
@@ -76,21 +99,25 @@ export function createRelayer(config: ServerConfig): Relayer {
     },
 
     async finishGame(gameId, winner) {
-      let lastError: unknown;
-      for (let attempt = 1; attempt <= RETRIES; attempt++) {
-        try {
-          const tx = await contract.finishGame(gameId, winner);
-          const receipt = await tx.wait();
-          console.log(`[relayer] finishGame(${gameId}, ${winner}) tx=${receipt.hash}`);
-          return receipt.hash as string;
-        } catch (error) {
-          lastError = error;
-          console.error(`[relayer] finishGame attempt ${attempt}/${RETRIES} failed`, error);
-          await new Promise((r) => setTimeout(r, attempt * 2000));
-        }
-      }
-      console.error(`[relayer] PERMANENT FAILURE settling game ${gameId}`, lastError);
-      throw lastError;
+      const tx = await contract.finishGame(gameId, winner);
+      console.log(`[relayer] finishGame(${gameId}, ${winner}) sent tx=${tx.hash}`);
+      return tx.hash as string;
+    },
+
+    async refundUnstarted(gameId) {
+      const tx = await contract.refundUnstarted(gameId);
+      console.log(`[relayer] refundUnstarted(${gameId}) sent tx=${tx.hash}`);
+      return tx.hash as string;
+    },
+
+    async txStatus(hash) {
+      const receipt = await provider.getTransactionReceipt(hash);
+      if (receipt) return receipt.status === 1 ? "succeeded" : "failed";
+      return (await provider.getTransaction(hash)) ? "pending" : "dropped";
+    },
+
+    async balance() {
+      return provider.getBalance(wallet.address);
     },
   };
 }

@@ -80,7 +80,10 @@ describe("PoolDawgs", () => {
         .withArgs(GAME_ID, p1.address, WINNER_SHARE);
 
       const before = await token.balanceOf(p1.address);
-      await pool.connect(p1).claimReward(GAME_ID);
+      // The payout is logged with its game ID, so a claim is traceable from the logs alone.
+      await expect(pool.connect(p1).claimReward(GAME_ID))
+        .to.emit(pool, "RewardClaimed")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE);
 
       expect((await token.balanceOf(p1.address)) - before).to.equal(WINNER_SHARE);
       expect(await token.balanceOf(company.address)).to.equal(COMPANY_SHARE);
@@ -179,7 +182,11 @@ describe("PoolDawgs", () => {
       });
 
       const before = await token.balanceOf(p1.address);
-      await pool.connect(p1).claimRewardSigned(GAME_ID, voucher);
+      await expect(pool.connect(p1).claimRewardSigned(GAME_ID, voucher))
+        .to.emit(pool, "GameFinished")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE)
+        .and.to.emit(pool, "RewardClaimed")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE);
       const g = await pool.games(GAME_ID);
       expect(g.isCompleted).to.equal(true);
       expect(g.winner).to.equal(p1.address);
@@ -379,7 +386,7 @@ describe("PoolDawgs", () => {
   });
 
   describe("ownerWithdrawUnpaid safety net", () => {
-    it("sweeps an unclaimed win to the company only after the timeout", async () => {
+    it("pays an unclaimed win TO THE WINNER (as ChessDawgs does), only after the timeout", async () => {
       await createAndJoin();
       await pool.connect(owner).finishGame(GAME_ID, p1.address);
 
@@ -388,16 +395,17 @@ describe("PoolDawgs", () => {
       ).to.be.revertedWith("claim window open");
 
       await time.increase(ABANDONMENT_TIMEOUT + 1);
+      const before = await token.balanceOf(p1.address);
       await expect(pool.connect(owner).ownerWithdrawUnpaid(GAME_ID, p1.address))
         .to.emit(pool, "OwnerWithdrawal")
-        .withArgs(GAME_ID, p1.address, WINNER_SHARE + COMPANY_SHARE);
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE);
 
-      // Burn still happens; winner+company shares land at the company wallet.
+      // Same 80/10/10 split as a normal claim; the 80% lands with the winner.
+      expect((await token.balanceOf(p1.address)) - before).to.equal(WINNER_SHARE);
+      expect(await token.balanceOf(company.address)).to.equal(COMPANY_SHARE);
       expect(await token.balanceOf(burnPool.address)).to.equal(BURN_SHARE);
-      expect(await token.balanceOf(company.address)).to.equal(
-        WINNER_SHARE + COMPANY_SHARE
-      );
       expect(await token.balanceOf(await pool.getAddress())).to.equal(0n);
+      await expect(pool.connect(p1).claimReward(GAME_ID)).to.be.revertedWith("already claimed");
     });
 
     it("cannot sweep a pot the winner already claimed", async () => {
@@ -418,8 +426,45 @@ describe("PoolDawgs", () => {
       await pool.connect(p1).claimDrawReward(GAME_ID);
 
       await time.increase(ABANDONMENT_TIMEOUT + 1);
+      const before = await token.balanceOf(p2.address);
       await pool.connect(owner).ownerWithdrawUnpaid(GAME_ID, p2.address);
+      expect((await token.balanceOf(p2.address)) - before).to.equal(WINNER_SHARE / 2n); // to the player
       expect(await token.balanceOf(await pool.getAddress())).to.equal(0n);
+    });
+  });
+
+  describe("refundUnstarted (paid, never played)", () => {
+    it("returns both stakes in full, no cut, and closes every payout path", async () => {
+      await createAndJoin();
+      const [b1, b2] = [await token.balanceOf(p1.address), await token.balanceOf(p2.address)];
+      await expect(pool.connect(owner).refundUnstarted(GAME_ID))
+        .to.emit(pool, "GameRefunded")
+        .withArgs(GAME_ID, p1.address, p2.address, STAKE);
+      expect((await token.balanceOf(p1.address)) - b1).to.equal(STAKE);
+      expect((await token.balanceOf(p2.address)) - b2).to.equal(STAKE);
+      expect(await token.balanceOf(await pool.getAddress())).to.equal(0n);
+      expect(await token.balanceOf(company.address)).to.equal(0n);
+
+      await expect(pool.connect(owner).refundUnstarted(GAME_ID)).to.be.revertedWith("game completed");
+      await expect(pool.connect(owner).finishGame(GAME_ID, p1.address)).to.be.revertedWith("game completed");
+      await expect(pool.connect(p1).claimReward(GAME_ID)).to.be.revertedWith("not the winner");
+      await time.increase(ABANDONMENT_TIMEOUT + 1);
+      await expect(pool.connect(owner).ownerWithdrawUnpaid(GAME_ID, p1.address)).to.be.revertedWith("not the winner");
+    });
+
+    it("the operator may refund; outsiders may not; never after a result", async () => {
+      await createAndJoin();
+      await pool.connect(owner).setOperator(outsider.address);
+      await expect(pool.connect(p1).refundUnstarted(GAME_ID)).to.be.revertedWith("not authorized");
+      await expect(pool.connect(outsider).refundUnstarted(GAME_ID)).to.emit(pool, "GameRefunded");
+
+      await pool.connect(p1).createGame(STAKE, "decided");
+      await pool.connect(p2).joinGame("decided");
+      await pool.connect(owner).finishGame("decided", p2.address);
+      await expect(pool.connect(owner).refundUnstarted("decided")).to.be.revertedWith("game completed");
+
+      await pool.connect(p1).createGame(STAKE, "unjoined");
+      await expect(pool.connect(owner).refundUnstarted("unjoined")).to.be.revertedWith("game not active");
     });
   });
 

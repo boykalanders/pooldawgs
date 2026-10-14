@@ -7,7 +7,9 @@
 //     anything else (or no contact) is a foul.
 //   • When all 7 of your colour are down, contacting the black first is legal.
 //   • Potting the cue: foul (and frame over if your set was already cleared).
-//   • Potting the black: frame over — win if cleared + no foul, else loss.
+//   • Potting the black: frame over — win if cleared + no foul + it dropped in
+//     the CALLED pocket, else loss. Shooting at the black, the pocket must be
+//     called (classic rule); the black in any other pocket loses the frame.
 //   • Potting an opponent ball: foul. Any foul ⇒ opponent ball-in-hand.
 //   • Legal pot ⇒ shoot again; otherwise turns switch.
 
@@ -17,9 +19,28 @@ import type {
   BallState,
   GameRules,
   PlayerIndex,
+  ShotInput,
   TableState,
   TurnResolution,
 } from "../types.js";
+
+/** Pocket names, in the order of the table's pockets (constants.ts HOLES). */
+export const POCKET_NAMES = [
+  "top left",
+  "top right",
+  "bottom left",
+  "bottom right",
+  "top middle",
+  "bottom middle",
+] as const;
+
+/** 8-ball: the player to shoot has cleared their group, so they're on the black
+ *  and must call a pocket for it. */
+export function mustCallPocket(state: TableState): boolean {
+  if (state.gameType !== "8ball" || state.gameOver) return false;
+  const color = state.playerColors[state.turn];
+  return color !== null && allPocketed(state, color);
+}
 
 interface Acc8 {
   foul: boolean;
@@ -32,6 +53,10 @@ interface Acc8 {
   /** Object-ball colours potted while the table was open — used to assign the
    *  group in resolve(). Potting BOTH colours leaves the table open. */
   openPotted: Set<BallColor>;
+  /** The pocket called for the black this shot (when on the black). */
+  calledPocket?: number;
+  /** The black dropped legally but not in the called pocket. */
+  wrongPocket?: boolean;
 }
 
 // id → { color, number } matches apps/web ball art (solids 1–7, 8, stripes 9–15).
@@ -129,12 +154,13 @@ export const eightBall: GameRules<Acc8> = {
     };
   },
 
-  createTurn: (): Acc8 => ({
+  createTurn: (shot?: ShotInput): Acc8 => ({
     foul: false,
     won: false,
     scored: false,
     firstCollision: true,
     openPotted: new Set<BallColor>(),
+    calledPocket: shot?.calledPocket,
   }),
 
   onBallsCollide(state, acc, b1, b2) {
@@ -163,7 +189,7 @@ export const eightBall: GameRules<Acc8> = {
     }
   },
 
-  onPocket(state, acc, ball) {
+  onPocket(state, acc, ball, pocket) {
     const turn = state.turn;
     const currentColor = state.playerColors[turn];
     if (acc.openStart === undefined) acc.openStart = currentColor === null;
@@ -196,6 +222,11 @@ export const eightBall: GameRules<Acc8> = {
       acc.foul = true;
     } else if (ball.color === "black") {
       if (!allPocketed(state, currentColor!)) acc.foul = true;
+      // On the black: it must drop in the pocket that was called.
+      else if (pocket === undefined || pocket !== acc.calledPocket) {
+        acc.foul = true;
+        acc.wrongPocket = true;
+      }
       acc.won = true;
     } else {
       acc.foul = true; // potted an opponent ball
@@ -226,7 +257,14 @@ export const eightBall: GameRules<Acc8> = {
 
     if (acc.won) {
       const winner = acc.foul ? other : turn;
-      return { gameOver: true, winner, foul: acc.foul, nextTurn: turn, ballInHand: false };
+      return {
+        gameOver: true,
+        winner,
+        foul: acc.foul,
+        nextTurn: turn,
+        ballInHand: false,
+        note: acc.wrongPocket ? "The 8-ball dropped in a pocket that wasn't called — frame lost" : undefined,
+      };
     }
 
     const keepTurn = acc.scored && !acc.foul;

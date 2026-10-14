@@ -11,7 +11,7 @@ import {
 } from "./world.js";
 import { BALL_SIZE, HOLES, MAX_POWER, TABLE_WIDTH } from "./constants.js";
 import { geomFor } from "./geometry.js";
-import { getRules } from "./variants/index.js";
+import { getRules, mustCallPocket, POCKET_NAMES } from "./variants/index.js";
 import type { BallState, TableState } from "./types.js";
 
 const BR_CORNER = HOLES[3]; // bottom-right (1435, 762)
@@ -196,22 +196,46 @@ describe("8-ball rules", () => {
     if (!result.outcome.foul) expect(result.outcome.nextTurn).toBe(0);
   });
 
-  it("potting the black after clearing your set wins", () => {
+  /** Player 0 has cleared the reds and is on the black, lined up on the bottom-right corner. */
+  function onTheBlack(): { state: TableState; angle: number } {
     const state = createInitialState();
+    state.broken = true;
     state.playerColors = ["red", "yellow"];
-    for (const b of state.balls) {
-      if (b.color === "red") {
-        b.inHole = true;
-        b.x = 0;
-        b.y = 900;
-      }
-    }
     const black = state.balls.find((b) => b.color === "black")!;
     clearExcept(state, [black.id]);
-    const angle = setupCornerPot(state, black);
-    const result = simulateShot(state, { angle, power: 71 });
+    return { state, angle: setupCornerPot(state, black) };
+  }
+
+  it("potting the black in the CALLED pocket after clearing your set wins", () => {
+    const { state, angle } = onTheBlack();
+    expect(POCKET_NAMES[3]).toBe("bottom right");
+    const result = simulateShot(state, { angle, power: 71, calledPocket: 3 });
+    expect(result.events.find((e) => e.type === "pocket" && e.color === "black")).toMatchObject({ pocket: 3 });
     expect(result.outcome.gameOver).toBe(true);
     expect(result.outcome.winner).toBe(0);
+  });
+
+  it("the black dropping in a pocket that WASN'T called loses the frame", () => {
+    const { state, angle } = onTheBlack();
+    const result = simulateShot(state, { angle, power: 71, calledPocket: 0 }); // called top-left
+    expect(result.outcome.gameOver).toBe(true);
+    expect(result.outcome.winner).toBe(1);
+  });
+
+  it("on the black, a shot without a called pocket is refused; before that, no call is needed", () => {
+    const { state, angle } = onTheBlack();
+    expect(mustCallPocket(state)).toBe(true);
+    expect(validateShot(state, { angle, power: 71 })).toEqual({ ok: false, reason: "call your pocket for the 8-ball" });
+    expect(validateShot(state, { angle, power: 71, calledPocket: 6 }).ok).toBe(false);
+    expect(validateShot(state, { angle, power: 71, calledPocket: 5 }).ok).toBe(true);
+
+    const early = createInitialState();
+    early.broken = true;
+    early.ballInHand = false;
+    early.playerColors = ["red", "yellow"];
+    expect(mustCallPocket(early)).toBe(false); // reds still on the table
+    expect(validateShot(early, { angle: 0, power: 30 }).ok).toBe(true);
+    expect(mustCallPocket(createInitialState("9ball"))).toBe(false);
   });
 
   it("scratching while potting your last group ball is a FOUL, not a win (black remains)", () => {

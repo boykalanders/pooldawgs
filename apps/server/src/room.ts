@@ -35,6 +35,59 @@ export interface RoomEmitter {
 
 export type RoomActionResult = { ok: true } | { ok: false; error: ServerError };
 
+/** What the room needs from the server to survive restarts and never lose a result. */
+export interface RoomHooks {
+  /** Store the decided game BEFORE anyone is told. Resolves with the stored
+   *  result — the existing one if the game was already decided (the first result
+   *  always stands). Must throw if it can't be stored; the room then retries. */
+  recordResult(r: { gameId: string; winner: Address; loser: Address; reason: GameOverReason }): Promise<{
+    winner: string;
+    reason: string;
+  }>;
+  /** Save the live table (after every shot / placement / chat). Best effort. */
+  saveState(room: GameRoom): void;
+  /** The game is decided and announced; its live table can be dropped. */
+  ended(room: GameRoom): void;
+}
+
+/** Both stakes being returned because the game never started. */
+export interface RefundState {
+  txHash: string | null;
+  done: boolean;
+}
+
+/** A live table as stored between restarts. */
+export interface SerializedRoom {
+  gameId: string;
+  seats: [Address, Address];
+  stake: string | null;
+  gameType: GameType;
+  state: TableState;
+  messages: ChatMessage[];
+  /** False while it's still a waiting room (absent in rows saved before waiting rooms existed = started). */
+  started?: boolean;
+  waitingSince?: number;
+  refund?: RefundState | null;
+}
+
+export interface RoomOptions {
+  /** Resume a stored table instead of racking a new frame. */
+  restore?: {
+    state: TableState;
+    messages: ChatMessage[];
+    started?: boolean;
+    waitingSince?: number;
+    refund?: RefundState | null;
+  };
+  /** How long a waiting room may wait for both players before both stakes are refunded. */
+  waitingTimeoutMs?: number;
+  /** Open the room on an already-decided game (no play, just the result). */
+  decided?: { winner: Address; reason: GameOverReason; voucher?: string };
+  hooks?: RoomHooks;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function err(code: ServerError["code"], message: string): RoomActionResult {
   return { ok: false, error: { code, message } };
 }
@@ -54,7 +107,19 @@ export class GameRoom {
   private clockExpiresAt = 0;
   private over: RoomSnapshot["over"] = null;
   private settling = false;
+  private disposed = false;
   private messages: ChatMessage[] = [];
+  readonly gameType: GameType;
+  private readonly hooks: RoomHooks | null;
+  /**
+   * Waiting room until BOTH players have come to the table: no shot clock runs and
+   * nobody can lose by being away. Once both have been here the game is live, and
+   * from then on being away costs you the shot clock as normal.
+   */
+  private started = false;
+  readonly waitingSince: number;
+  private readonly waitingTimeoutMs: number;
+  private refund: RefundState | null = null;
 
   constructor(
     gameId: string,
@@ -64,12 +129,88 @@ export class GameRoom {
     private readonly shotClockMs: number,
     private readonly stake: string | null = null,
     gameType: GameType = "8ball",
-    private readonly nameOf: (address: Address) => string | null = () => null
+    private readonly nameOf: (address: Address) => string | null = () => null,
+    options: RoomOptions = {}
   ) {
     this.gameId = gameId;
     this.seats = seats;
-    this.state = createInitialState(gameType);
+    this.gameType = gameType;
+    this.hooks = options.hooks ?? null;
+    this.state = options.restore?.state ?? createInitialState(gameType);
+    this.messages = options.restore?.messages ?? [];
+    this.waitingSince = options.restore?.waitingSince ?? Date.now();
+    this.waitingTimeoutMs = options.waitingTimeoutMs ?? 30 * 60_000;
+    this.refund = options.restore?.refund ?? null;
+    if (options.decided) {
+      const seat = this.seatOf(options.decided.winner);
+      this.state = { ...this.state, gameOver: true, winner: seat };
+      this.over = { ...options.decided, winner: options.decided.winner.toLowerCase() as Address };
+      return; // decided: no clock, no play
+    }
+    if (options.restore && options.restore.started !== false) {
+      // A restored live table gets a fresh, full shot clock: the server being down
+      // must never cost the player whose turn it was the game.
+      this.started = true;
+      this.restartClock();
+    }
+    // Otherwise a waiting room: the clock starts when both players are at the table.
+  }
+
+  /** Still a waiting room (both paid, not both at the table yet). */
+  isWaiting(): boolean {
+    return !this.started && !this.over;
+  }
+
+  refundState(): RefundState | null {
+    return this.refund;
+  }
+
+  /**
+   * The waiting room expired: return both stakes. Only possible while the game has
+   * never started; from this moment it never can (even if both players turn up).
+   * False if the game started (or a refund is already under way).
+   */
+  beginRefund(): boolean {
+    if (this.started || this.over || this.refund) return false;
+    this.refund = { txHash: null, done: false };
+    this.hooks?.saveState(this);
+    this.emitter.broadcastState(this.snapshot());
+    return true;
+  }
+
+  setRefundTx(txHash: string | null): void {
+    if (!this.refund) return;
+    this.refund = { ...this.refund, txHash };
+    this.hooks?.saveState(this);
+  }
+
+  refundDone(): void {
+    if (!this.refund) return;
+    this.refund = { ...this.refund, done: true };
+    this.emitter.broadcastState(this.snapshot());
+  }
+
+  private startIfBothHere(): void {
+    if (this.started || this.over || this.refund) return;
+    if (!this.seats.every((s) => this.connected.has(s))) return;
+    this.started = true;
     this.restartClock();
+    this.hooks?.saveState(this);
+  }
+
+  /** The live table, for storage between restarts. */
+  serialize(): SerializedRoom {
+    return {
+      gameId: this.gameId,
+      seats: this.seats,
+      stake: this.stake,
+      gameType: this.gameType,
+      state: this.state,
+      messages: this.messages,
+      started: this.started,
+      waitingSince: this.waitingSince,
+      refund: this.refund,
+    };
   }
 
   seatOf(address: Address): PlayerIndex | null {
@@ -91,17 +232,20 @@ export class GameRoom {
   addChat(msg: ChatMessage): void {
     this.messages.push(msg);
     if (this.messages.length > 100) this.messages.shift();
+    this.hooks?.saveState(this);
   }
 
   connect(address: Address): void {
     this.connected.add(address.toLowerCase() as Address);
+    this.startIfBothHere();
     this.emitter.broadcastState(this.snapshot());
   }
 
   disconnect(address: Address): void {
     this.connected.delete(address.toLowerCase() as Address);
-    // The shot clock keeps running — disconnecting does not pause a wagered
-    // game; staying away for 4 minutes forfeits it.
+    // Once the game has started the shot clock keeps running — disconnecting does
+    // not pause a wagered game; staying away for 4 minutes forfeits it. In a
+    // waiting room nothing runs.
     this.emitter.broadcastState(this.snapshot());
   }
 
@@ -121,11 +265,15 @@ export class GameRoom {
       clockExpiresAt: this.clockExpiresAt,
       serverNow: Date.now(),
       over: this.over,
+      waiting: this.isWaiting(),
+      waitingExpiresAt: this.isWaiting() ? this.waitingSince + this.waitingTimeoutMs : null,
+      refund: this.refund,
     };
   }
 
   handleShot(address: Address, shot: ShotInput): RoomActionResult {
-    if (this.over) return err("illegal-shot", "game is over");
+    if (this.over || this.settling) return err("illegal-shot", "game is over");
+    if (!this.started) return err("illegal-shot", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
     if (seat !== this.state.turn) return err("not-your-turn", "wait for your turn");
@@ -151,12 +299,15 @@ export class GameRoom {
 
     if (result.outcome.gameOver && result.outcome.winner !== null) {
       void this.settle(result.outcome.winner, "pot");
+    } else {
+      this.hooks?.saveState(this);
     }
     return { ok: true };
   }
 
   handlePlaceCueBall(address: Address, x: number, y: number): RoomActionResult {
-    if (this.over) return err("illegal-placement", "game is over");
+    if (this.over || this.settling) return err("illegal-placement", "game is over");
+    if (!this.started) return err("illegal-placement", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
     if (seat !== this.state.turn) return err("not-your-turn", "wait for your turn");
@@ -165,6 +316,7 @@ export class GameRoom {
     if (!result.ok) return err("illegal-placement", result.reason);
 
     this.state = result.state;
+    this.hooks?.saveState(this);
     this.emitter.broadcastCuePlaced({
       gameId: this.gameId,
       x,
@@ -175,7 +327,8 @@ export class GameRoom {
   }
 
   handleResign(address: Address): RoomActionResult {
-    if (this.over) return err("illegal-shot", "game is over");
+    if (this.over || this.settling) return err("illegal-shot", "game is over");
+    if (!this.started) return err("illegal-shot", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
 
@@ -210,27 +363,54 @@ export class GameRoom {
     this.settling = true;
     this.stopClock();
 
-    const winner = this.seats[winnerSeat];
-    this.state = { ...this.state, gameOver: true, winner: winnerSeat };
+    let winner: Address = this.seats[winnerSeat];
+    let finalReason: GameOverReason = reason;
+
+    // Store the result before anyone hears about it. If storage is down the
+    // table stays frozen (no shots, clock stopped) and the write is retried —
+    // announcing a result that isn't saved is how a game gets replayed or lost.
+    if (this.hooks) {
+      const loser = this.seats[((winnerSeat + 1) % 2) as PlayerIndex];
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const stored = await this.hooks.recordResult({ gameId: this.gameId, winner, loser, reason });
+          winner = stored.winner.toLowerCase() as Address; // an earlier result always stands
+          finalReason = stored.reason as GameOverReason;
+          break;
+        } catch (error) {
+          console.error(
+            `[room] ${this.gameId}: could not store the result (attempt ${attempt + 1}) — retrying`,
+            error instanceof Error ? error.message : error
+          );
+          if (this.disposed) return;
+          await sleep(Math.min(30_000, 1_000 * 2 ** attempt));
+          if (this.disposed) return;
+        }
+      }
+    }
+
+    const seat = this.seatOf(winner) ?? winnerSeat;
+    this.state = { ...this.state, gameOver: true, winner: seat };
 
     // Sign the win voucher off-chain (fast, no transaction). The winner redeems
     // it via claimRewardSigned, which settles AND pays in a single winner-paid
-    // tx — so there's no relayer gas and no "waiting to settle" window. If
-    // signing is unavailable the frame still stands; the winner can claim later
-    // from their profile (which re-signs the voucher on demand).
+    // tx. If signing is unavailable the result still stands; the winner can
+    // claim later from their profile (which re-signs the voucher on demand).
     let voucher: string | undefined;
     try {
       voucher = (await this.relayer.signResult(this.gameId, winner)) ?? undefined;
     } catch {
       /* logged by the relayer */
     }
-    this.over = { winner, reason, voucher };
-    this.emitter.broadcastOver({ gameId: this.gameId, winner, reason, voucher });
-    this.emitter.broadcastState(this.snapshot());
+    this.over = { winner, reason: finalReason, voucher };
     this.settling = false;
+    this.emitter.broadcastOver({ gameId: this.gameId, winner, reason: finalReason, voucher });
+    this.emitter.broadcastState(this.snapshot());
+    this.hooks?.ended(this);
   }
 
   dispose(): void {
+    this.disposed = true;
     this.stopClock();
   }
 }
