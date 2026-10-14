@@ -25,6 +25,7 @@ import { LeaderboardStore } from "./leaderboard.js";
 import { LobbyStore } from "./lobby.js";
 import { ResultStore } from "./results.js";
 import { startRecovery } from "./recovery.js";
+import { GameRoom, type RoomEmitter } from "./room.js";
 
 type TestClient = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -60,6 +61,7 @@ function chainConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
 /** Deterministic fake relayer: voucher = "v:<gameId>:<winner>". */
 function fakeRelayer() {
   const sent: Array<{ gameId: string; winner: string; hash: string }> = [];
+  const refunds: Array<{ gameId: string; hash: string }> = [];
   const txStatus = new Map<string, "pending" | "succeeded" | "failed" | "dropped">();
   const relayer: Relayer = {
     async signResult(gameId, winner) {
@@ -71,6 +73,12 @@ function fakeRelayer() {
       txStatus.set(hash, "pending");
       return hash;
     },
+    async refundUnstarted(gameId) {
+      const hash = `0xr${(refunds.length + 1).toString(16).padStart(63, "0")}`;
+      refunds.push({ gameId, hash });
+      txStatus.set(hash, "pending");
+      return hash;
+    },
     async txStatus(hash) {
       return txStatus.get(hash) ?? "dropped";
     },
@@ -78,7 +86,7 @@ function fakeRelayer() {
       return 10n ** 18n;
     },
   };
-  return { relayer, sent, txStatus };
+  return { relayer, sent, refunds, txStatus };
 }
 
 function chainGame(over: Partial<ChainGame> = {}): ChainGame {
@@ -373,5 +381,109 @@ describe("existing data", () => {
     const results = new ResultStore(persist);
     await results.load(leaderboard.allWonGames());
     expect(results.get("old-1")).toMatchObject({ winner: B, onchain: "pending" });
+  });
+});
+
+describe("waiting room: nothing counts until both players are at the table", () => {
+  it("no shot clock while only one player is there; the clock starts when both are", async () => {
+    const chain = fakeChain({ w1: chainGame() });
+    const { port } = await start(chainConfig({ shotClockMs: 400 }), createMemoryPersistence(), undefined, chain.reader);
+    const a = connect(port);
+    const first = waitFor(a, "room:state");
+    a.emit("room:join", { gameId: "w1", auth: await makeAuth(walletA) });
+    const waiting = await first;
+    expect(waiting.waiting).toBe(true);
+    expect(waiting.clockExpiresAt).toBe(0);
+
+    // Well past the (400 ms) shot clock: nobody forfeits in a waiting room.
+    let over = false;
+    a.on("game:over", () => (over = true));
+    await new Promise((r) => setTimeout(r, 900));
+    expect(over).toBe(false);
+    const refusal = waitFor(a, "server:error");
+    a.emit("game:shoot", { gameId: "w1", shot: { angle: 0, power: 30 } });
+    expect((await refusal).message).toMatch(/both players are at the table/);
+
+    // The opponent arrives: the game is live and the clock runs from now.
+    const b = connect(port);
+    const live = waitFor(b, "room:state");
+    b.emit("room:join", { gameId: "w1", auth: await makeAuth(walletB) });
+    const snap = await live;
+    expect(snap.waiting).toBe(false);
+    expect(snap.clockExpiresAt).toBeGreaterThan(Date.now());
+
+    // ...and now being away does cost the game.
+    const forfeit = await waitFor(b, "game:over", 3000);
+    expect(forfeit.reason).toBe("timeout");
+  });
+
+  describe("an expired waiting room refunds both stakes", () => {
+    const noop: RoomEmitter = { broadcastShot() {}, broadcastCuePlaced() {}, broadcastState() {}, broadcastOver() {} };
+
+    async function setup(game: ChainGame, config = chainConfig({ operatorPrivateKey: "0x01", waitingRoomTimeoutMs: 1_000 })) {
+      const chain = fakeChain({ w2: game });
+      const fake = fakeRelayer();
+      const rooms = new Map<string, GameRoom>();
+      const finished: string[] = [];
+      const room = new GameRoom("w2", [A, B], noop, fake.relayer, 60_000, "1", "8ball", () => null, {
+        waitingTimeoutMs: 1_000,
+      });
+      rooms.set("w2", room);
+      const recovery = startRecovery(
+        {
+          config,
+          relayer: fake.relayer,
+          chainReader: chain.reader,
+          results: new ResultStore(createMemoryPersistence()),
+          lobby: new LobbyStore(null),
+          rooms,
+          ensureLive: async () => {},
+          finishRefund: async (id) => {
+            finished.push(id);
+            rooms.delete(id);
+          },
+        },
+        { timers: false }
+      );
+      return { chain, fake, room, rooms, finished, recovery };
+    }
+
+    it("refunds once, never twice while pending, resends if dropped, closes when done", async () => {
+      const t = await setup(chainGame());
+      await t.recovery.sweepWaitingRooms(Date.now()); // too early
+      expect(t.fake.refunds).toHaveLength(0);
+
+      const later = Date.now() + 5_000;
+      await t.recovery.sweepWaitingRooms(later);
+      expect(t.fake.refunds.map((r) => r.gameId)).toEqual(["w2"]);
+      expect(t.room.snapshot().refund).toMatchObject({ done: false });
+
+      // Both players turn up now — too late: the refund is under way, the game can't start.
+      t.room.connect(A);
+      t.room.connect(B);
+      expect(t.room.snapshot().waiting).toBe(true);
+      expect(t.room.handleShot(A, { angle: 0, power: 30 }).ok).toBe(false);
+
+      await t.recovery.sweepWaitingRooms(later); // pending → nothing new
+      expect(t.fake.refunds).toHaveLength(1);
+      t.fake.txStatus.set(t.fake.refunds[0].hash, "dropped"); // dropped → one replacement
+      await t.recovery.sweepWaitingRooms(later);
+      expect(t.fake.refunds).toHaveLength(2);
+
+      t.chain.games.w2 = chainGame({ isCompleted: true, rewardClaimed: true }); // refunded on-chain
+      await t.recovery.sweepWaitingRooms(later);
+      expect(t.finished).toEqual(["w2"]);
+      expect(t.fake.refunds).toHaveLength(2);
+    });
+
+    it("a game that started is never refunded", async () => {
+      const t = await setup(chainGame());
+      t.room.connect(A);
+      t.room.connect(B); // both here → live
+      await t.recovery.sweepWaitingRooms(Date.now() + 60 * 60_000);
+      expect(t.fake.refunds).toHaveLength(0);
+      expect(t.room.snapshot().waiting).toBe(false);
+      t.room.dispose();
+    });
   });
 });

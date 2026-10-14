@@ -47,6 +47,13 @@ export interface RoomSnapshot {
    *  winner submits to claimRewardSigned; `txHash` is set only on the legacy
    *  owner-settled path. */
   over: { winner: Address; reason: GameOverReason; txHash?: string; voucher?: string } | null;
+  /** Waiting room: both players paid but haven't both come to the table yet. No
+   *  shot clock runs and nobody can lose by being away until both are here. */
+  waiting?: boolean;
+  /** When an unstarted waiting room gives up and refunds both stakes (epoch ms). */
+  waitingExpiresAt?: number | null;
+  /** Set once the waiting room expired: both stakes are being returned in full. */
+  refund?: { txHash: string | null; done: boolean } | null;
 }
 
 /** Broadcast after the server has validated and simulated a shot. Clients

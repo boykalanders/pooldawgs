@@ -42,6 +42,9 @@ export interface ServerConfig {
   /** A decided game the winner hasn't claimed for this long is recorded on-chain
    *  with finishGame (needs the operator/owner key), so it can never be lost. */
   settleUnclaimedAfterMs?: number;
+  /** A waiting room (both paid, not both at the table) this old is closed and both
+   *  stakes are refunded in full. */
+  waitingRoomTimeoutMs?: number;
   /** Telegram alerts: bot token + chat that receives the daily stuck-funds report. */
   telegramBotToken?: string | null;
   alertTelegramChatId?: string | null;
@@ -76,6 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     reconcileIntervalMs: Number(env.CHAIN_EVENT_RECONCILE_INTERVAL_MS) || 30 * 60_000,
     fallbackPollMs: Number(env.CHAIN_EVENT_FALLBACK_POLL_MS) || 30_000,
     settleUnclaimedAfterMs: Number(env.SETTLE_UNCLAIMED_AFTER_MS) || 24 * 3_600_000,
+    waitingRoomTimeoutMs: Number(env.WAITING_ROOM_TIMEOUT_MS) || 30 * 60_000,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || null,
     alertTelegramChatId: env.ALERT_TELEGRAM_CHAT_ID || null,
     stuckReportIntervalMs: Number(env.STUCK_FUNDS_REPORT_INTERVAL_MS) || 24 * 3_600_000,

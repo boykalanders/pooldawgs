@@ -50,6 +50,12 @@ export interface RoomHooks {
   ended(room: GameRoom): void;
 }
 
+/** Both stakes being returned because the game never started. */
+export interface RefundState {
+  txHash: string | null;
+  done: boolean;
+}
+
 /** A live table as stored between restarts. */
 export interface SerializedRoom {
   gameId: string;
@@ -58,11 +64,23 @@ export interface SerializedRoom {
   gameType: GameType;
   state: TableState;
   messages: ChatMessage[];
+  /** False while it's still a waiting room (absent in rows saved before waiting rooms existed = started). */
+  started?: boolean;
+  waitingSince?: number;
+  refund?: RefundState | null;
 }
 
 export interface RoomOptions {
   /** Resume a stored table instead of racking a new frame. */
-  restore?: { state: TableState; messages: ChatMessage[] };
+  restore?: {
+    state: TableState;
+    messages: ChatMessage[];
+    started?: boolean;
+    waitingSince?: number;
+    refund?: RefundState | null;
+  };
+  /** How long a waiting room may wait for both players before both stakes are refunded. */
+  waitingTimeoutMs?: number;
   /** Open the room on an already-decided game (no play, just the result). */
   decided?: { winner: Address; reason: GameOverReason; voucher?: string };
   hooks?: RoomHooks;
@@ -93,6 +111,15 @@ export class GameRoom {
   private messages: ChatMessage[] = [];
   readonly gameType: GameType;
   private readonly hooks: RoomHooks | null;
+  /**
+   * Waiting room until BOTH players have come to the table: no shot clock runs and
+   * nobody can lose by being away. Once both have been here the game is live, and
+   * from then on being away costs you the shot clock as normal.
+   */
+  private started = false;
+  readonly waitingSince: number;
+  private readonly waitingTimeoutMs: number;
+  private refund: RefundState | null = null;
 
   constructor(
     gameId: string,
@@ -111,15 +138,64 @@ export class GameRoom {
     this.hooks = options.hooks ?? null;
     this.state = options.restore?.state ?? createInitialState(gameType);
     this.messages = options.restore?.messages ?? [];
+    this.waitingSince = options.restore?.waitingSince ?? Date.now();
+    this.waitingTimeoutMs = options.waitingTimeoutMs ?? 30 * 60_000;
+    this.refund = options.restore?.refund ?? null;
     if (options.decided) {
       const seat = this.seatOf(options.decided.winner);
       this.state = { ...this.state, gameOver: true, winner: seat };
       this.over = { ...options.decided, winner: options.decided.winner.toLowerCase() as Address };
       return; // decided: no clock, no play
     }
-    // A restored table gets a fresh, full shot clock: the server being down must
-    // never cost the player whose turn it was the game.
+    if (options.restore && options.restore.started !== false) {
+      // A restored live table gets a fresh, full shot clock: the server being down
+      // must never cost the player whose turn it was the game.
+      this.started = true;
+      this.restartClock();
+    }
+    // Otherwise a waiting room: the clock starts when both players are at the table.
+  }
+
+  /** Still a waiting room (both paid, not both at the table yet). */
+  isWaiting(): boolean {
+    return !this.started && !this.over;
+  }
+
+  refundState(): RefundState | null {
+    return this.refund;
+  }
+
+  /**
+   * The waiting room expired: return both stakes. Only possible while the game has
+   * never started; from this moment it never can (even if both players turn up).
+   * False if the game started (or a refund is already under way).
+   */
+  beginRefund(): boolean {
+    if (this.started || this.over || this.refund) return false;
+    this.refund = { txHash: null, done: false };
+    this.hooks?.saveState(this);
+    this.emitter.broadcastState(this.snapshot());
+    return true;
+  }
+
+  setRefundTx(txHash: string | null): void {
+    if (!this.refund) return;
+    this.refund = { ...this.refund, txHash };
+    this.hooks?.saveState(this);
+  }
+
+  refundDone(): void {
+    if (!this.refund) return;
+    this.refund = { ...this.refund, done: true };
+    this.emitter.broadcastState(this.snapshot());
+  }
+
+  private startIfBothHere(): void {
+    if (this.started || this.over || this.refund) return;
+    if (!this.seats.every((s) => this.connected.has(s))) return;
+    this.started = true;
     this.restartClock();
+    this.hooks?.saveState(this);
   }
 
   /** The live table, for storage between restarts. */
@@ -131,6 +207,9 @@ export class GameRoom {
       gameType: this.gameType,
       state: this.state,
       messages: this.messages,
+      started: this.started,
+      waitingSince: this.waitingSince,
+      refund: this.refund,
     };
   }
 
@@ -158,13 +237,15 @@ export class GameRoom {
 
   connect(address: Address): void {
     this.connected.add(address.toLowerCase() as Address);
+    this.startIfBothHere();
     this.emitter.broadcastState(this.snapshot());
   }
 
   disconnect(address: Address): void {
     this.connected.delete(address.toLowerCase() as Address);
-    // The shot clock keeps running — disconnecting does not pause a wagered
-    // game; staying away for 4 minutes forfeits it.
+    // Once the game has started the shot clock keeps running — disconnecting does
+    // not pause a wagered game; staying away for 4 minutes forfeits it. In a
+    // waiting room nothing runs.
     this.emitter.broadcastState(this.snapshot());
   }
 
@@ -184,11 +265,15 @@ export class GameRoom {
       clockExpiresAt: this.clockExpiresAt,
       serverNow: Date.now(),
       over: this.over,
+      waiting: this.isWaiting(),
+      waitingExpiresAt: this.isWaiting() ? this.waitingSince + this.waitingTimeoutMs : null,
+      refund: this.refund,
     };
   }
 
   handleShot(address: Address, shot: ShotInput): RoomActionResult {
     if (this.over || this.settling) return err("illegal-shot", "game is over");
+    if (!this.started) return err("illegal-shot", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
     if (seat !== this.state.turn) return err("not-your-turn", "wait for your turn");
@@ -222,6 +307,7 @@ export class GameRoom {
 
   handlePlaceCueBall(address: Address, x: number, y: number): RoomActionResult {
     if (this.over || this.settling) return err("illegal-placement", "game is over");
+    if (!this.started) return err("illegal-placement", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
     if (seat !== this.state.turn) return err("not-your-turn", "wait for your turn");
@@ -242,6 +328,7 @@ export class GameRoom {
 
   handleResign(address: Address): RoomActionResult {
     if (this.over || this.settling) return err("illegal-shot", "game is over");
+    if (!this.started) return err("illegal-shot", "the game starts when both players are at the table");
     const seat = this.seatOf(address);
     if (seat === null) return err("not-a-player", "not seated in this game");
 

@@ -17,6 +17,7 @@ const EVENT_NAMES = [
   "GameExited",
   "DrawRewardClaimed",
   "OwnerWithdrawal",
+  "GameRefunded",
 ] as const;
 
 export interface ChainEventHandlers {
@@ -28,6 +29,8 @@ export interface ChainEventHandlers {
   onGameFinished(gameId: string, winner: Address, reward: string): Promise<void>;
   /** The winner was paid (RewardClaimed / OwnerWithdrawal). */
   onPaidOut(gameId: string): Promise<void>;
+  /** Both stakes were returned (the game never started). */
+  onRefunded(gameId: string): Promise<void>;
 }
 
 export interface ChainListener {
@@ -120,6 +123,10 @@ export function startChainListener(
         break;
       case "GameCancelled":
         lobby.markStatus(gameId, "cancelled");
+        break;
+      case "GameRefunded":
+        lobby.markStatus(gameId, "cancelled");
+        await handlers.onRefunded(gameId);
         break;
       case "GameExited":
         lobby.markStatus(gameId, "finished");

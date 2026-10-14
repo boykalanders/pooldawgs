@@ -122,6 +122,8 @@ contract PoolDawgs is
     /// @notice Emitted on every winner payout (claimReward and claimRewardSigned),
     ///         so each claim is traceable by game ID from the logs alone.
     event RewardClaimed(string gameId, address indexed winner, uint256 amount);
+    /// @notice Both stakes returned in full: the game was paid for but never started.
+    event GameRefunded(string gameId, address indexed playerOne, address indexed playerTwo, uint256 stakeEach);
     event ChessDawgsNFTUpdated(address indexed nft);
     event DDawgsNFTUpdated(address indexed nft);
     event OperatorUpdated(address indexed operator);
@@ -427,8 +429,9 @@ contract PoolDawgs is
 
     // ─────────────────────────── safety nets / admin ───────────────────────────
 
-    /// @notice If a payout is never claimed (e.g. UI bug), the owner can sweep
-    ///         that player's share to the company wallet after the timeout.
+    /// @notice If a payout is never claimed (e.g. UI bug), the owner pays it out
+    ///         TO THE PLAYER after the timeout — as ChessDawgs does. The company
+    ///         and burn cuts are taken exactly as on a normal claim.
     function ownerWithdrawUnpaid(string memory gameId, address player)
         external
         onlyOwner
@@ -457,13 +460,40 @@ contract PoolDawgs is
             require(!g.rewardClaimed, "already paid");
             g.rewardClaimed = true;
             uint256 pot = g.stake * 2;
-            // Win path: company + burn cuts were never taken either.
+            // Win path: the company + burn cuts were never taken either.
+            rewardToken.safeTransfer(companyWallet, (pot * COMPANY_PERCENT) / 100);
             rewardToken.safeTransfer(poolAddress, (pot * BURN_PERCENT) / 100);
-            amount = _winnerShare(g.stake) + (pot * COMPANY_PERCENT) / 100;
+            amount = _winnerShare(g.stake);
         }
+        playerPaid[gameId][player] = true;
 
-        rewardToken.safeTransfer(companyWallet, amount);
+        rewardToken.safeTransfer(player, amount);
         emit OwnerWithdrawal(gameId, player, amount);
+    }
+
+    /// @notice Both players paid, but the game never started (nobody — or only one
+    ///         of them — ever came to the table). The backend returns BOTH stakes
+    ///         in full; no company or burn cut. Only for a game with no result:
+    ///         once it is completed (win, draw or an earlier refund) this reverts.
+    function refundUnstarted(string memory gameId) external onlyRelayer nonReentrant {
+        Game storage g = games[gameId];
+        require(g.playerOne != address(0) && g.playerTwo != address(0), "game not active");
+        require(!g.isCompleted, "game completed");
+        require(!g.exitRequested, "draw in progress");
+
+        // Completed with no winner and everything marked paid, so no claim path
+        // (claimReward, claimRewardSigned, claimDrawReward, ownerWithdrawUnpaid) can pay again.
+        g.isCompleted = true;
+        g.rewardClaimed = true;
+        g.playerOneClaimed = true;
+        g.playerTwoClaimed = true;
+        completedAt[gameId] = block.timestamp;
+        playerPaid[gameId][g.playerOne] = true;
+        playerPaid[gameId][g.playerTwo] = true;
+
+        rewardToken.safeTransfer(g.playerOne, g.stake);
+        rewardToken.safeTransfer(g.playerTwo, g.stake);
+        emit GameRefunded(gameId, g.playerOne, g.playerTwo, g.stake);
     }
 
     function setCompanyWallet(address _companyWallet) external onlyOwner {

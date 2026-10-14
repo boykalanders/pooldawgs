@@ -209,7 +209,7 @@ export function createPoolDawgsServer(
       stake,
       gameTypeFromId(gameId), // variant is encoded in the code's prefix
       (addr) => profiles.getName(addr),
-      { hooks, ...opts }
+      { hooks, waitingTimeoutMs: config.waitingRoomTimeoutMs, ...opts }
     );
 
   /** A room showing an already-decided game: no play, just the result (and the
@@ -258,7 +258,7 @@ export function createPoolDawgsServer(
       if (game.playerTwo === ZeroAddress) return { code: "unknown-game", message: "waiting for an opponent to join" };
       seats = [game.playerOne.toLowerCase() as Address, game.playerTwo.toLowerCase() as Address];
       stake = game.stake.toString();
-      if (!results.get(gameId) && game.isCompleted && !game.drawCompleted) {
+      if (!results.get(gameId) && game.isCompleted && !game.drawCompleted && game.winner !== ZeroAddress) {
         // Settled on-chain without a result here (e.g. before results were stored):
         // the chain is the record.
         const winner = game.winner.toLowerCase() as Address;
@@ -271,7 +271,7 @@ export function createPoolDawgsServer(
         });
       }
       if (game.isCompleted && !results.get(gameId)) {
-        return { code: "unknown-game", message: "this game is already settled on-chain" }; // a draw
+        return { code: "unknown-game", message: "this game is already settled on-chain" }; // a draw or a refund
       }
     } else {
       const pendingSeats = devSeats.get(gameId) ?? [];
@@ -295,9 +295,9 @@ export function createPoolDawgsServer(
     return room;
   }
 
-  /** Both seats are paid: make sure the game is being played (or already resolved),
-   *  so a pot can't sit forever just because nobody opened the table. The shot
-   *  clock starts now; whoever is to break and stays away forfeits, as in play. */
+  /** Both seats are paid: open the table as a waiting room (no shot clock until both
+   *  players are here), so the server tracks it — and refunds both stakes if the
+   *  game never starts — instead of the pot sitting forever. */
   async function ensureLive(gameId: string): Promise<void> {
     if (rooms.has(gameId) || results.get(gameId)) return;
     const outcome = await openRoom(gameId, null);
@@ -321,12 +321,30 @@ export function createPoolDawgsServer(
         continue;
       }
       const room = newRoom(data.gameId, data.seats, data.stake, {
-        restore: { state: data.state, messages: data.messages ?? [] },
+        restore: {
+          state: data.state,
+          messages: data.messages ?? [],
+          started: data.started,
+          waitingSince: data.waitingSince,
+          refund: data.refund ?? null,
+        },
       });
       rooms.set(data.gameId, room);
       restored++;
     }
     if (restored) console.log(`[room] restored ${restored} live table(s) — each player to shoot gets a fresh shot clock`);
+  }
+
+  /** Both stakes are back with the players (seen on-chain): close the waiting room. */
+  async function finishRefund(gameId: string): Promise<void> {
+    lobby.markStatus(gameId, "cancelled");
+    const room = rooms.get(gameId);
+    if (!room) return;
+    room.refundDone();
+    room.dispose();
+    rooms.delete(gameId);
+    hooks.ended(room);
+    console.log(`[room] ${gameId}: never started — both stakes refunded`);
   }
 
   const ready = (async () => {
@@ -363,8 +381,9 @@ export function createPoolDawgsServer(
           }
         },
         onPaidOut: (gameId) => results.markOnchain(gameId, "claimed"),
+        onRefunded: (gameId) => finishRefund(gameId),
       });
-      recovery = startRecovery({ config, relayer, chainReader, results, lobby, rooms, ensureLive });
+      recovery = startRecovery({ config, relayer, chainReader, results, lobby, rooms, ensureLive, finishRefund });
     })
     .catch((e) => console.error("[server] startup failed:", e));
 
@@ -414,6 +433,12 @@ export function createPoolDawgsServer(
         return;
       }
 
+      // A player already waiting on this game's channel (dev mode: before the room
+      // existed) is at the table too — the waiting room starts once both are here.
+      for (const other of await io.in(roomChannel(gameId)).fetchSockets()) {
+        const a = other.data.address;
+        if (a && a !== address && room.seatOf(a) !== null) room.connect(a);
+      }
       void socket.join(roomChannel(gameId));
       room.connect(address);
       socket.emit("room:state", room.snapshot());
