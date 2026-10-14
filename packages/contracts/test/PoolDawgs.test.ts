@@ -80,7 +80,10 @@ describe("PoolDawgs", () => {
         .withArgs(GAME_ID, p1.address, WINNER_SHARE);
 
       const before = await token.balanceOf(p1.address);
-      await pool.connect(p1).claimReward(GAME_ID);
+      // The payout is logged with its game ID, so a claim is traceable from the logs alone.
+      await expect(pool.connect(p1).claimReward(GAME_ID))
+        .to.emit(pool, "RewardClaimed")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE);
 
       expect((await token.balanceOf(p1.address)) - before).to.equal(WINNER_SHARE);
       expect(await token.balanceOf(company.address)).to.equal(COMPANY_SHARE);
@@ -179,7 +182,11 @@ describe("PoolDawgs", () => {
       });
 
       const before = await token.balanceOf(p1.address);
-      await pool.connect(p1).claimRewardSigned(GAME_ID, voucher);
+      await expect(pool.connect(p1).claimRewardSigned(GAME_ID, voucher))
+        .to.emit(pool, "GameFinished")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE)
+        .and.to.emit(pool, "RewardClaimed")
+        .withArgs(GAME_ID, p1.address, WINNER_SHARE);
       const g = await pool.games(GAME_ID);
       expect(g.isCompleted).to.equal(true);
       expect(g.winner).to.equal(p1.address);

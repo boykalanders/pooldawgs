@@ -119,6 +119,9 @@ contract PoolDawgs is
     event GameExited(string gameId, uint256 totalCompanyRevenue, uint256 totalBurnedAmount);
     event DrawRewardClaimed(string gameId, address indexed player, uint256 amount);
     event OwnerWithdrawal(string gameId, address indexed player, uint256 amount);
+    /// @notice Emitted on every winner payout (claimReward and claimRewardSigned),
+    ///         so each claim is traceable by game ID from the logs alone.
+    event RewardClaimed(string gameId, address indexed winner, uint256 amount);
     event ChessDawgsNFTUpdated(address indexed nft);
     event DDawgsNFTUpdated(address indexed nft);
     event OperatorUpdated(address indexed operator);
@@ -289,9 +292,11 @@ contract PoolDawgs is
         playerPaid[gameId][msg.sender] = true;
 
         uint256 pot = g.stake * 2;
-        rewardToken.safeTransfer(g.winner, _winnerShare(g.stake));
+        uint256 share = _winnerShare(g.stake);
+        rewardToken.safeTransfer(g.winner, share);
         rewardToken.safeTransfer(companyWallet, (pot * COMPANY_PERCENT) / 100);
         rewardToken.safeTransfer(poolAddress, (pot * BURN_PERCENT) / 100);
+        emit RewardClaimed(gameId, msg.sender, share);
     }
 
     /// @notice Winner-driven claim with a backend voucher. The backend signs an
@@ -329,6 +334,7 @@ contract PoolDawgs is
         rewardToken.safeTransfer(poolAddress, (pot * BURN_PERCENT) / 100);
 
         emit GameFinished(gameId, msg.sender, share);
+        emit RewardClaimed(gameId, msg.sender, share);
     }
 
     // ────────────── exit/draw flow (ChessDawgs template parity) ──────────────

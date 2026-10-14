@@ -1,6 +1,9 @@
 import type { Address, LeaderboardEntry, PlatformStats, WonGame } from "@pooldawgs/shared";
 import type { Persistence } from "./db/persistence.js";
 
+const logWriteError = (e: unknown) =>
+  console.error("[leaderboard] write failed:", e instanceof Error ? e.message : e);
+
 /** Win/loss ledger. Fast in-memory maps for reads, with write-through to a
  *  persistence backend (Postgres or SQLite) so it survives restarts; on boot it
  *  loads the persisted rows and the indexer resumes from the saved block. */
@@ -61,7 +64,7 @@ export class LeaderboardStore {
   }
   setCursor(block: number): void {
     this.cursor = block;
-    void this.persist?.saveCursor(block).catch(() => {});
+    void this.persist?.saveCursor(block).catch(logWriteError);
   }
 
   /** Record a finished game's win/loss. Idempotent per gameId. */
@@ -74,9 +77,9 @@ export class LeaderboardStore {
     w.wonAmount = (BigInt(w.wonAmount) + BigInt(wonAmountWei)).toString();
     const l = this.getOrCreate(loser);
     l.losses += 1;
-    void this.persist?.recordCounted(gameId, wonAmountWei).catch(() => {});
-    void this.persist?.upsertEntry(w).catch(() => {});
-    void this.persist?.upsertEntry(l).catch(() => {});
+    void this.persist?.recordCounted(gameId, wonAmountWei).catch(logWriteError);
+    void this.persist?.upsertEntry(w).catch(logWriteError);
+    void this.persist?.upsertEntry(l).catch(logWriteError);
   }
 
   /** Platform totals. Prefers the on-chain figures (read from the contract's
@@ -101,7 +104,14 @@ export class LeaderboardStore {
       this.won.set(key, games);
     }
     games.set(gameId, rewardWei);
-    void this.persist?.upsertWonGame(key, gameId, rewardWei).catch(() => {});
+    void this.persist?.upsertWonGame(key, gameId, rewardWei).catch(logWriteError);
+  }
+
+  /** Every recorded win, any wallet. */
+  allWonGames(): Array<{ winner: Address; gameId: string; reward: string }> {
+    const out: Array<{ winner: Address; gameId: string; reward: string }> = [];
+    for (const [winner, games] of this.won) for (const [gameId, reward] of games) out.push({ winner, gameId, reward });
+    return out;
   }
 
   /** Games a wallet has won (for the unclaimed-rewards check). */

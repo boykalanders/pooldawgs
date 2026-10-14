@@ -145,6 +145,10 @@ function GameRoom() {
   const cg = CONTRACTS_CONFIGURED && chainGame ? (chainGame as ChainGame) : null;
   const chainClaimed = cg ? Boolean(cg[5]) : false;
   const rewardClaimed = claimed || chainClaimed;
+  // Already recorded on-chain for us (the server's backstop finishGame for a win
+  // left unclaimed): claim with plain claimReward — the voucher no longer applies.
+  const chainSettledForMe =
+    cg !== null && Boolean(cg[2]) && !!address && String(cg[3]).toLowerCase() === address.toLowerCase();
 
   // Per-seat avatars: each player's NFT artwork (or a wallet-derived identicon),
   // resolved up here so the hooks run before the pre-game early returns.
@@ -426,21 +430,29 @@ function GameRoom() {
     // The winner redeems the backend's voucher: claimRewardSigned settles the
     // game AND pays out in this single winner-paid tx — no settlement wait.
     const voucher = snapshot?.over?.voucher;
-    if (!voucher) {
+    if (!voucher && !chainSettledForMe) {
       setActionError("Reward voucher isn't ready yet — you can also claim from your Profile.");
       return;
     }
     setActionError(null);
     setWorking("claim");
-    log.info("claim: redeeming voucher for", gameId);
+    log.info("claim:", chainSettledForMe ? "claimReward (settled on-chain)" : "redeeming voucher", "for", gameId);
     try {
-      const tx = await writeContractAsync({
-        address: POOLDAWGS_ADDRESS,
-        abi: POOL_DAWGS_ABI,
-        functionName: "claimRewardSigned",
-        args: [gameId, voucher as `0x${string}`],
-        chainId: CHAIN_ID,
-      });
+      const tx = chainSettledForMe
+        ? await writeContractAsync({
+            address: POOLDAWGS_ADDRESS,
+            abi: POOL_DAWGS_ABI,
+            functionName: "claimReward",
+            args: [gameId],
+            chainId: CHAIN_ID,
+          })
+        : await writeContractAsync({
+            address: POOLDAWGS_ADDRESS,
+            abi: POOL_DAWGS_ABI,
+            functionName: "claimRewardSigned",
+            args: [gameId, voucher as `0x${string}`],
+            chainId: CHAIN_ID,
+          });
       log.info("claim: tx sent", tx);
       if (publicClient) await publicClient.waitForTransactionReceipt({ hash: tx });
       log.info("claim: confirmed");
@@ -704,7 +716,7 @@ function GameRoom() {
                 <>
                   {CONTRACTS_CONFIGURED &&
                     !rewardClaimed &&
-                    (over.voucher ? (
+                    (over.voucher || chainSettledForMe ? (
                       <button className="btn-gold" disabled={working === "claim"} onClick={claim}>
                         {working === "claim" ? "Claiming…" : "Claim 80% of the pot"}
                       </button>

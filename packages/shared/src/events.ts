@@ -33,6 +33,9 @@ export interface ServerError {
     | "unknown-game"
     | "not-a-player"
     | "chat-rejected"
+    /** The chain couldn't be read right now (RPC outage) — retry shortly. Not the
+     *  same as "unknown-game": the game may well exist. */
+    | "chain-unavailable"
     | "internal";
   message: string;
 }

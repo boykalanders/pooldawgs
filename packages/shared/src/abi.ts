@@ -222,6 +222,34 @@ export const POOL_DAWGS_ABI = [
       { name: "amount", type: "uint256", indexed: false },
     ],
   },
+  {
+    // Every winner payout (claimReward and claimRewardSigned).
+    type: "event",
+    name: "RewardClaimed",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "winner", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "GameExited",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "totalCompanyRevenue", type: "uint256", indexed: false },
+      { name: "totalBurnedAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "OwnerWithdrawal",
+    inputs: [
+      { name: "gameId", type: "string", indexed: false },
+      { name: "player", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
 ] as const;
 
 export const ERC20_ABI = [
