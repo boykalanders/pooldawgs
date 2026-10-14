@@ -7,6 +7,7 @@ import { useAccount } from "wagmi";
 import {
   cueBallId,
   inPlacementZone,
+  mustCallPocket,
   type BallColor,
   type GameType,
   type ShotInput,
@@ -28,6 +29,7 @@ import PoolCanvas, {
 const PoolTable3D = dynamic(() => import("@/components/PoolTable3D"), { ssr: false });
 import PowerSlider from "@/components/PowerSlider";
 import ShotClock from "@/components/ShotClock";
+import { PocketCallPicker } from "@/components/PocketCallPicker";
 import SpinControl, { type SpinValue } from "@/components/SpinControl";
 import { IconSoundOff, IconSoundOn } from "@/components/icons";
 
@@ -107,6 +109,18 @@ export default function GameShell({
   // the same shape): PoolCanvas takes it as `ref`, PoolTable3D as `apiRef`.
   const canvasRef = useRef<PoolCanvasHandle | null>(null);
   const [power, setPower] = useState(0);
+  // 8-ball: the pocket called for the black (classic rule). Reset every shot.
+  const [calledPocket, setCalledPocket] = useState<number | null>(null);
+  // Hints/errors over the table fade after a few seconds instead of sitting on
+  // the table (the old bottom-centre banner covered the bottom-middle pocket
+  // for the whole turn).
+  const [bannerVisible, setBannerVisible] = useState(false);
+  useEffect(() => {
+    if (!banner) return setBannerVisible(false);
+    setBannerVisible(true);
+    const t = setTimeout(() => setBannerVisible(false), 5000);
+    return () => clearTimeout(t);
+  }, [banner]);
   const [spin, setSpin] = useState<SpinValue>({ x: 0, y: 0 });
   const [muted, setMuted] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
@@ -171,18 +185,23 @@ export default function GameShell({
   }
 
   function handleShoot(shot: ShotInput) {
-    onShoot(shot);
+    if (needsCall && calledPocket === null) return; // the picker says what's missing
+    onShoot(needsCall ? { ...shot, calledPocket: calledPocket! } : shot);
     setSpin({ x: 0, y: 0 });
+    setCalledPocket(null);
   }
 
   // With ball in hand the player may still shoot from where the cue ball lies,
   // as long as it's inside the zone (e.g. the break from behind the head string).
   const cueNow = state.balls[cueBallId(state)];
+  // On the black: a pocket must be called before the shot.
+  const needsCall = interactive && mustCallPocket(state);
   const canShoot =
     interactive &&
     !state.gameOver &&
     !cueNow.inHole &&
-    (!state.ballInHand || inPlacementZone(state, cueNow.x, cueNow.y));
+    (!state.ballInHand || inPlacementZone(state, cueNow.x, cueNow.y)) &&
+    (!needsCall || calledPocket !== null);
 
   return (
     <>
@@ -641,9 +660,16 @@ export default function GameShell({
             </div>
           )}
 
-          {banner && (
-            <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-lg border border-gold/60 bg-black/80 px-4 py-1.5 text-sm text-gold-bright shadow-gold-glow">
+          {banner && bannerVisible && (
+            // Top rail, between the top-left and top-middle pockets; never takes taps.
+            <div className="pointer-events-none absolute left-[12%] top-2 z-10 max-w-[34%] rounded-lg border border-gold/60 bg-black/80 px-3 py-1 text-xs text-gold-bright shadow-gold-glow sm:text-sm">
               {banner}
+            </div>
+          )}
+
+          {needsCall && !state.gameOver && (
+            <div className="absolute right-2 top-2 z-10">
+              <PocketCallPicker selected={calledPocket} onSelect={setCalledPocket} />
             </div>
           )}
 

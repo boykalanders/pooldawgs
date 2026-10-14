@@ -86,7 +86,7 @@ export interface StepHooks {
   /** Fired the moment two balls collide (fork: GamePolicy.checkColisionValidity). */
   onBallsCollide?(a: BallState, b: BallState): void;
   /** Fired the moment a ball drops (fork: GamePolicy.handleBallInHole). */
-  onPocket?(ball: BallState): void;
+  onPocket?(ball: BallState, pocket: number): void;
 }
 
 /**
@@ -596,8 +596,9 @@ function integrateBall(
     ball.vx = 0;
     ball.vy = 0;
     ball.moving = false;
-    events.push({ type: "pocket", ballId: ball.id, color: ball.color, step });
-    hooks.onPocket?.(ball);
+    const pocket = G.HOLES.indexOf(hole);
+    events.push({ type: "pocket", ballId: ball.id, color: ball.color, step, pocket });
+    hooks.onPocket?.(ball, pocket);
     return;
   }
 

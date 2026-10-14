@@ -410,17 +410,19 @@ function park(b: BallBody): void {
  * centre crosses the line between the two jaw tips, between those tips. A ball
  * that arrives off-line hits a jaw (the cut end of a rail) and rattles.
  */
-function capturedHole(x: number, y: number, vx: number, vy: number): boolean {
-  for (const hole of G.HOLES) {
+/** Index of the pocket the ball drops into, or -1. */
+function capturedHole(x: number, y: number, vx: number, vy: number): number {
+  for (let i = 0; i < G.HOLES.length; i++) {
+    const hole = G.HOLES[i];
     const dx = x - hole.mx;
     const dy = y - hole.my;
     if (dx * hole.tx + dy * hole.ty <= 0) continue; // not past the mouth yet
     // Clear passage between the jaws (half the mouth minus the ball's radius).
     if (Math.abs(dx * hole.ux + dy * hole.uy) > hole.mouth / 2 - G.BALL_RADIUS) continue;
     if (vx * hole.tx + vy * hole.ty < POCKET_MIN_INWARD) continue; // nudged, not potted
-    return true;
+    return i;
   }
-  return false;
+  return -1;
 }
 
 // ── ball↔ball contacts: solved here, NOT by Havok ──────────────────────────
@@ -774,7 +776,7 @@ export function simulateShotHavok(
   const w = world!; // ensureGeometry guarantees a world
   const R = w.R; // ball radius (m) for this variant's geometry
   const rules: GameRules<unknown> = getRules(state.gameType);
-  const turnAcc = rules.createTurn();
+  const turnAcc = rules.createTurn(shot);
   const events: ShotEvent[] = [];
   const frames: Frame[] | undefined = opts.recordFrames ? [] : undefined;
   const frameStride = opts.frameStride ?? 2;
@@ -993,14 +995,15 @@ export function simulateShotHavok(
       ball.vx = vx;
       ball.vy = vy;
 
-      if (capturedHole(x, y, vx, vy)) {
+      const pocket = capturedHole(x, y, vx, vy);
+      if (pocket >= 0) {
         ball.inHole = true;
         ball.moving = false;
         ball.vx = 0;
         ball.vy = 0;
         pockets++;
-        events.push({ type: "pocket", ballId: ball.id, color: ball.color, step: steps });
-        rules.onPocket(next, turnAcc, ball);
+        events.push({ type: "pocket", ballId: ball.id, color: ball.color, step: steps, pocket });
+        rules.onPocket(next, turnAcc, ball, pocket);
         park(bb);
         continue;
       }

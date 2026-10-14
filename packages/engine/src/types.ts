@@ -51,6 +51,10 @@ export interface ShotInput {
   /** Follow/draw, -1..1 — +1 rolls the cue ball through after first contact,
    *  -1 draws it back. */
   spinY?: number;
+  /** 8-ball, shooting at the black: the pocket called for it (index into the
+   *  table's pockets — see POCKET_NAMES). Required then; the black dropping in
+   *  any other pocket loses the frame. Ignored otherwise. */
+  calledPocket?: number;
 }
 
 export interface TableState {
@@ -90,7 +94,7 @@ export interface TableState {
 export type PlacementZone = "table" | "kitchen" | "d";
 
 export type ShotEvent =
-  | { type: "pocket"; ballId: number; color: BallColor; step: number }
+  | { type: "pocket"; ballId: number; color: BallColor; step: number; pocket?: number }
   | { type: "cushion"; ballId: number; step: number }
   | { type: "ballsCollide"; a: number; b: number; step: number };
 
@@ -167,12 +171,14 @@ export interface ShotResult {
 export interface GameRules<Acc = unknown> {
   type: GameType;
   createInitialState(): TableState;
-  /** Fresh per-shot accumulator. */
-  createTurn(): Acc;
+  /** Fresh per-shot accumulator (with the shot, for rules that depend on it —
+   *  e.g. the called pocket for the black). */
+  createTurn(shot?: ShotInput): Acc;
   /** Observe the cue's/object balls' contacts as they happen. */
   onBallsCollide(state: TableState, acc: Acc, b1: BallState, b2: BallState): void;
-  /** Observe a ball dropping. */
-  onPocket(state: TableState, acc: Acc, ball: BallState): void;
+  /** Observe a ball dropping, and which pocket it fell into (index into the
+   *  table's pockets). */
+  onPocket(state: TableState, acc: Acc, ball: BallState, pocket?: number): void;
   /** Decide the outcome once everything has settled; may mutate `state`. */
   resolve(state: TableState, acc: Acc): TurnResolution;
 }

@@ -1,5 +1,5 @@
 import type { GameRules, GameType } from "../types.js";
-import { eightBall } from "./eightball.js";
+import { eightBall, mustCallPocket, POCKET_NAMES } from "./eightball.js";
 import { nineBall } from "./nineball.js";
 import { snooker } from "./snooker.js";
 
@@ -13,5 +13,5 @@ export function getRules(type: GameType): GameRules<any> {
   return REGISTRY[type];
 }
 
-export { eightBall, nineBall, snooker };
+export { eightBall, nineBall, snooker, mustCallPocket, POCKET_NAMES };
 export type { FactsAcc } from "./shared.js";
