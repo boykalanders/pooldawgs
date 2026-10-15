@@ -7,6 +7,7 @@ import {
   placeCueBall,
   simulateShot,
   stateHash,
+  timeoutHandover,
   validateShot,
 } from "./world.js";
 import { BALL_SIZE, HOLES, MAX_POWER, TABLE_WIDTH } from "./constants.js";
@@ -569,5 +570,42 @@ describe("state utilities", () => {
     c.scores[0] = 50;
     expect(s.balls[0].x).not.toBe(999);
     expect(s.scores[0]).toBe(0);
+  });
+});
+
+describe("shot-clock timeout handover", () => {
+  it("passes the turn with ball in hand anywhere, and moves no ball", () => {
+    const s = createInitialState();
+    s.broken = true;
+    s.ballInHand = false;
+    s.placementZone = undefined;
+    const before = JSON.stringify(s.balls);
+    const next = timeoutHandover(s);
+    expect(next.turn).toBe(1);
+    expect(next.ballInHand).toBe(true);
+    expect(next.placementZone).toBe("table");
+    expect(JSON.stringify(next.balls)).toBe(before);
+    expect(s.turn).toBe(0); // input untouched
+  });
+
+  it("before the break the opponent breaks from the kitchen", () => {
+    const next = timeoutHandover(createInitialState("9ball"));
+    expect(next.turn).toBe(1);
+    expect(next.ballInHand).toBe(true);
+    expect(next.placementZone).toBe("kitchen");
+  });
+
+  it("snooker: the D carries over; mid-frame the cue ball is played from where it lies", () => {
+    const opening = timeoutHandover(createInitialState("snooker"));
+    expect(opening.ballInHand).toBe(true);
+    expect(opening.placementZone).toBe("d");
+    const mid = createInitialState("snooker");
+    mid.ballInHand = false;
+    mid.placementZone = undefined;
+    mid.onColor = true;
+    const next = timeoutHandover(mid);
+    expect(next.turn).toBe(1);
+    expect(next.ballInHand).toBe(false);
+    expect(next.onColor).toBe(false);
   });
 });

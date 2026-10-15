@@ -17,6 +17,7 @@ import { isInsideHole, isOutsideBorder, shootBall, stepWorld } from "./physics.j
 import { getRules, mustCallPocket, POCKET_NAMES } from "./variants/index.js";
 import type {
   PlacementZone,
+  PlayerIndex,
   BallColor,
   BallState,
   Frame,
@@ -376,6 +377,32 @@ export function placeCueBall(
   cue.moving = false;
   cue.inHole = false;
   return { ok: true, state: next };
+}
+
+/**
+ * The shot clock ran out: no shot is simulated and no ball moves — the turn
+ * passes and the opponent gets ball in hand.
+ *  - Pool: ball in hand anywhere on the table, except before the break (or
+ *    after a scratch on the break), where the kitchen zone still applies.
+ *  - Snooker: its only ball in hand is in the D, so the D carries over when the
+ *    cue ball was already in hand; otherwise the opponent plays it from where it
+ *    lies (snooker has no ball-in-hand-anywhere).
+ * Returns a clone; the input is untouched.
+ */
+export function timeoutHandover(state: TableState): TableState {
+  const next = cloneState(state);
+  next.turn = ((state.turn + 1) % 2) as PlayerIndex;
+  if (next.gameType === "snooker") {
+    next.onColor = false; // the next player starts on a red
+    if (!state.ballInHand) {
+      next.ballInHand = false;
+      next.placementZone = undefined;
+    }
+    return next;
+  }
+  next.ballInHand = true;
+  if (!(state.ballInHand && state.placementZone === "kitchen")) next.placementZone = "table";
+  return next;
 }
 
 function snapshotFrame(state: TableState, step: number): Frame {

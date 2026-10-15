@@ -23,6 +23,7 @@ export {
   simulateShot,
   validateShot,
   placeCueBall,
+  timeoutHandover,
   cuePlacementError,
   inPlacementZone,
   zoneLabel,

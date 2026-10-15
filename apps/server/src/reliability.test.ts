@@ -254,7 +254,7 @@ describe("a decided game is final", () => {
 });
 
 describe("a live table survives a restart", () => {
-  it("resumes the exact position with a fresh shot clock", async () => {
+  it("resumes the exact position with the time that was left (paused until the players are back)", async () => {
     const persist = createMemoryPersistence();
     const first = await start(devConfig(), persist);
     const { a, b } = await joinBoth(first.port, "g4");
@@ -270,7 +270,11 @@ describe("a live table survives a restart", () => {
     const { snapshot } = await joinBoth(second.port, "g4");
     expect(snapshot.stateHash).toBe(endStateHash);
     expect(snapshot.over).toBeNull();
-    expect(snapshot.clockExpiresAt).toBeGreaterThanOrEqual(before + 60_000);
+    // A's shot ended the turn just before the stop, so B has almost the full clock.
+    expect(snapshot.turnId).toBe(1);
+    expect(snapshot.clockRemainingMs).toBeGreaterThan(55_000);
+    expect(snapshot.clockRemainingMs).toBeLessThanOrEqual(60_000);
+    expect(snapshot.clockExpiresAt).toBeGreaterThanOrEqual(before + 55_000);
   });
 });
 

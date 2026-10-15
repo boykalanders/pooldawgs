@@ -28,6 +28,9 @@ export interface ServerError {
   code:
     | "unauthorized"
     | "not-your-turn"
+    /** The action was for a turn that has already ended (e.g. it timed out). */
+    | "stale-turn"
+    | "illegal-call"
     | "illegal-shot"
     | "illegal-placement"
     | "unknown-game"
@@ -50,8 +53,10 @@ export interface ClientToServerEvents {
    *  delta / reconnect / tab refocus). Served only to a socket already seated
    *  this connection; no new signature required. */
   "room:sync": (p: { gameId: string }) => void;
-  "game:shoot": (p: { gameId: string; shot: ShotInput }) => void;
-  "game:placeCueBall": (p: { gameId: string; x: number; y: number }) => void;
+  "game:shoot": (p: { gameId: string; shot: ShotInput; turnId?: number }) => void;
+  "game:placeCueBall": (p: { gameId: string; x: number; y: number; turnId?: number }) => void;
+  /** 8-ball, on the black: call (or change) the pocket before the shot. */
+  "game:callPocket": (p: { gameId: string; pocket: number; turnId?: number }) => void;
   "game:resign": (p: { gameId: string }) => void;
   "chat:send": (p: { gameId: string; text: string }) => void;
   /** Fetch a wallet's profile (name, stats, claimable wins). */

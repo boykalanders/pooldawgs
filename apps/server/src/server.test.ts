@@ -148,12 +148,26 @@ describe("PoolDawgs server (dev mode)", () => {
     expect(over.winner).toBe(walletB.address.toLowerCase());
   });
 
-  it("shot-clock expiry forfeits the player on turn", async () => {
-    const port = await startServer(testConfig({ shotClockMs: 1200 }));
-    const { b } = await joinBoth(port, "10");
+  it("a timeout hands the opponent ball in hand; three missed turns in a row forfeit", async () => {
+    const port = await startServer(testConfig({ shotClockMs: 400 }));
+    const { b, snapshot } = await joinBoth(port, "10");
+    const handover = await new Promise<RoomSnapshot>((resolve) => {
+      const on = (snap: RoomSnapshot) => {
+        if ((snap.turnId ?? 0) === 0) return; // join snapshots
+        b.off("room:state", on);
+        resolve(snap);
+      };
+      b.on("room:state", on);
+    });
+    // Seat 0 ran out of time: no shot, no ball moved, seat 1 to play with ball in hand.
+    expect(handover.state.turn).toBe(1);
+    expect(handover.state.ballInHand).toBe(true);
+    expect(handover.turnId).toBe((snapshot.turnId ?? 0) + 1);
+    expect(handover.players[0].missedTurns).toBe(1);
+    expect(handover.state.balls.map((x) => [x.x, x.y])).toEqual(snapshot.state.balls.map((x) => [x.x, x.y]));
+    // Nobody shoots: they alternate timing out and seat 0 reaches 3 first.
     const over = await waitFor(b, "game:over");
     expect(over.reason).toBe("timeout");
-    // Seat 0 was on turn and timed out → seat 1 (wallet B) wins.
     expect(over.winner).toBe(walletB.address.toLowerCase());
   });
 

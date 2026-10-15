@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { SHOT_CLOCK_MS } from "@pooldawgs/shared";
+import { RECONNECT_GRACE_MS, SHOT_CLOCK_MS } from "@pooldawgs/shared";
 import { resolveRpcUrls, resolveWsUrls } from "./rpc.js";
 
 export interface ServerConfig {
@@ -45,6 +45,8 @@ export interface ServerConfig {
   /** A waiting room (both paid, not both at the table) this old is closed and both
    *  stakes are refunded in full. */
   waitingRoomTimeoutMs?: number;
+  /** Reconnect grace: how long a disconnected player's clock is held (default 60 s). */
+  reconnectGraceMs?: number;
   /** Telegram alerts: bot token + chat that receives the daily stuck-funds report. */
   telegramBotToken?: string | null;
   alertTelegramChatId?: string | null;
@@ -80,6 +82,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     fallbackPollMs: Number(env.CHAIN_EVENT_FALLBACK_POLL_MS) || 30_000,
     settleUnclaimedAfterMs: Number(env.SETTLE_UNCLAIMED_AFTER_MS) || 24 * 3_600_000,
     waitingRoomTimeoutMs: Number(env.WAITING_ROOM_TIMEOUT_MS) || 30 * 60_000,
+    reconnectGraceMs: Number(env.RECONNECT_GRACE_MS) || RECONNECT_GRACE_MS,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || null,
     alertTelegramChatId: env.ALERT_TELEGRAM_CHAT_ID || null,
     stuckReportIntervalMs: Number(env.STUCK_FUNDS_REPORT_INTERVAL_MS) || 24 * 3_600_000,

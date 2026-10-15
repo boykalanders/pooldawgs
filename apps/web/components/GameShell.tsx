@@ -8,6 +8,7 @@ import {
   cueBallId,
   inPlacementZone,
   mustCallPocket,
+  POCKET_NAMES,
   type BallColor,
   type GameType,
   type ShotInput,
@@ -57,6 +58,12 @@ interface GameShellProps {
   potLabel?: string | null;
   balanceLabel?: string | null;
   clockExpiresAt?: number | null;
+  /** Clock paused by the server (a player is reconnecting): the time it holds. */
+  clockPausedMs?: number | null;
+  /** 8-ball on the black: the call the server holds for this turn (shown to both). */
+  serverCalledPocket?: number | null;
+  /** Tell the server about a call as soon as it's made (online play). */
+  onCallPocket?: (pocket: number) => void;
   statusText: string;
   banner?: string | null;
   centerAction?: { label: string; onClick: () => void } | null;
@@ -90,6 +97,9 @@ export default function GameShell({
   potLabel,
   balanceLabel,
   clockExpiresAt,
+  clockPausedMs = null,
+  serverCalledPocket = null,
+  onCallPocket,
   statusText,
   banner,
   centerAction,
@@ -111,6 +121,14 @@ export default function GameShell({
   const [power, setPower] = useState(0);
   // 8-ball: the pocket called for the black (classic rule). Reset every shot.
   const [calledPocket, setCalledPocket] = useState<number | null>(null);
+  // After a reconnect, pick up the call the server already holds for this turn.
+  useEffect(() => {
+    if (serverCalledPocket != null) setCalledPocket(serverCalledPocket);
+  }, [serverCalledPocket]);
+  const callPocket = (pocket: number) => {
+    setCalledPocket(pocket);
+    onCallPocket?.(pocket);
+  };
   // Hints/errors over the table fade after a few seconds instead of sitting on
   // the table (the old bottom-centre banner covered the bottom-middle pocket
   // for the whole turn).
@@ -656,7 +674,7 @@ export default function GameShell({
 
           {clockExpiresAt != null && !state.gameOver && (
             <div className="absolute left-1/2 top-2 z-10 -translate-x-1/2">
-              <ShotClock expiresAt={clockExpiresAt} />
+              <ShotClock expiresAt={clockExpiresAt} pausedMs={clockPausedMs} />
             </div>
           )}
 
@@ -669,7 +687,13 @@ export default function GameShell({
 
           {needsCall && !state.gameOver && (
             <div className="absolute right-2 top-2 z-10">
-              <PocketCallPicker selected={calledPocket} onSelect={setCalledPocket} />
+              <PocketCallPicker selected={calledPocket} onSelect={callPocket} />
+            </div>
+          )}
+          {!interactive && serverCalledPocket != null && !state.gameOver && (
+            // The opponent is on the black: show everyone the pocket they called.
+            <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-full border border-gold/60 bg-black/85 px-3 py-1 text-[11px] font-semibold text-gold-bright shadow-gold-glow">
+              Called: 8 → {POCKET_NAMES[serverCalledPocket]}
             </div>
           )}
 

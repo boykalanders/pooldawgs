@@ -2,6 +2,24 @@ import type { Address } from "@pooldawgs/shared";
 import type { OnchainStatus, Persistence, ResultRow } from "./db/persistence.js";
 
 /**
+ * Where settling a decided game on-chain stands (spec: pending / submitted /
+ * confirmed / failed). Derived from the stored row, so it survives restarts:
+ *  - pending:   result stored (GAME_OVER persisted), nothing on-chain yet; the
+ *               winner's voucher settles and pays in one tx when they claim;
+ *  - submitted: a backstop finishGame tx is out (hash in `finishTx`);
+ *  - confirmed: the chain has the result (finished, or already claimed);
+ *  - failed:    the last finishGame attempt failed; the next sweep re-checks the
+ *               chain and the tx first, so a retry is never a second settlement.
+ */
+export type FinalizationStatus = "pending" | "submitted" | "confirmed" | "failed";
+
+export function finalizationStatus(row: ResultRow, lastAttemptFailed = false): FinalizationStatus {
+  if (row.onchain !== "pending") return "confirmed";
+  if (lastAttemptFailed) return "failed";
+  return row.finishTx ? "submitted" : "pending";
+}
+
+/**
  * Decided games — the server's record of who won, kept so a result can never be
  * lost or replayed.
  *

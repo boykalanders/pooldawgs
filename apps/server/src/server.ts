@@ -21,7 +21,7 @@ import { LobbyStore } from "./lobby.js";
 import { ProfileStore } from "./profile.js";
 import { startRecovery, type Recovery } from "./recovery.js";
 import { createRelayer, type Relayer } from "./relayer.js";
-import { ResultStore } from "./results.js";
+import { finalizationStatus, ResultStore, type FinalizationStatus } from "./results.js";
 import { GameRoom, type RoomEmitter, type RoomHooks, type SerializedRoom } from "./room.js";
 import { createRpcProvider, providerStatus, rpcMetrics } from "./rpc.js";
 
@@ -105,6 +105,9 @@ export function createPoolDawgsServer(
     if (req.url === "/health/chain") {
       // Monitoring: event stream, RPC usage and recovery backlog. No secrets.
       const pending = results.all().filter((r) => r.onchain === "pending");
+      const failed = (recovery?.status().finishErrors ?? {}) as Record<string, string>;
+      const finalization: Record<FinalizationStatus, number> = { pending: 0, submitted: 0, confirmed: 0, failed: 0 };
+      for (const r of results.all()) finalization[finalizationStatus(r, r.gameId in failed)]++;
       json(res, cors, {
         storage: persist.kind,
         events: chainListener?.status() ?? null,
@@ -113,6 +116,7 @@ export function createPoolDawgsServer(
         liveTables: [...rooms.values()].filter((r) => !r.isOver()).length,
         unclaimedWins: pending.length,
         backstopFinishesInFlight: pending.filter((r) => r.finishTx).length,
+        finalization,
         recovery: recovery?.status() ?? null,
       });
       return;
@@ -127,6 +131,10 @@ export function createPoolDawgsServer(
 
   const io: IoServer = new Server(httpServer, {
     cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) },
+    // Heartbeat: a ping every 5 s; a player is disconnected after ~15 s of
+    // silence (5 s interval + 10 s timeout), which starts their reconnect grace.
+    pingInterval: 5_000,
+    pingTimeout: 10_000,
   });
 
   // Decorate lobby rows with playerOne's display name so the browse list and
@@ -209,7 +217,7 @@ export function createPoolDawgsServer(
       stake,
       gameTypeFromId(gameId), // variant is encoded in the code's prefix
       (addr) => profiles.getName(addr),
-      { hooks, waitingTimeoutMs: config.waitingRoomTimeoutMs, ...opts }
+      { hooks, waitingTimeoutMs: config.waitingRoomTimeoutMs, graceMs: config.reconnectGraceMs, ...opts }
     );
 
   /** A room showing an already-decided game: no play, just the result (and the
@@ -327,12 +335,18 @@ export function createPoolDawgsServer(
           started: data.started,
           waitingSince: data.waitingSince,
           refund: data.refund ?? null,
+          turnId: data.turnId,
+          missed: data.missed,
+          clockRemainingMs: data.clockRemainingMs,
+          calledPocket: data.calledPocket ?? null,
         },
       });
       rooms.set(data.gameId, room);
       restored++;
     }
-    if (restored) console.log(`[room] restored ${restored} live table(s) — each player to shoot gets a fresh shot clock`);
+    if (restored) {
+      console.log(`[room] restored ${restored} live table(s): clocks resume from the saved time once the players are back`);
+    }
   }
 
   /** Both stakes are back with the players (seen on-chain): close the waiting room. */
@@ -445,10 +459,18 @@ export function createPoolDawgsServer(
       console.log(`[room] seated ${address} in ${gameId}`);
     });
 
+    /** A player is away only when their LAST connection to the table is gone
+     *  (a second tab or a quick reconnect keeps them seated). */
+    const leftTable = async (room: GameRoom, address: Address): Promise<void> => {
+      const still = await io.in(roomChannel(room.gameId)).fetchSockets();
+      if (still.some((s) => s.id !== socket.id && s.data.address === address)) return;
+      room.disconnect(address);
+    };
+
     socket.on("room:leave", ({ gameId }) => {
       void socket.leave(roomChannel(gameId));
       const room = rooms.get(gameId);
-      if (room && socket.data.address) room.disconnect(socket.data.address);
+      if (room && socket.data.address) void leftTable(room, socket.data.address);
     });
 
     // Reconciliation: hand back the authoritative snapshot so the client can
@@ -477,16 +499,23 @@ export function createPoolDawgsServer(
       fn(room, address);
     };
 
-    socket.on("game:shoot", ({ gameId, shot }) => {
+    socket.on("game:shoot", ({ gameId, shot, turnId }) => {
       withRoom(gameId, (room, address) => {
-        const result = room.handleShot(address, shot);
+        const result = room.handleShot(address, shot, turnId);
         if (!result.ok) socket.emit("server:error", result.error);
       });
     });
 
-    socket.on("game:placeCueBall", ({ gameId, x, y }) => {
+    socket.on("game:placeCueBall", ({ gameId, x, y, turnId }) => {
       withRoom(gameId, (room, address) => {
-        const result = room.handlePlaceCueBall(address, x, y);
+        const result = room.handlePlaceCueBall(address, x, y, turnId);
+        if (!result.ok) socket.emit("server:error", result.error);
+      });
+    });
+
+    socket.on("game:callPocket", ({ gameId, pocket, turnId }) => {
+      withRoom(gameId, (room, address) => {
+        const result = room.handleCallPocket(address, pocket, turnId);
         if (!result.ok) socket.emit("server:error", result.error);
       });
     });
@@ -560,7 +589,7 @@ export function createPoolDawgsServer(
       const address = socket.data.address;
       if (!address) return;
       for (const room of rooms.values()) {
-        if (room.seatOf(address) !== null) room.disconnect(address);
+        if (room.seatOf(address) !== null) void leftTable(room, address);
       }
     });
   });

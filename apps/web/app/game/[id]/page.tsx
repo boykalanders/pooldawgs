@@ -15,6 +15,7 @@ import {
   AUTH_TTL_MS,
   ERC20_ABI,
   loginMessage,
+  MAX_MISSED_TURNS,
   POOL_DAWGS_ABI,
   type Address,
   type AuthPayload,
@@ -77,6 +78,8 @@ function GameRoom() {
   const [state, setState] = useState<TableState | null>(null);
   const [animation, setAnimation] = useState<ShotAnimation | null>(null);
   const pendingEndState = useRef<TableState | null>(null);
+  // Latest server turn id, echoed on every action (see room.ts).
+  const turnIdRef = useRef<number | undefined>(undefined);
   const seededChat = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -226,6 +229,7 @@ function GameRoom() {
     const onRoomState = (snap: RoomSnapshot) => {
       if (snap.gameId !== gameId) return;
       syncServerClock(snap.serverNow);
+      if (snap.turnId !== undefined) turnIdRef.current = snap.turnId;
       log.info(
         "game: room:state —",
         snap.players.length,
@@ -245,6 +249,7 @@ function GameRoom() {
     const onShot = (shot: ShotBroadcast) => {
       if (shot.gameId !== gameId) return;
       syncServerClock(shot.serverNow);
+      if (shot.turnId !== undefined) turnIdRef.current = shot.turnId;
       setState((current) => {
         const from = current ?? shot.endState;
         pendingEndState.current = shot.endState;
@@ -255,7 +260,18 @@ function GameRoom() {
         });
         return current;
       });
-      setSnapshot((s) => (s ? { ...s, clockExpiresAt: shot.clockExpiresAt } : s));
+      setSnapshot((s) =>
+        s
+          ? {
+              ...s,
+              clockExpiresAt: shot.clockExpiresAt,
+              turnId: shot.turnId ?? s.turnId,
+              clockPaused: shot.clockPaused ?? s.clockPaused,
+              clockRemainingMs: shot.clockRemainingMs ?? s.clockRemainingMs,
+              calledPocket: null, // a call is for one shot only
+            }
+          : s
+      );
     };
     const onCuePlaced = (p: { gameId: string; x: number; y: number }) => {
       if (p.gameId !== gameId) return;
@@ -358,14 +374,23 @@ function GameRoom() {
   const shoot = useCallback(
     (shot: ShotInput) => {
       setServerError(null);
-      getSocket().emit("game:shoot", { gameId, shot });
+      // The turn id makes a late shot for a turn that already timed out a no-op.
+      getSocket().emit("game:shoot", { gameId, shot, turnId: turnIdRef.current });
     },
     [gameId]
   );
   const placeCueBall = useCallback(
     (x: number, y: number) => {
       setServerError(null);
-      getSocket().emit("game:placeCueBall", { gameId, x, y });
+      getSocket().emit("game:placeCueBall", { gameId, x, y, turnId: turnIdRef.current });
+    },
+    [gameId]
+  );
+  // 8-ball on the black: the server holds the call and shows it to the opponent.
+  const callPocket = useCallback(
+    (pocket: number) => {
+      setServerError(null);
+      getSocket().emit("game:callPocket", { gameId, pocket, turnId: turnIdRef.current });
     },
     [gameId]
   );
@@ -650,6 +675,16 @@ function GameRoom() {
     };
   }) as [ShellPlayer, ShellPlayer];
 
+  const now = Date.now();
+  const reconnecting = snapshot.players.find((p) => p.graceExpiresAt && p.graceExpiresAt > now);
+  const myMissed = snapshot.players.find((p) => p.seat === mySeat)?.missedTurns ?? 0;
+  const turnText = myTurn
+    ? myMissed > 0
+      ? `Your shot — ${myMissed}/${MAX_MISSED_TURNS} missed turns (${MAX_MISSED_TURNS} in a row forfeits)`
+      : "Your shot"
+    : mySeat === null
+      ? "Spectating"
+      : "Opponent's shot";
   const statusText = snapshot.over
     ? `${shortAddress(snapshot.over.winner)} wins by ${snapshot.over.reason}`
     : refund
@@ -658,11 +693,9 @@ function GameRoom() {
         : "Game never started — returning both stakes"
       : waitingRoom
         ? "Waiting for your opponent to come to the table — no clock yet"
-        : myTurn
-      ? "Your shot"
-      : mySeat === null
-        ? "Spectating"
-        : "Opponent's shot";
+        : reconnecting
+          ? `${reconnecting.seat === mySeat ? "Reconnecting" : "Opponent reconnecting"} — clocks paused`
+          : turnText;
 
   // End-of-frame modal data: who won, by what, and the amounts at stake.
   const over = snapshot.over;
@@ -687,6 +720,9 @@ function GameRoom() {
       potLabel={snapshot.stake ? formatStake(BigInt(snapshot.stake) * 2n) : null}
       balanceLabel={myBalance !== undefined ? Number(formatUnits(myBalance, 18)).toLocaleString() : null}
       clockExpiresAt={snapshot.over || waitingRoom ? null : snapshot.clockExpiresAt}
+      clockPausedMs={snapshot.clockPaused ? snapshot.clockRemainingMs ?? null : null}
+      serverCalledPocket={snapshot.calledPocket ?? null}
+      onCallPocket={callPocket}
       statusText={statusText}
       banner={
         serverError ??
