@@ -47,6 +47,8 @@ import {
   MAX_POWER,
   MAX_STEPS,
   MAX_CONTACT_LAYERS,
+  KNUCKLE_RADIUS,
+  jawPostCentre,
   MIN_COLLISION_SPEED,
   PHYSICS_VERSION,
   POCKET_MIN_INWARD,
@@ -86,8 +88,6 @@ const PX = (m: number) => m * PX_PER_M;
 const geomKey = (gameType: GameType): string => (gameType === "snooker" ? "snooker" : "pool");
 
 const DT = 1 / 120; // fixed Havok timestep (matches PHYSICS_FPS)
-/** Rounded cushion end at a jaw tip (~10 mm), same as the TS engine. */
-const KNUCKLE_RADIUS = 5.5;
 /** Global settle threshold (m/s). Keep this equal to the per-ball static-stop
  * threshold so the shot cannot finish while a ball still has meaningful
  * residual motion awaiting its static-stop hysteresis. */
@@ -360,9 +360,11 @@ function buildRails(scene: Scene, geom: TableGeometry, railIds: Set<number>): vo
   // rail and fall in from an angle the pocket should have rejected.
   const knuckle = M(KNUCKLE_RADIUS);
   for (const hole of geom.HOLES) {
-    for (const jaw of hole.jaws) {
+    for (const k of [0, 1] as const) {
+      // Set into the cushion so it is flush with the rubber (constants.ts).
+      const post = jawPostCentre(hole, k);
       const node = new TransformNode("jaw", scene);
-      node.position = new Vector3(M(jaw.x), h / 2, M(jaw.y));
+      node.position = new Vector3(M(post.x), h / 2, M(post.y));
       const body = new PhysicsBody(node, PhysicsMotionType.STATIC, false, scene);
       const shape = new PhysicsShapeCylinder(
         new Vector3(0, -h / 2, 0),

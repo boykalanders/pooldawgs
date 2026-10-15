@@ -25,6 +25,8 @@ import {
   MIN_COLLISION_SPEED,
   POSITION_ITERATIONS,
   MAX_CONTACT_LAYERS,
+  KNUCKLE_RADIUS,
+  jawPostCentre,
   PACK_RESTITUTION_SCALE,
   POSITIONAL_CORRECTION,
   SOLVE_TOLERANCE,
@@ -56,8 +58,6 @@ export function isInsideHole(x: number, y: number): boolean {
   return false;
 }
 
-/** Radius of the rounded cushion end at a jaw tip (~10 mm on a real table). */
-const KNUCKLE_RADIUS = 5.5;
 
 export function isOutsideBorder(x: number, y: number): boolean {
   return (
@@ -505,17 +505,18 @@ function cushionBounce(ball: BallState, nx: number, ny: number): void {
 function bounceOffJaw(ball: BallState, x: number, y: number): boolean {
   const reach = G.BALL_RADIUS + KNUCKLE_RADIUS;
   for (const hole of G.HOLES) {
-    for (const jaw of hole.jaws) {
-      const dx = x - jaw.x;
-      const dy = y - jaw.y;
+    for (const k of [0, 1] as const) {
+      const post = jawPostCentre(hole, k); // flush with the rubber, see constants.ts
+      const dx = x - post.x;
+      const dy = y - post.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist >= reach || dist < 1e-9) continue;
       const nx = dx / dist;
       const ny = dy / dist;
       if (ball.vx * nx + ball.vy * ny >= 0) continue; // already moving away
       cushionBounce(ball, nx, ny);
-      ball.x = jaw.x + nx * reach;
-      ball.y = jaw.y + ny * reach;
+      ball.x = post.x + nx * reach;
+      ball.y = post.y + ny * reach;
       return true;
     }
   }

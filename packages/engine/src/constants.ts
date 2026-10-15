@@ -297,6 +297,27 @@ export interface Hole {
   jaws: readonly [{ x: number; y: number }, { x: number; y: number }];
 }
 
+/** Radius of the rounded rubber end at each jaw tip (px, ~10 mm). */
+export const KNUCKLE_RADIUS = 5.5;
+
+/**
+ * Centre of the rounded rubber end at jaw tip `k` of `hole`. It sits BEHIND the
+ * cushion line, one radius deep into the cushion, so its surface is flush with
+ * the rubber and touches the cushion line exactly at the tip — the way a real
+ * cushion ends. (Centred ON the line, half the post stuck out into the cloth,
+ * and a ball rolling along the rail struck it and was knocked off the rail,
+ * missing pockets it should have dropped into.)
+ */
+export function jawPostCentre(hole: Hole, k: 0 | 1, radius = KNUCKLE_RADIUS): { x: number; y: number } {
+  const jaw = hole.jaws[k];
+  // Outward normal of the cushion this tip ends: side pockets and the first
+  // corner tip are on a top/bottom cushion, the second corner tip on a side one.
+  const onSideCushion = hole.tx !== 0 && k === 1;
+  const nx = onSideCushion ? Math.sign(hole.tx) : 0;
+  const ny = onSideCushion ? 0 : Math.sign(hole.ty);
+  return { x: jaw.x + nx * radius, y: jaw.y + ny * radius };
+}
+
 /**
  * Build the six pockets from REAL mouth widths — the distance between the two
  * jaw tips, which is what a table is actually specified by (WPA pool: corner

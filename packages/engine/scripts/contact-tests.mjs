@@ -132,6 +132,40 @@ function run(label, sim, gameType) {
       `${r.diagnostics.cushionContacts} contacts, ${dupes} duplicated`
     );
   }
+
+  // 13. A ball rolled along a rail (its edge 0.5 px off the rubber) into a
+  // corner must run straight and drop. The rounded jaw posts used to sit ON
+  // the cushion line, so half of each stuck out and knocked rail-runners off
+  // the rail just before the pocket.
+  {
+    const R = g.BALL_RADIUS + 0.5;
+    const runs = [
+      ["top rail → top-left", g.HOLES[4].mx - 200, g.TOP_BORDER_Y + R, Math.PI],
+      ["bottom rail → bottom-right", g.HOLES[5].mx + 200, g.BOTTOM_BORDER_Y - R, 0],
+      ["left rail → top-left", g.LEFT_BORDER_X + R, (g.TOP_BORDER_Y + g.BOTTOM_BORDER_Y) / 2, -Math.PI / 2],
+    ];
+    const out = runs.map(([name, x, y, angle]) => {
+      const { s, cue, obj } = table(gameType);
+      obj.inHole = true;
+      obj.x = 0;
+      obj.y = g.TABLE_HEIGHT + 100;
+      cue.x = x;
+      cue.y = y;
+      const r = sim(s, { angle, power: 30 }, { recordFrames: true, frameStride: 1 });
+      let drift = 0;
+      for (const f of r.frames) {
+        const b = f.balls.find((q) => q.id === cue.id);
+        if (!b.visible) break;
+        drift = Math.max(drift, Math.abs(Math.abs(Math.cos(angle)) > 0.5 ? b.y - y : b.x - x));
+      }
+      return { name, potted: r.events.some((e) => e.type === "pocket"), drift };
+    });
+    check(
+      "13 rail-runners drop in the corner without hitting the jaw",
+      out.every((o) => o.potted && o.drift < 1),
+      out.map((o) => `${o.name} ${o.potted ? "potted" : "MISSED"} (drift ${o.drift.toFixed(1)})`).join(", ")
+    );
+  }
 }
 
 await initHavok();
