@@ -88,6 +88,9 @@ export interface Persistence {
   // small key/value settings (e.g. the server's last-alive heartbeat)
   getMeta(key: string): Promise<string | null>;
   setMeta(key: string, value: string): Promise<void>;
+  /** Compare-and-set: write `next` only if the stored value is still `expected`
+   *  (null = no value yet). True if written. Used for the server lease. */
+  casMeta(key: string, expected: string | null, next: string): Promise<boolean>;
   // live tables (serialized room state), deleted once the game is decided
   loadRooms(): Promise<Array<{ gameId: string; data: string }>>;
   saveRoom(gameId: string, data: string): Promise<void>;
@@ -278,6 +281,12 @@ function sqlPersistence(db: SqlDriver): Persistence {
     async setMeta(key, value) {
       await setMeta(key, value);
     },
+    async casMeta(key, expected, next) {
+      if (expected === null) {
+        return (await db.run("INSERT INTO lb_meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING", [key, next])) > 0;
+      }
+      return (await db.run("UPDATE lb_meta SET value = $1 WHERE key = $2 AND value = $3", [next, key, expected])) > 0;
+    },
 
     async loadRooms() {
       return (await db.all("SELECT game_id, data FROM pd_rooms")).map((r) => ({
@@ -425,6 +434,11 @@ export function createMemoryPersistence(): Persistence {
     },
     async setMeta(key, value) {
       metaStore.set(key, value);
+    },
+    async casMeta(key, expected, next) {
+      if ((metaStore.get(key) ?? null) !== expected) return false;
+      metaStore.set(key, next);
+      return true;
     },
     async loadEntries() {
       return [...entries.values()].map((e) => ({ ...e }));

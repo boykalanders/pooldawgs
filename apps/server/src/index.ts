@@ -34,8 +34,11 @@ async function main() {
   const leaderboard = new LeaderboardStore(persistence);
   await leaderboard.load();
 
-  const server = createPoolDawgsServer(config, undefined, undefined, leaderboard, { persist: persistence });
-  await server.ready; // results + live tables loaded before any player can connect
+  const server = createPoolDawgsServer(config, undefined, undefined, leaderboard, {
+    persist: persistence,
+    // Presumed dead and replaced: exit, and the host restarts us as a follower.
+    onFenced: () => setTimeout(() => process.exit(1), 100),
+  });
   // Clean shutdown (deploys send SIGTERM): store every live table with its clock
   // paused at this moment, so play resumes with exactly the time that was left.
   let stopping = false;
@@ -62,6 +65,12 @@ async function main() {
         `physics ${config.physicsBackend}, shot clock ${config.shotClockMs / 1000}s)`
     );
   });
+  // Listening before `ready` on purpose: during a deploy this process waits for
+  // the old one to hand over the live tables, and the host only stops the old one
+  // once this one passes its health check. Joins wait for `ready` (results and
+  // live tables loaded) before anyone is seated.
+  await server.ready;
+  console.log("[server] live tables loaded — serving games");
 }
 
 main().catch((e) => {

@@ -16,7 +16,7 @@ import {
   type ClientToServerEvents,
   type ServerToClientEvents,
 } from "@pooldawgs/shared";
-import { createPoolDawgsServer, type PoolDawgsServer } from "./server.js";
+import { createPoolDawgsServer, type PoolDawgsServer, type ServerOptions } from "./server.js";
 import type { ServerConfig } from "./config.js";
 import { createMemoryPersistence, type Persistence } from "./db/persistence.js";
 import { ChainUnavailableError, type ChainGame, type ChainReader } from "./chain.js";
@@ -136,7 +136,8 @@ async function start(
   config: ServerConfig,
   persist: Persistence,
   relayer: Relayer = fakeRelayer().relayer,
-  reader?: ChainReader
+  reader?: ChainReader,
+  extra: Partial<ServerOptions> & { waitReady?: boolean } = {}
 ): Promise<{ server: PoolDawgsServer; port: number }> {
   const leaderboard = new LeaderboardStore(persist);
   await leaderboard.load();
@@ -144,8 +145,9 @@ async function start(
     persist,
     background: false,
     provider: {} as AbstractProvider,
+    ...extra,
   });
-  await server.ready;
+  if (extra.waitReady !== false) await server.ready;
   servers.push(server);
   await new Promise<void>((resolve) => server.httpServer.listen(0, resolve));
   const addr = server.httpServer.address();
@@ -275,6 +277,58 @@ describe("a live table survives a restart", () => {
     expect(snapshot.clockRemainingMs).toBeGreaterThan(55_000);
     expect(snapshot.clockRemainingMs).toBeLessThanOrEqual(60_000);
     expect(snapshot.clockExpiresAt).toBeGreaterThanOrEqual(before + 55_000);
+  });
+});
+
+describe("deploy handover: one server runs the tables at a time", () => {
+  it("a new server waits for the old one to hand over, then resumes the exact clock", async () => {
+    const persist = createMemoryPersistence();
+    const old = await start(devConfig(), persist);
+    await joinBoth(old.port, "h1");
+    await new Promise((r) => setTimeout(r, 300)); // the clock runs on the old server
+
+    // The new deployment starts while the old one is still serving (Railway
+    // starts the new one first): it listens, but doesn't load or run any table.
+    const next = await start(devConfig(), persist, undefined, undefined, { waitReady: false });
+    let nextReady = false;
+    void next.server.ready.then(() => (nextReady = true));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(nextReady).toBe(false);
+    expect(next.server.rooms.size).toBe(0);
+    const health = await (await fetch(`http://127.0.0.1:${next.port}/health`)).json();
+    expect(health).toMatchObject({ ok: true, serving: false });
+
+    // SIGTERM to the old one: it pauses and saves every clock, then hands over.
+    const left = old.server.rooms.get("h1")!.snapshot().clockRemainingMs!;
+    await old.server.close();
+    servers = servers.filter((s) => s !== old.server);
+    await next.server.ready;
+    const restored = next.server.rooms.get("h1")!.snapshot();
+    expect(restored.clockPaused).toBe(true); // until the players reconnect
+    expect(Math.abs(restored.clockRemainingMs! - left)).toBeLessThan(50);
+    expect(left).toBeLessThan(60_000 - 500);
+  });
+
+  it("after a crash the lease goes stale and the new server takes over", async () => {
+    const persist = createMemoryPersistence();
+    const lastBeat = Date.now() - 2_000;
+    await persist.setMeta("server_alive_at", JSON.stringify({ id: "crashed", at: lastBeat }));
+    const next = await start(devConfig(), persist, undefined, undefined, { leaseTtlMs: 1_000 });
+    expect(JSON.parse((await persist.getMeta("server_alive_at"))!).id).not.toBe("crashed");
+    expect(next.server.rooms.size).toBe(0);
+  });
+
+  it("a server that lost its lease stops running tables (fenced)", async () => {
+    const persist = createMemoryPersistence();
+    let fenced = false;
+    const s = await start(devConfig(), persist, undefined, undefined, { onFenced: () => (fenced = true) });
+    await joinBoth(s.port, "h2");
+    expect(s.server.rooms.size).toBe(1);
+    // Someone else took the lease (e.g. we stalled long enough to be presumed dead).
+    await persist.setMeta("server_alive_at", JSON.stringify({ id: "other", at: Date.now() }));
+    await new Promise((r) => setTimeout(r, 1_300));
+    expect(fenced).toBe(true);
+    expect(s.server.rooms.size).toBe(0);
   });
 });
 

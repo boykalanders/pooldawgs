@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 import type { AbstractProvider } from "ethers";
@@ -49,16 +50,52 @@ export interface ServerOptions {
   provider?: AbstractProvider;
   /** Start the chain event listener and recovery sweeps (default: true). */
   background?: boolean;
+  /** A lease not renewed for this long belongs to a dead server (default 5 s). */
+  leaseTtlMs?: number;
+  /** Another server took over the lease (we were presumed dead). Default: log;
+   *  the entry point exits so the host restarts it as a follower. */
+  onFenced?: () => void;
 }
 
 const roomChannel = (gameId: string) => `game:${gameId}`;
 
-/** Server liveness heartbeat (one tiny write per second for the whole server,
- *  not per table): after a crash, running shot clocks are charged up to the
- *  last beat, so at most HEARTBEAT_MS of a player's time is ever in doubt, and
- *  it's given back to them. A clean shutdown records the exact moment. */
-const ALIVE_KEY = "server_alive_at";
+/**
+ * Server lease: exactly one process runs the live tables.
+ *
+ * Hosts like Railway start the NEW deployment before sending SIGTERM to the old
+ * one. Without a lease the new process would load each table before the old one
+ * saved it on shutdown, and while both ran, both would run the same shot clocks.
+ * So a starting server waits (it still answers health checks) until the old one
+ * hands the lease over on shutdown, or until the lease goes stale after a crash.
+ *
+ * The holder renews it every HEARTBEAT_MS (one tiny write per second for the
+ * whole server, not per table). The lease time doubles as "last known alive":
+ * after a crash, running clocks are charged up to the last beat only, so at most
+ * one beat of a player's time is in doubt, and it goes to them. A clean shutdown
+ * records the exact moment. A holder that finds someone else's lease when it
+ * renews (it was presumed dead) stops serving at once: it is "fenced".
+ */
+const LEASE_KEY = "server_alive_at";
 const HEARTBEAT_MS = 1_000;
+const LEASE_TTL_MS = 5_000;
+
+interface Lease {
+  id: string;
+  /** Last renewal, or the moment it was released. */
+  at: number;
+  released?: boolean;
+}
+
+function parseLease(raw: string | null): Lease | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Lease | number;
+    if (typeof v === "number") return { id: "legacy", at: v }; // a bare timestamp from before leases
+    return v && typeof v.at === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Winner's payout: 80% of the two-stake pot. */
 const winnerShare = (stakeWei: string | null | undefined) =>
@@ -106,7 +143,9 @@ export function createPoolDawgsServer(
       "access-control-allow-origin": isAllowedOrigin(origin) ? origin ?? "*" : "null",
     };
     if (req.url === "/health") {
-      json(res, cors, { ok: true, chainEnabled: config.chainEnabled, storage: persist.kind });
+      // `serving`: this process holds the lease and runs the live tables (false while a
+      // new deployment waits for the old one to hand over).
+      json(res, cors, { ok: true, serving: heldLease !== null && !fenced, chainEnabled: config.chainEnabled, storage: persist.kind });
       return;
     }
     if (req.url === "/health/chain") {
@@ -336,12 +375,8 @@ export function createPoolDawgsServer(
   }
 
   /** Restore stored live tables (mid-game when the server stopped). */
-  async function restoreRooms(): Promise<void> {
+  async function restoreRooms(stoppedAt: number | null): Promise<void> {
     let restored = 0;
-    // When the previous process was last alive: running clocks are charged up to
-    // then and no further (the outage is paused time).
-    const alive = Number(await persist.getMeta(ALIVE_KEY));
-    const stoppedAt = Number.isFinite(alive) && alive > 0 ? alive : null;
     for (const row of await persist.loadRooms()) {
       let data: SerializedRoom;
       try {
@@ -388,18 +423,79 @@ export function createPoolDawgsServer(
     console.log(`[room] ${gameId}: never started — both stakes refunded`);
   }
 
+  // ── lease (see LEASE_KEY) ──
+  const instanceId = randomUUID();
+  const leaseTtl = options.leaseTtlMs ?? LEASE_TTL_MS;
+  let heldLease: string | null = null; // the exact stored value we wrote last
   let heartbeat: ReturnType<typeof setInterval> | null = null;
-  const beat = () =>
-    persist
-      .setMeta(ALIVE_KEY, String(Date.now()))
-      .catch((e) => console.warn("[server] heartbeat write failed:", e instanceof Error ? e.message : e));
+  let closing = false;
+  let fenced = false;
+
+  /** Wait until the lease is free (released, stale, or never taken), then take
+   *  it. Resolves with when the previous holder was last alive. */
+  async function acquireLease(): Promise<number | null> {
+    let logged = false;
+    for (;;) {
+      if (closing) throw new Error("server closed before it took the lease");
+      const raw = await persist.getMeta(LEASE_KEY).catch(() => undefined);
+      if (raw !== undefined) {
+        const prev = parseLease(raw);
+        const free = !prev || prev.released || prev.id === instanceId || Date.now() - prev.at > leaseTtl;
+        if (free) {
+          const mine = JSON.stringify({ id: instanceId, at: Date.now() } satisfies Lease);
+          if (await persist.casMeta(LEASE_KEY, raw, mine).catch(() => false)) {
+            heldLease = mine;
+            if (prev && !prev.released && prev.id !== instanceId) {
+              console.warn(`[server] took over from a server that stopped renewing its lease ${Date.now() - prev.at} ms ago`);
+            }
+            return prev ? prev.at : null;
+          }
+          continue; // someone else moved first: look again
+        }
+        if (!logged) {
+          console.log("[server] waiting for the running server to hand over the live tables…");
+          logged = true;
+        }
+      }
+      await new Promise((r) => setTimeout(r, Math.min(250, leaseTtl / 4)));
+    }
+  }
+
+  /** Renew the lease; if it isn't ours any more, stop serving (fenced). */
+  async function renewLease(released = false): Promise<void> {
+    if (!heldLease || fenced) return;
+    const next = JSON.stringify({ id: instanceId, at: Date.now(), ...(released ? { released: true } : {}) } satisfies Lease);
+    let ok: boolean;
+    try {
+      ok = await persist.casMeta(LEASE_KEY, heldLease, next);
+    } catch (e) {
+      console.warn("[server] lease renewal failed:", e instanceof Error ? e.message : e);
+      return; // storage hiccup: try again next beat (the TTL covers a few misses)
+    }
+    if (ok) {
+      heldLease = next;
+      return;
+    }
+    if (closing) return;
+    fenced = true;
+    console.error("[server] another server holds the lease now — this one stops running tables");
+    if (heartbeat) clearInterval(heartbeat);
+    chainListener?.stop();
+    recovery?.stop();
+    for (const room of rooms.values()) room.dispose(); // no saves: the new holder owns them
+    rooms.clear();
+    io.disconnectSockets(true); // players reconnect to the server that holds the lease
+    options.onFenced?.();
+  }
 
   const ready = (async () => {
+    const stoppedAt = await acquireLease();
+    heartbeat = setInterval(() => void renewLease(), HEARTBEAT_MS);
     await results.load(leaderboard.allWonGames());
     await lobby.load();
-    await restoreRooms();
-    await beat();
-    heartbeat = setInterval(() => void beat(), HEARTBEAT_MS);
+    // Running clocks are charged up to when the previous server was last alive
+    // and no further: the outage itself is paused time.
+    await restoreRooms(stoppedAt);
   })();
 
   ready
@@ -437,7 +533,8 @@ export function createPoolDawgsServer(
     .catch((e) => console.error("[server] startup failed:", e));
 
   io.on("connection", (socket) => {
-    socket.on("lobby:subscribe", () => {
+    socket.on("lobby:subscribe", async () => {
+      await ready.catch(() => {});
       void socket.join("lobby");
       socket.emit("lobby:state", { games: withNames(lobby.list()) });
     });
@@ -639,12 +736,15 @@ export function createPoolDawgsServer(
     async close() {
       chainListener?.stop();
       recovery?.stop();
+      closing = true;
       if (heartbeat) clearInterval(heartbeat);
       // Pause every live clock at this exact moment and store it (deploys are
-      // the usual restart, and they then resume to the millisecond).
-      for (const room of rooms.values()) room.suspend();
+      // the usual restart, and they then resume to the millisecond)…
+      if (!fenced) for (const room of rooms.values()) room.suspend();
       for (const room of rooms.values()) room.dispose();
-      await beat();
+      await Promise.all([...roomWrites.values()]);
+      // …and only then hand the lease to the next server.
+      await renewLease(true);
       rooms.clear();
       await Promise.all([...roomWrites.values()]);
       await io.close();

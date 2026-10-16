@@ -323,6 +323,7 @@ export class GameRoom {
   }
 
   connect(address: Address): void {
+    if (this.disposed) return; // closed or handed to another server
     const key = address.toLowerCase() as Address;
     this.connected.add(key);
     const seat = this.seatOf(key);
@@ -336,6 +337,7 @@ export class GameRoom {
    *  5 s, so at most ~15 s of silence). Not a strike: the grace pauses both
    *  clocks. In a waiting room nothing runs. */
   disconnect(address: Address): void {
+    if (this.disposed) return; // sockets closing at shutdown: the table is already saved
     const key = address.toLowerCase() as Address;
     this.connected.delete(key);
     const seat = this.seatOf(key);

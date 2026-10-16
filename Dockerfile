@@ -25,4 +25,10 @@ RUN pnpm --filter @pooldawgs/engine build \
 
 ENV NODE_ENV=production
 EXPOSE 4000
+# Exec form on purpose: node is PID 1 and gets SIGTERM itself (a shell or
+# `npm start` would swallow it). On SIGTERM the server pauses every live shot
+# clock, saves the tables and hands its lease to the new deployment, which is
+# waiting for it (see LEASE_KEY in apps/server/src/server.ts). The host must
+# allow a few seconds between SIGTERM and SIGKILL: railway.json sets 15 s.
+STOPSIGNAL SIGTERM
 CMD ["node", "apps/server/dist/index.js"]

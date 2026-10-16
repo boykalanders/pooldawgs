@@ -83,6 +83,15 @@ describe("SQLite persistence", () => {
     expect(await (await createPersistence(config("d.db"))).getMeta("alive_at")).toBe("456");
   });
 
+  it("compare-and-set writes only over the value it expects", async () => {
+    const db = await createPersistence(config("e.db"));
+    expect(await db.casMeta("lease", null, "a")).toBe(true);
+    expect(await db.casMeta("lease", null, "b")).toBe(false); // already set
+    expect(await db.casMeta("lease", "x", "b")).toBe(false); // stale expectation
+    expect(await db.casMeta("lease", "a", "b")).toBe(true);
+    expect(await db.getMeta("lease")).toBe("b");
+  });
+
   it("records each chain event once", async () => {
     const db = await createPersistence(config("b.db"));
     expect(await db.recordEvent("1:0xc:0xtx:0", 10, "GameCreated", "g1")).toBe(true);
