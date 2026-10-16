@@ -51,6 +51,7 @@ export function cloneState(state: TableState): TableState {
     turn: state.turn,
     ballInHand: state.ballInHand,
     placementZone: state.placementZone,
+    ...(state.mayPlayFromLie ? { mayPlayFromLie: true } : {}),
     gameOver: state.gameOver,
     winner: state.winner,
     playerColors: [state.playerColors[0], state.playerColors[1]],
@@ -103,7 +104,7 @@ export function validateShot(state: TableState, shot: ShotInput): ShotValidation
   if (cue.inHole) {
     return { ok: false, reason: "ball in hand — place the cue ball first" };
   }
-  if (state.ballInHand && !inPlacementZone(state, cue.x, cue.y)) {
+  if (state.ballInHand && !state.mayPlayFromLie && !inPlacementZone(state, cue.x, cue.y)) {
     return { ok: false, reason: `ball in hand — the cue ball must be ${zoneLabel(state)}` };
   }
   return { ok: true };
@@ -283,6 +284,7 @@ export function simulateShot(
   next.turn = resolution.nextTurn;
   next.ballInHand = resolution.ballInHand;
   next.placementZone = resolution.ballInHand ? (resolution.placementZone ?? "table") : undefined;
+  delete next.mayPlayFromLie;
 
   const settleCapped = steps >= MAX_STEPS;
   const flags: string[] = [];
@@ -384,9 +386,9 @@ export function placeCueBall(
  * passes and the opponent gets ball in hand.
  *  - Pool: ball in hand anywhere on the table, except before the break (or
  *    after a scratch on the break), where the kitchen zone still applies.
- *  - Snooker: its only ball in hand is in the D, so the D carries over when the
- *    cue ball was already in hand; otherwise the opponent plays it from where it
- *    lies (snooker has no ball-in-hand-anywhere).
+ *  - Snooker: ball in hand means the D. Mid-frame the opponent gets the choice
+ *    of placing the cue ball in the D or playing it from where it lies, so the
+ *    handover is never worse for them than the position they inherit.
  * Returns a clone; the input is untouched.
  */
 export function timeoutHandover(state: TableState): TableState {
@@ -394,10 +396,10 @@ export function timeoutHandover(state: TableState): TableState {
   next.turn = ((state.turn + 1) % 2) as PlayerIndex;
   if (next.gameType === "snooker") {
     next.onColor = false; // the next player starts on a red
-    if (!state.ballInHand) {
-      next.ballInHand = false;
-      next.placementZone = undefined;
-    }
+    next.ballInHand = true;
+    next.placementZone = "d";
+    const cue = cueBall(next);
+    if (!cue.inHole && !inPlacementZone(next, cue.x, cue.y)) next.mayPlayFromLie = true;
     return next;
   }
   next.ballInHand = true;
@@ -442,6 +444,7 @@ export function stateHash(state: TableState): string {
   mix(state.scores[0]);
   mix(state.scores[1]);
   mix(state.onColor ? 1 : 0);
+  if (state.mayPlayFromLie) mix(7); // only when set, so existing hashes are unchanged
   const colorCode = (c: BallColor | null) => (c === null ? 0 : c === "red" ? 1 : 2);
   mix(colorCode(state.playerColors[0]) * 4 + colorCode(state.playerColors[1]));
   return (h >>> 0).toString(16).padStart(8, "0");

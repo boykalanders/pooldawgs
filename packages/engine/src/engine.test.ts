@@ -595,17 +595,34 @@ describe("shot-clock timeout handover", () => {
     expect(next.placementZone).toBe("kitchen");
   });
 
-  it("snooker: the D carries over; mid-frame the cue ball is played from where it lies", () => {
+  it("snooker: ball in hand in the D, or play the cue ball from where it lies", () => {
     const opening = timeoutHandover(createInitialState("snooker"));
     expect(opening.ballInHand).toBe(true);
     expect(opening.placementZone).toBe("d");
+    expect(opening.mayPlayFromLie).toBeUndefined(); // already in the D
+
     const mid = createInitialState("snooker");
     mid.ballInHand = false;
     mid.placementZone = undefined;
     mid.onColor = true;
+    const cue = cueBall(mid);
+    cue.x = 1300; // up the table, far outside the D
+    cue.y = 500;
     const next = timeoutHandover(mid);
     expect(next.turn).toBe(1);
-    expect(next.ballInHand).toBe(false);
     expect(next.onColor).toBe(false);
+    expect(next).toMatchObject({ ballInHand: true, placementZone: "d", mayPlayFromLie: true });
+    expect(cueBall(next)).toMatchObject({ x: 1300, y: 500 }); // nothing moved
+
+    // Either: shoot from where it lies…
+    expect(validateShot(next, { angle: Math.PI, power: 30 }).ok).toBe(true);
+    // …or place it in the D (only in the D).
+    expect(placeCueBall(next, 1300, 200).ok).toBe(false);
+    const placed = placeCueBall(next, 380, 520);
+    expect(placed.ok).toBe(true);
+    // The choice lasts one shot.
+    const after = simulateShot(next, { angle: Math.PI, power: 30 }).endState;
+    expect(after.mayPlayFromLie).toBeUndefined();
+    expect(stateHash(cloneState(next))).toBe(stateHash(next));
   });
 });

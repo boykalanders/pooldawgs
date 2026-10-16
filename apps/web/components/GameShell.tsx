@@ -218,7 +218,7 @@ export default function GameShell({
     interactive &&
     !state.gameOver &&
     !cueNow.inHole &&
-    (!state.ballInHand || inPlacementZone(state, cueNow.x, cueNow.y)) &&
+    (!state.ballInHand || state.mayPlayFromLie || inPlacementZone(state, cueNow.x, cueNow.y)) &&
     (!needsCall || calledPocket !== null);
 
   return (

@@ -8,6 +8,9 @@ export function ballInHandHint(state: TableState): string {
   if (state.balls[cueBallId(state)].inHole) {
     return `Ball in hand — drag the cue ball ${where} to place it`;
   }
+  if (state.mayPlayFromLie) {
+    return "Ball in hand — drag the cue ball into the D, or play it from where it lies";
+  }
   const lead = zone === "table" ? "Ball in hand" : "Break";
   return `${lead} — drag the cue ball ${where}, or shoot from where it is`;
 }

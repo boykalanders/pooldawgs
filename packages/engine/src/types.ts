@@ -69,6 +69,10 @@ export interface TableState {
   ballInHand: boolean;
   /** Where ball in hand may be placed (absent ⇒ "table"). */
   placementZone?: PlacementZone;
+  /** With ball in hand, the player may also shoot the cue ball from where it
+   *  lies even outside the zone (snooker after the opponent's shot clock ran
+   *  out: ball in hand in the D, or play it as it lies). Cleared by the shot. */
+  mayPlayFromLie?: boolean;
   gameOver: boolean;
   /** Winning player once gameOver. */
   winner: PlayerIndex | null;
