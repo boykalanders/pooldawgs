@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e:rules": "node scripts/e2e-turn-rules.mjs"
   },
   "dependencies": {
     "@pooldawgs/engine": "workspace:*",
