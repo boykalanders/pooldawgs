@@ -23,7 +23,7 @@ import { ChainUnavailableError, type ChainGame, type ChainReader } from "./chain
 import type { Relayer } from "./relayer.js";
 import { LeaderboardStore } from "./leaderboard.js";
 import { LobbyStore } from "./lobby.js";
-import { ResultStore } from "./results.js";
+import { finalizationStatus, ResultStore } from "./results.js";
 import { startRecovery } from "./recovery.js";
 import { GameRoom, type RoomEmitter } from "./room.js";
 
@@ -364,6 +364,37 @@ describe("recovery sweeps", () => {
     await t.recovery.sweepUnclaimed(later);
     expect(t.fake.sent).toHaveLength(2);
     expect(t.results.get("g9")?.onchain).toBe("finished");
+  });
+
+  it("finalization status (pending → failed → submitted → confirmed) is stored and survives a restart", async () => {
+    const t = await setup({ g11: chainGame() });
+    await t.results.record({ gameId: "g11", winner: B, loser: A, reason: "pot", reward: "1" });
+    expect(finalizationStatus(t.results.get("g11")!)).toBe("pending");
+    const later = Date.now() + 25 * 3_600_000;
+
+    const send = t.fake.relayer.finishGame;
+    t.fake.relayer.finishGame = async () => {
+      throw new Error("insufficient funds for gas");
+    };
+    await t.recovery.sweepUnclaimed(later);
+    const reloaded = new ResultStore(t.persist); // a restart
+    await reloaded.load();
+    expect(finalizationStatus(reloaded.get("g11")!)).toBe("failed");
+    expect(reloaded.get("g11")).toMatchObject({ finishError: "insufficient funds for gas", finishAttempts: 0 });
+
+    t.fake.relayer.finishGame = send; // retry goes out
+    await t.recovery.sweepUnclaimed(later);
+    expect(finalizationStatus(t.results.get("g11")!)).toBe("submitted");
+    expect(t.results.get("g11")).toMatchObject({ finishError: null, finishAttempts: 1 });
+
+    t.fake.txStatus.set(t.fake.sent[0].hash, "failed"); // reverted on-chain → failed, then one replacement
+    await t.recovery.sweepUnclaimed(later);
+    expect(t.fake.sent).toHaveLength(2);
+    expect(t.results.get("g11")?.finishAttempts).toBe(2);
+
+    t.chain.games.g11 = chainGame({ isCompleted: true, winner: walletB.address });
+    await t.recovery.sweepUnclaimed(later);
+    expect(finalizationStatus(t.results.get("g11")!)).toBe("confirmed");
   });
 
   it("reports what needs a human, and stays quiet when nothing does", async () => {

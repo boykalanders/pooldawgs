@@ -3,7 +3,7 @@ import type { OnchainStatus, Persistence, ResultRow } from "./db/persistence.js"
 
 /**
  * Where settling a decided game on-chain stands (spec: pending / submitted /
- * confirmed / failed). Derived from the stored row, so it survives restarts:
+ * confirmed / failed). Derived from stored columns only, so it survives restarts:
  *  - pending:   result stored (GAME_OVER persisted), nothing on-chain yet; the
  *               winner's voucher settles and pays in one tx when they claim;
  *  - submitted: a backstop finishGame tx is out (hash in `finishTx`);
@@ -13,9 +13,9 @@ import type { OnchainStatus, Persistence, ResultRow } from "./db/persistence.js"
  */
 export type FinalizationStatus = "pending" | "submitted" | "confirmed" | "failed";
 
-export function finalizationStatus(row: ResultRow, lastAttemptFailed = false): FinalizationStatus {
+export function finalizationStatus(row: ResultRow): FinalizationStatus {
   if (row.onchain !== "pending") return "confirmed";
-  if (lastAttemptFailed) return "failed";
+  if (row.finishError) return "failed";
   return row.finishTx ? "submitted" : "pending";
 }
 
@@ -53,6 +53,8 @@ export class ResultStore {
         onchain: "pending",
         finishTx: null,
         finishTxAt: null,
+        finishAttempts: 0,
+        finishError: null,
       };
       await this.persist.insertResult(row);
       this.results.set(row.gameId, row);
@@ -94,6 +96,8 @@ export class ResultStore {
       onchain: input.onchain ?? "pending",
       finishTx: null,
       finishTxAt: null,
+      finishAttempts: 0,
+      finishError: null,
     };
     const inserted = await this.persist.insertResult(row);
     if (!inserted) {
@@ -118,11 +122,28 @@ export class ResultStore {
     await this.persist.updateResult(gameId, { onchain: status });
   }
 
+  /** A finishGame tx went out: submitted (any earlier failure is superseded). */
   async setFinishTx(gameId: string, hash: string): Promise<void> {
     const r = this.results.get(gameId);
     if (!r) return;
     r.finishTx = hash;
     r.finishTxAt = Date.now();
-    await this.persist.updateResult(gameId, { finishTx: hash, finishTxAt: r.finishTxAt });
+    r.finishAttempts = (r.finishAttempts ?? 0) + 1;
+    r.finishError = null;
+    await this.persist.updateResult(gameId, {
+      finishTx: hash,
+      finishTxAt: r.finishTxAt,
+      finishAttempts: r.finishAttempts,
+      finishError: null,
+    });
+  }
+
+  /** The last finishGame attempt failed (stored: "failed" survives a restart).
+   *  The tx hash is kept, so the next sweep still checks it before resending. */
+  async setFinishError(gameId: string, error: string): Promise<void> {
+    const r = this.results.get(gameId);
+    if (!r || r.finishError === error) return;
+    r.finishError = error;
+    await this.persist.updateResult(gameId, { finishError: error });
   }
 }

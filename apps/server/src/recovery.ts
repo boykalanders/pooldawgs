@@ -54,7 +54,6 @@ export function startRecovery(deps: RecoveryDeps, opts: { timers?: boolean } = {
   const { config, relayer, chainReader, results, lobby, rooms } = deps;
   const settleAfter = config.settleUnclaimedAfterMs ?? 24 * 3_600_000;
   const hasKey = Boolean(config.operatorPrivateKey || config.ownerPrivateKey);
-  const finishErrors = new Map<string, string>();
   const refundErrors = new Map<string, string>();
   const waitingTimeout = config.waitingRoomTimeoutMs ?? 30 * 60_000;
   const state = { lastUnplayedSweep: null as string | null, lastUnclaimedSweep: null as string | null, lastReport: null as string | null };
@@ -136,7 +135,6 @@ export function startRecovery(deps: RecoveryDeps, opts: { timers?: boolean } = {
       if (!game) continue;
       if (game.isCompleted) {
         await results.markOnchain(r.gameId, game.rewardClaimed ? "claimed" : "finished");
-        finishErrors.delete(r.gameId);
         continue;
       }
       if (r.finishTx) {
@@ -151,19 +149,19 @@ export function startRecovery(deps: RecoveryDeps, opts: { timers?: boolean } = {
           await results.markOnchain(r.gameId, "finished");
           continue;
         }
-        // failed or dropped: send a new one below
+        // failed or dropped: recorded (survives restarts), then a new one below
+        await results.setFinishError(r.gameId, `finishGame tx ${status}: ${r.finishTx}`);
       }
       if (!hasKey || sent >= MAX_FINISHES_PER_SWEEP) continue;
       try {
         const hash = await relayer.finishGame(r.gameId, r.winner as Address);
         if (hash) {
           await results.setFinishTx(r.gameId, hash);
-          finishErrors.delete(r.gameId);
           sent++;
         }
       } catch (e) {
         const message = e instanceof Error ? e.message.split("\n")[0] : String(e);
-        finishErrors.set(r.gameId, message);
+        await results.setFinishError(r.gameId, message);
         console.error(`[recovery] ${r.gameId}: backstop finishGame failed: ${message}`);
       }
     }
@@ -191,8 +189,8 @@ export function startRecovery(deps: RecoveryDeps, opts: { timers?: boolean } = {
     for (const [gameId, error] of [...refundErrors.entries()].slice(0, 10)) {
       lines.push(`• ${gameId}: refund failed — ${error}`);
     }
-    for (const [gameId, error] of [...finishErrors.entries()].slice(0, 10)) {
-      lines.push(`• ${gameId}: finishGame failed — ${error}`);
+    for (const r of results.all().filter((x) => x.onchain === "pending" && x.finishError).slice(0, 10)) {
+      lines.push(`• ${r.gameId}: finishGame failed — ${r.finishError}`);
     }
     if (hasKey) {
       try {
@@ -249,7 +247,13 @@ export function startRecovery(deps: RecoveryDeps, opts: { timers?: boolean } = {
     stop() {
       for (const t of timers) clearTimeout(t as ReturnType<typeof setTimeout>);
     },
-    status: () => ({ ...state, finishErrors: Object.fromEntries(finishErrors), refundErrors: Object.fromEntries(refundErrors) }),
+    status: () => ({
+      ...state,
+      finishErrors: Object.fromEntries(
+        results.all().filter((r) => r.onchain === "pending" && r.finishError).map((r) => [r.gameId, r.finishError])
+      ),
+      refundErrors: Object.fromEntries(refundErrors),
+    }),
     sweepUnplayed,
     sweepWaitingRooms,
     sweepUnclaimed,

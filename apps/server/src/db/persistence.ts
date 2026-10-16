@@ -47,6 +47,12 @@ export interface ResultRow {
   /** Backstop finishGame transaction, if the server had to send one. */
   finishTx: string | null;
   finishTxAt: number | null;
+  /** finishGame transactions sent so far (replacements included). */
+  finishAttempts: number;
+  /** Why the last finishGame attempt failed (send error, or the tx failed /
+   *  was dropped); cleared when a new one goes out. Stored, so a "failed"
+   *  status survives restarts. */
+  finishError: string | null;
 }
 
 export interface CursorState {
@@ -77,8 +83,11 @@ export interface Persistence {
   insertResult(row: ResultRow): Promise<boolean>;
   updateResult(
     gameId: string,
-    patch: Partial<Pick<ResultRow, "onchain" | "finishTx" | "finishTxAt">>
+    patch: Partial<Pick<ResultRow, "onchain" | "finishTx" | "finishTxAt" | "finishAttempts" | "finishError">>
   ): Promise<void>;
+  // small key/value settings (e.g. the server's last-alive heartbeat)
+  getMeta(key: string): Promise<string | null>;
+  setMeta(key: string, value: string): Promise<void>;
   // live tables (serialized room state), deleted once the game is decided
   loadRooms(): Promise<Array<{ gameId: string; data: string }>>;
   saveRoom(gameId: string, data: string): Promise<void>;
@@ -110,13 +119,25 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS pd_results (
     game_id TEXT PRIMARY KEY, winner TEXT NOT NULL, loser TEXT NOT NULL, reason TEXT NOT NULL,
     reward TEXT NOT NULL, decided_at BIGINT NOT NULL, onchain TEXT NOT NULL DEFAULT 'pending',
-    finish_tx TEXT, finish_tx_at BIGINT);
+    finish_tx TEXT, finish_tx_at BIGINT, finish_attempts INTEGER NOT NULL DEFAULT 0, finish_error TEXT);
   CREATE TABLE IF NOT EXISTS pd_rooms (game_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at BIGINT NOT NULL);
   CREATE TABLE IF NOT EXISTS pd_lobby (game_id TEXT PRIMARY KEY, data TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS pd_events (
     event_key TEXT PRIMARY KEY, block BIGINT NOT NULL, event_name TEXT NOT NULL,
     game_id TEXT, processed_at BIGINT NOT NULL);
 `;
+
+/** Columns added after a table first shipped. Run one by one; "already exists"
+ *  is expected on every boot after the first (SQLite has no ADD COLUMN IF NOT
+ *  EXISTS), so failures are ignored and the read path tolerates missing data. */
+const MIGRATIONS = [
+  "ALTER TABLE pd_results ADD COLUMN finish_attempts INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE pd_results ADD COLUMN finish_error TEXT",
+];
+
+async function migrate(db: Pick<SqlDriver, "exec">): Promise<void> {
+  for (const sql of MIGRATIONS) await db.exec(sql).catch(() => {});
+}
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
@@ -211,12 +232,15 @@ function sqlPersistence(db: SqlDriver): Persistence {
         onchain: String(r.onchain) as OnchainStatus,
         finishTx: r.finish_tx ? String(r.finish_tx) : null,
         finishTxAt: num(r.finish_tx_at),
+        finishAttempts: Number(r.finish_attempts ?? 0),
+        finishError: r.finish_error ? String(r.finish_error) : null,
       }));
     },
     async insertResult(row) {
       const changed = await db.run(
-        `INSERT INTO pd_results (game_id, winner, loser, reason, reward, decided_at, onchain, finish_tx, finish_tx_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (game_id) DO NOTHING`,
+        `INSERT INTO pd_results (game_id, winner, loser, reason, reward, decided_at, onchain, finish_tx, finish_tx_at,
+           finish_attempts, finish_error)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (game_id) DO NOTHING`,
         [
           row.gameId,
           row.winner.toLowerCase(),
@@ -227,6 +251,8 @@ function sqlPersistence(db: SqlDriver): Persistence {
           row.onchain,
           row.finishTx,
           row.finishTxAt,
+          row.finishAttempts ?? 0,
+          row.finishError ?? null,
         ]
       );
       return changed > 0;
@@ -241,9 +267,16 @@ function sqlPersistence(db: SqlDriver): Persistence {
       if (patch.onchain !== undefined) add("onchain", patch.onchain);
       if (patch.finishTx !== undefined) add("finish_tx", patch.finishTx);
       if (patch.finishTxAt !== undefined) add("finish_tx_at", patch.finishTxAt);
+      if (patch.finishAttempts !== undefined) add("finish_attempts", patch.finishAttempts);
+      if (patch.finishError !== undefined) add("finish_error", patch.finishError);
       if (!sets.length) return;
       params.push(gameId);
       await db.run(`UPDATE pd_results SET ${sets.join(", ")} WHERE game_id = $${params.length}`, params);
+    },
+
+    getMeta: meta,
+    async setMeta(key, value) {
+      await setMeta(key, value);
     },
 
     async loadRooms() {
@@ -310,6 +343,7 @@ async function tryPostgres(databaseUrl: string): Promise<Persistence | null> {
   try {
     await pool.query("SELECT 1");
     await driver.exec(SCHEMA);
+    await migrate(driver);
   } catch (e) {
     console.warn("[db] Postgres unavailable — falling back to SQLite:", e instanceof Error ? e.message : e);
     await pool.end().catch(() => {});
@@ -365,6 +399,7 @@ async function trySqlite(path: string): Promise<Persistence | null> {
       return Number(db.prepare(q(sql)).run(...params).changes);
     },
   };
+  await migrate(driver);
   console.log(`[db] persistence: SQLite (${path})`);
   return sqlPersistence(driver);
 }
@@ -382,8 +417,15 @@ export function createMemoryPersistence(): Persistence {
   const results = new Map<string, ResultRow>();
   const rooms = new Map<string, string>();
   const lobby = new Map<string, string>();
+  const metaStore = new Map<string, string>();
   return {
     kind: "memory",
+    async getMeta(key) {
+      return metaStore.get(key) ?? null;
+    },
+    async setMeta(key, value) {
+      metaStore.set(key, value);
+    },
     async loadEntries() {
       return [...entries.values()].map((e) => ({ ...e }));
     },

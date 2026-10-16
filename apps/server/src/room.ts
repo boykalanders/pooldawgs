@@ -74,8 +74,11 @@ export interface SerializedRoom {
   /** Turn bookkeeping (absent in rows saved before it existed). */
   turnId?: number;
   missed?: [number, number];
-  /** Shot clock left for the player to shoot when the table was saved. */
+  /** Shot clock: time left at `clockRunningSince` (when it last started), or
+   *  the paused time left when `clockRunningSince` is null. Stored as an anchor,
+   *  not a countdown, so it's only written when the clock starts or stops. */
   clockRemainingMs?: number;
+  clockRunningSince?: number | null;
   calledPocket?: number | null;
 }
 
@@ -99,7 +102,12 @@ export interface RoomOptions {
     turnId?: number;
     missed?: [number, number];
     clockRemainingMs?: number;
+    clockRunningSince?: number | null;
     calledPocket?: number | null;
+    /** When the previous server process was last known alive (its heartbeat,
+     *  or the exact moment of a clean shutdown). A clock that was running is
+     *  charged only up to then: the outage itself costs nobody time. */
+    stoppedAt?: number | null;
   };
   /** Reconnect grace before a disconnected player's clock runs again (default 60 s). */
   graceMs?: number;
@@ -132,8 +140,10 @@ function err(code: ServerError["code"], message: string): RoomActionResult {
  *  - A disconnected player gets a reconnect grace (60 s per turn): both clocks
  *    pause with the remaining time saved, and resume from it on reconnect or
  *    when the grace runs out. A disconnect is never a strike by itself.
- *  - After a restart the table resumes with the saved remaining time and every
- *    player gets a fresh grace to reconnect (the outage costs nobody time).
+ *  - After a restart the table resumes with the time that was left when the
+ *    server stopped (exact after a clean shutdown; to within the 1 s server
+ *    heartbeat after a crash, rounded in the player's favour) and every player
+ *    gets a fresh grace to reconnect. The outage itself costs nobody time.
  */
 export class GameRoom {
   readonly gameId: string;
@@ -146,7 +156,6 @@ export class GameRoom {
   private clockRunningSince: number | null = null;
   /** Invalidates timer callbacks armed before the latest stop/arm. */
   private clockGen = 0;
-  private checkpointTimer: ReturnType<typeof setInterval> | null = null;
   private turnId = 0;
   private missed: [number, number] = [0, 0];
   private grace: [Grace, Grace];
@@ -194,8 +203,7 @@ export class GameRoom {
     this.turnId = options.restore?.turnId ?? 0;
     this.missed = options.restore?.missed ?? [0, 0];
     this.calledPocket = options.restore?.calledPocket ?? null;
-    const saved = options.restore?.clockRemainingMs;
-    this.clockRemainingMs = saved !== undefined && saved > 0 ? Math.min(saved, shotClockMs) : shotClockMs;
+    this.clockRemainingMs = GameRoom.restoredRemaining(options.restore, shotClockMs);
     if (options.decided) {
       const seat = this.seatOf(options.decided.winner);
       this.state = { ...this.state, gameOver: true, winner: seat };
@@ -212,6 +220,22 @@ export class GameRoom {
       this.syncClock();
     }
     // Otherwise a waiting room: the clock starts when both players are at the table.
+  }
+
+  /** Time left on a restored clock. A clock that was running when the server
+   *  stopped is charged from its start until the server was last alive, never
+   *  for the outage after it. Rows saved before anchors existed held the
+   *  remaining time directly. */
+  private static restoredRemaining(restore: RoomOptions["restore"], shotClockMs: number): number {
+    const saved = restore?.clockRemainingMs;
+    if (saved === undefined || !Number.isFinite(saved)) return shotClockMs;
+    let left = saved;
+    const since = restore?.clockRunningSince;
+    if (since != null) {
+      const stoppedAt = restore?.stoppedAt ?? since; // no heartbeat known → charge nothing
+      left -= Math.max(0, stoppedAt - since);
+    }
+    return Math.min(shotClockMs, Math.max(0, left));
   }
 
   /** Still a waiting room (both paid, not both at the table yet). */
@@ -270,7 +294,8 @@ export class GameRoom {
       refund: this.refund,
       turnId: this.turnId,
       missed: this.missed,
-      clockRemainingMs: this.remainingMs(),
+      clockRemainingMs: this.clockRemainingMs,
+      clockRunningSince: this.clockRunningSince,
       calledPocket: this.calledPocket,
     };
   }
@@ -534,11 +559,21 @@ export class GameRoom {
       const gen = ++this.clockGen;
       const turnId = this.turnId;
       this.clockTimer = setTimeout(() => this.onClockExpired(gen, turnId), this.clockRemainingMs);
-      // Checkpoint the remaining time so a crash loses at most a few seconds of it.
-      this.checkpointTimer = setInterval(() => this.hooks?.saveState(this), 5_000);
+      this.hooks?.saveState(this); // store the new anchor
     } else if (!shouldRun && this.clockRunningSince !== null) {
       this.stopClock();
+      if (!this.over && !this.settling && !this.disposed) this.hooks?.saveState(this); // the paused time
     }
+  }
+
+  /**
+   * Clean shutdown (deploy / restart): pause the clock at this exact moment and
+   * save it, so the table resumes with precisely the time that was left.
+   */
+  suspend(): void {
+    if (this.over || this.settling || this.disposed) return;
+    if (this.clockRunningSince !== null) this.stopClock();
+    this.hooks?.saveState(this);
   }
 
   /** Pause: keep the remaining time, cancel the pending expiry. */
@@ -549,10 +584,6 @@ export class GameRoom {
     if (this.clockTimer) {
       clearTimeout(this.clockTimer);
       this.clockTimer = null;
-    }
-    if (this.checkpointTimer) {
-      clearInterval(this.checkpointTimer);
-      this.checkpointTimer = null;
     }
   }
 

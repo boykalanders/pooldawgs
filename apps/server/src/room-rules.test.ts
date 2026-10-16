@@ -158,32 +158,68 @@ describe("disconnect grace", () => {
 });
 
 describe("server outage", () => {
-  it("restores the saved remaining time, paused until the players are back", () => {
-    const first = liveRoom();
-    vi.advanceTimersByTime(90_000);
-    const saved = JSON.parse(JSON.stringify(first.room.serialize()));
-    first.room.dispose(); // the process dies; its timers are gone
-
-    vi.advanceTimersByTime(10 * 60_000); // down for 10 minutes: nothing counts
-    const { room } = makeRoom({
+  /** Restore a table from its stored row, as server.ts does after a restart. */
+  function restoreFrom(saved: ReturnType<GameRoom["serialize"]>, stoppedAt: number | null) {
+    const row = JSON.parse(JSON.stringify(saved));
+    return makeRoom({
       restore: {
-        state: saved.state,
+        state: row.state,
         messages: [],
         started: true,
-        turnId: saved.turnId,
-        missed: saved.missed,
-        clockRemainingMs: saved.clockRemainingMs,
+        turnId: row.turnId,
+        missed: row.missed,
+        clockRemainingMs: row.clockRemainingMs,
+        clockRunningSince: row.clockRunningSince,
+        stoppedAt,
       },
-    });
+    }).room;
+  }
+
+  it("crash: charged up to the last heartbeat only, the outage is paused time", () => {
+    const first = liveRoom();
+    vi.advanceTimersByTime(90_000);
+    const lastBeat = Date.now(); // heartbeat written at 90 s…
+    vi.advanceTimersByTime(700); // …the process dies 0.7 s later, between beats
+    const row = first.room.serialize();
+    first.room.dispose();
+
+    vi.advanceTimersByTime(10 * 60_000); // down for 10 minutes: nothing counts
+    const room = restoreFrom(row, lastBeat);
     const s = room.snapshot();
     expect(s.over).toBeNull();
     expect(s.clockPaused).toBe(true);
-    expect(s.clockRemainingMs).toBe(CLOCK - 90_000);
+    expect(s.clockRemainingMs).toBe(CLOCK - 90_000); // the 0.7 s in doubt goes to the player
     room.connect(A);
     room.connect(B);
     expect(room.snapshot().clockPaused).toBe(false);
-    vi.advanceTimersByTime(CLOCK - 90_000);
+    vi.advanceTimersByTime(CLOCK - 90_000 - 1);
+    expect(room.snapshot().state.turn).toBe(0);
+    vi.advanceTimersByTime(1);
     expect(room.snapshot().state.turn).toBe(1);
+  });
+
+  it("clean shutdown: resumes with exactly the time that was left", () => {
+    const first = liveRoom();
+    vi.advanceTimersByTime(123_456);
+    first.room.suspend();
+    const row = first.room.serialize();
+    first.room.dispose();
+    vi.advanceTimersByTime(5 * 60_000);
+    const room = restoreFrom(row, Date.now() - 5 * 60_000);
+    expect(room.snapshot().clockRemainingMs).toBe(CLOCK - 123_456);
+  });
+
+  it("a timer armed before the restart never fires against the restored table", () => {
+    const first = liveRoom();
+    vi.advanceTimersByTime(100_000);
+    const row = first.room.serialize();
+    first.room.dispose();
+    const room = restoreFrom(row, Date.now());
+    vi.advanceTimersByTime(CLOCK - 100_000); // the old process's deadline passes: nothing fires
+    expect(first.room.snapshot().turnId).toBe(0);
+    expect(room.snapshot().turnId).toBe(0);
+    vi.advanceTimersByTime(GRACE); // the restored clock times out on its own schedule
+    expect(room.snapshot().turnId).toBe(1);
   });
 });
 

@@ -53,6 +53,13 @@ export interface ServerOptions {
 
 const roomChannel = (gameId: string) => `game:${gameId}`;
 
+/** Server liveness heartbeat (one tiny write per second for the whole server,
+ *  not per table): after a crash, running shot clocks are charged up to the
+ *  last beat, so at most HEARTBEAT_MS of a player's time is ever in doubt, and
+ *  it's given back to them. A clean shutdown records the exact moment. */
+const ALIVE_KEY = "server_alive_at";
+const HEARTBEAT_MS = 1_000;
+
 /** Winner's payout: 80% of the two-stake pot. */
 const winnerShare = (stakeWei: string | null | undefined) =>
   ((BigInt(stakeWei ?? "0") * 2n * 8000n) / 10000n).toString();
@@ -105,9 +112,8 @@ export function createPoolDawgsServer(
     if (req.url === "/health/chain") {
       // Monitoring: event stream, RPC usage and recovery backlog. No secrets.
       const pending = results.all().filter((r) => r.onchain === "pending");
-      const failed = (recovery?.status().finishErrors ?? {}) as Record<string, string>;
       const finalization: Record<FinalizationStatus, number> = { pending: 0, submitted: 0, confirmed: 0, failed: 0 };
-      for (const r of results.all()) finalization[finalizationStatus(r, r.gameId in failed)]++;
+      for (const r of results.all()) finalization[finalizationStatus(r)]++;
       json(res, cors, {
         storage: persist.kind,
         events: chainListener?.status() ?? null,
@@ -117,6 +123,21 @@ export function createPoolDawgsServer(
         unclaimedWins: pending.length,
         backstopFinishesInFlight: pending.filter((r) => r.finishTx).length,
         finalization,
+        // Every unsettled win with its transaction details (newest first).
+        finalizations: pending
+          .sort((x, y) => y.decidedAt - x.decidedAt)
+          .slice(0, 50)
+          .map((r) => ({
+            gameId: r.gameId,
+            status: finalizationStatus(r),
+            winner: r.winner,
+            reward: r.reward,
+            decidedAt: r.decidedAt,
+            finishTx: r.finishTx,
+            finishTxAt: r.finishTxAt,
+            attempts: r.finishAttempts,
+            error: r.finishError,
+          })),
         recovery: recovery?.status() ?? null,
       });
       return;
@@ -317,6 +338,10 @@ export function createPoolDawgsServer(
   /** Restore stored live tables (mid-game when the server stopped). */
   async function restoreRooms(): Promise<void> {
     let restored = 0;
+    // When the previous process was last alive: running clocks are charged up to
+    // then and no further (the outage is paused time).
+    const alive = Number(await persist.getMeta(ALIVE_KEY));
+    const stoppedAt = Number.isFinite(alive) && alive > 0 ? alive : null;
     for (const row of await persist.loadRooms()) {
       let data: SerializedRoom;
       try {
@@ -338,7 +363,9 @@ export function createPoolDawgsServer(
           turnId: data.turnId,
           missed: data.missed,
           clockRemainingMs: data.clockRemainingMs,
+          clockRunningSince: data.clockRunningSince ?? null,
           calledPocket: data.calledPocket ?? null,
+          stoppedAt,
         },
       });
       rooms.set(data.gameId, room);
@@ -361,10 +388,18 @@ export function createPoolDawgsServer(
     console.log(`[room] ${gameId}: never started — both stakes refunded`);
   }
 
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const beat = () =>
+    persist
+      .setMeta(ALIVE_KEY, String(Date.now()))
+      .catch((e) => console.warn("[server] heartbeat write failed:", e instanceof Error ? e.message : e));
+
   const ready = (async () => {
     await results.load(leaderboard.allWonGames());
     await lobby.load();
     await restoreRooms();
+    await beat();
+    heartbeat = setInterval(() => void beat(), HEARTBEAT_MS);
   })();
 
   ready
@@ -604,7 +639,12 @@ export function createPoolDawgsServer(
     async close() {
       chainListener?.stop();
       recovery?.stop();
+      if (heartbeat) clearInterval(heartbeat);
+      // Pause every live clock at this exact moment and store it (deploys are
+      // the usual restart, and they then resume to the millisecond).
+      for (const room of rooms.values()) room.suspend();
       for (const room of rooms.values()) room.dispose();
+      await beat();
       rooms.clear();
       await Promise.all([...roomWrites.values()]);
       await io.close();

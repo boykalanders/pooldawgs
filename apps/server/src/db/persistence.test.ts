@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { createPersistence, type ResultRow } from "./persistence.js";
 import type { ServerConfig } from "../config.js";
 
@@ -28,6 +29,8 @@ const result = (over: Partial<ResultRow> = {}): ResultRow => ({
   onchain: "pending",
   finishTx: null,
   finishTxAt: null,
+  finishAttempts: 0,
+  finishError: null,
   ...over,
 });
 
@@ -37,10 +40,47 @@ describe("SQLite persistence", () => {
     expect(db.kind).toBe("sqlite");
     expect(await db.insertResult(result())).toBe(true);
     expect(await db.insertResult(result({ winner: "0xBB", loser: "0xAA" }))).toBe(false);
-    await db.updateResult("g1", { onchain: "finished", finishTx: "0xhash", finishTxAt: 5 });
+    await db.updateResult("g1", { onchain: "finished", finishTx: "0xhash", finishTxAt: 5, finishAttempts: 2, finishError: "dropped" });
     expect(await db.loadResults()).toEqual([
-      result({ winner: "0xaa", loser: "0xbb", onchain: "finished", finishTx: "0xhash", finishTxAt: 5 }),
+      result({
+        winner: "0xaa",
+        loser: "0xbb",
+        onchain: "finished",
+        finishTx: "0xhash",
+        finishTxAt: 5,
+        finishAttempts: 2,
+        finishError: "dropped",
+      }),
     ]);
+  });
+
+  it("upgrades a database created before the finalization columns", async () => {
+    const path = join(dir, "old.db");
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as {
+      DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void };
+    };
+    const old = new DatabaseSync(path);
+    old.exec(`CREATE TABLE pd_results (
+      game_id TEXT PRIMARY KEY, winner TEXT NOT NULL, loser TEXT NOT NULL, reason TEXT NOT NULL,
+      reward TEXT NOT NULL, decided_at BIGINT NOT NULL, onchain TEXT NOT NULL DEFAULT 'pending',
+      finish_tx TEXT, finish_tx_at BIGINT);
+      INSERT INTO pd_results VALUES ('old', '0xaa', '0xbb', 'pot', '800', 1, 'pending', '0xtx', 2);`);
+    old.close();
+    const db = await createPersistence(config("old.db"));
+    expect(await db.loadResults()).toEqual([
+      result({ gameId: "old", winner: "0xaa", loser: "0xbb", decidedAt: 1, finishTx: "0xtx", finishTxAt: 2 }),
+    ]);
+    await db.updateResult("old", { finishError: "reverted", finishAttempts: 1 });
+    expect((await db.loadResults())[0]).toMatchObject({ finishError: "reverted", finishAttempts: 1 });
+    await createPersistence(config("old.db")); // migrating twice is harmless
+  });
+
+  it("keeps meta values (the server's last-alive heartbeat)", async () => {
+    const db = await createPersistence(config("d.db"));
+    expect(await db.getMeta("alive_at")).toBeNull();
+    await db.setMeta("alive_at", "123");
+    await db.setMeta("alive_at", "456");
+    expect(await (await createPersistence(config("d.db"))).getMeta("alive_at")).toBe("456");
   });
 
   it("records each chain event once", async () => {

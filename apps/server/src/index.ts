@@ -36,6 +36,25 @@ async function main() {
 
   const server = createPoolDawgsServer(config, undefined, undefined, leaderboard, { persist: persistence });
   await server.ready; // results + live tables loaded before any player can connect
+  // Clean shutdown (deploys send SIGTERM): store every live table with its clock
+  // paused at this moment, so play resumes with exactly the time that was left.
+  let stopping = false;
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      if (stopping) return;
+      stopping = true;
+      console.log(`[server] ${signal} — saving live tables and shutting down`);
+      const force = setTimeout(() => process.exit(1), 10_000);
+      server
+        .close()
+        .catch((e) => console.error("[server] shutdown error:", e))
+        .finally(() => {
+          clearTimeout(force);
+          process.exit(0);
+        });
+    });
+  }
+
   server.httpServer.listen(config.port, () => {
     console.log(
       `PoolDawgs server on :${config.port} ` +
