@@ -19,8 +19,8 @@ const FEATURES = [
   },
   {
     icon: "⏱️",
-    title: "4-minute shot clock",
-    body: "Slow play forfeits. Resigning counts as a loss. No draws on this table.",
+    title: "30-second shot clock",
+    body: "Run out of time and your opponent gets ball in hand; miss 3 turns in a row and you forfeit. Resigning counts as a loss. No draws on this table.",
   },
 ];
 

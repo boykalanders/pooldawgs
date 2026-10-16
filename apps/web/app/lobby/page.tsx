@@ -350,7 +350,8 @@ function Lobby() {
           <ul className="list-inside list-disc space-y-1">
             <li>Win/loss only — no draws on a pool table.</li>
             <li>Resigning is a loss.</li>
-            <li>4-minute shot clock; timeout forfeits.</li>
+            <li>30-second shot clock: a timeout gives your opponent ball in hand; 3 in a row forfeits.</li>
+            <li>Disconnected? Both clocks pause for up to 60 s, once per game.</li>
             <li>Winner claims 80% of the pot. 10% house, 10% burned.</li>
           </ul>
         </div>

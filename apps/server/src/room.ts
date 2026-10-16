@@ -80,14 +80,21 @@ export interface SerializedRoom {
   clockRemainingMs?: number;
   clockRunningSince?: number | null;
   calledPocket?: number | null;
+  /** Reconnect grace each player still has for the rest of the game (ms). */
+  graceBudgetMs?: [number, number];
 }
 
 /** Reconnect grace for one seat. */
 interface Grace {
-  /** Grace left this turn (ms). Refilled on a turn change for a seat that is online. */
+  /** Grace this player still has (ms): 60 s, usable ONCE per game. The first
+   *  disconnect uses it up, however soon they're back (no abuse by re-dropping). */
   budgetMs: number;
-  /** Offline since (epoch ms), or null while connected. */
+  /** Offline since (epoch ms: when they were last heard from), or null. */
   since: number | null;
+  /** While offline: "own" = spending their budget (clocks paused); "outage" =
+   *  the reconnect window after a server restart, which costs them nothing;
+   *  "none" = no grace left, normal rules apply (the clock runs). */
+  mode: "own" | "outage" | "none";
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -104,12 +111,13 @@ export interface RoomOptions {
     clockRemainingMs?: number;
     clockRunningSince?: number | null;
     calledPocket?: number | null;
+    graceBudgetMs?: [number, number];
     /** When the previous server process was last known alive (its heartbeat,
      *  or the exact moment of a clean shutdown). A clock that was running is
      *  charged only up to then: the outage itself costs nobody time. */
     stoppedAt?: number | null;
   };
-  /** Reconnect grace before a disconnected player's clock runs again (default 60 s). */
+  /** Reconnect grace per player per game (default 60 s). */
   graceMs?: number;
   /** How long a waiting room may wait for both players before both stakes are refunded. */
   waitingTimeoutMs?: number;
@@ -120,6 +128,10 @@ export interface RoomOptions {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How far back a disconnect may be dated (the heartbeat detects a silent drop
+ *  within ~15 s: 5 s ping interval + 10 s timeout). */
+const MAX_BACKDATE_MS = 20_000;
+
 function err(code: ServerError["code"], message: string): RoomActionResult {
   return { ok: false, error: { code, message } };
 }
@@ -127,7 +139,7 @@ function err(code: ServerError["code"], message: string): RoomActionResult {
 /**
  * One authoritative room per on-chain gameId. All gameplay flows through
  * here: the room validates that inputs come from the seated player whose
- * turn it is, runs the deterministic engine, enforces the 4-minute shot
+ * turn it is, runs the deterministic engine, enforces the 30-second shot
  * clock and reports the final winner to the chain via the relayer.
  *
  * Turn rules (server-owned):
@@ -137,13 +149,16 @@ function err(code: ServerError["code"], message: string): RoomActionResult {
  *  - Every turn change bumps `turnId`. Timer callbacks carry the turn id (and a
  *    clock generation) they were armed for and do nothing if it moved on, so a
  *    shot/timeout race can never apply ball in hand twice.
- *  - A disconnected player gets a reconnect grace (60 s per turn): both clocks
- *    pause with the remaining time saved, and resume from it on reconnect or
- *    when the grace runs out. A disconnect is never a strike by itself.
+ *  - Reconnect grace: 60 s per player, once per game. On a player's first
+ *    disconnect both clocks pause (from when they were last heard from) with the
+ *    remaining time saved, and resume from it when they reconnect or the 60 s
+ *    run out. Any later disconnect gets no grace: the clock runs and all normal
+ *    rules apply. A disconnect is never a strike by itself.
  *  - After a restart the table resumes with the time that was left when the
  *    server stopped (exact after a clean shutdown; to within the 1 s server
  *    heartbeat after a crash, rounded in the player's favour) and every player
- *    gets a fresh grace to reconnect. The outage itself costs nobody time.
+ *    gets a reconnect window that doesn't touch their own grace. The outage
+ *    itself costs nobody time.
  */
 export class GameRoom {
   readonly gameId: string;
@@ -199,7 +214,13 @@ export class GameRoom {
     this.waitingTimeoutMs = options.waitingTimeoutMs ?? 30 * 60_000;
     this.refund = options.restore?.refund ?? null;
     this.graceMs = options.graceMs ?? RECONNECT_GRACE_MS;
-    this.grace = [0, 1].map(() => ({ budgetMs: this.graceMs, since: null, timer: null })) as [Grace, Grace];
+    const budgets = options.restore?.graceBudgetMs;
+    this.grace = [0, 1].map((seat) => ({
+      budgetMs: Math.max(0, Math.min(this.graceMs, budgets?.[seat] ?? this.graceMs)),
+      since: null,
+      mode: "none",
+      timer: null,
+    })) as [Grace, Grace];
     this.turnId = options.restore?.turnId ?? 0;
     this.missed = options.restore?.missed ?? [0, 0];
     this.calledPocket = options.restore?.calledPocket ?? null;
@@ -212,11 +233,12 @@ export class GameRoom {
     }
     if (options.restore && options.restore.started !== false) {
       // Server outage: nothing counted while we were down. The player to shoot
-      // keeps the time they had left, and both players get a fresh reconnect
-      // grace; the clock stays paused until they're back (or the grace ends).
+      // keeps the time they had left, and both players get a reconnect window
+      // (not taken from their own grace); the clock stays paused until they're
+      // back, or the window ends.
       this.started = true;
       const now = Date.now();
-      for (const seat of [0, 1] as const) this.beginGrace(seat, now);
+      for (const seat of [0, 1] as const) this.beginGrace(seat, now, true);
       this.syncClock();
     }
     // Otherwise a waiting room: the clock starts when both players are at the table.
@@ -297,6 +319,8 @@ export class GameRoom {
       clockRemainingMs: this.clockRemainingMs,
       clockRunningSince: this.clockRunningSince,
       calledPocket: this.calledPocket,
+      // A grace that has started is used (once per game), even if cut short by a restart.
+      graceBudgetMs: [0, 1].map((seat) => (this.grace[seat].mode === "own" ? 0 : this.grace[seat].budgetMs)) as [number, number],
     };
   }
 
@@ -333,17 +357,24 @@ export class GameRoom {
     this.emitter.broadcastState(this.snapshot());
   }
 
-  /** The player's last connection dropped (Socket.IO heartbeat: a ping every
-   *  5 s, so at most ~15 s of silence). Not a strike: the grace pauses both
-   *  clocks. In a waiting room nothing runs. */
-  disconnect(address: Address): void {
+  /**
+   * The player's last connection dropped. Socket.IO's heartbeat (a ping every
+   * 5 s) notices a silent drop after ~15 s, which would be half of a 30 s shot
+   * clock, so the grace and the clock pause are dated from `lastSeenAt` (when
+   * they were last heard from), not from when we noticed. Not a strike. In a
+   * waiting room nothing runs.
+   */
+  disconnect(address: Address, lastSeenAt?: number): void {
     if (this.disposed) return; // sockets closing at shutdown: the table is already saved
     const key = address.toLowerCase() as Address;
     this.connected.delete(key);
     const seat = this.seatOf(key);
     if (seat !== null && this.started && !this.over && !this.settling) {
-      this.beginGrace(seat, Date.now());
-      this.syncClock();
+      const now = Date.now();
+      // Never before this turn's clock started, never more than the detection window back.
+      const at = Math.min(now, Math.max(lastSeenAt ?? now, this.clockRunningSince ?? 0, now - MAX_BACKDATE_MS));
+      this.beginGrace(seat, at);
+      this.syncClock(at);
       this.hooks?.saveState(this);
     }
     this.emitter.broadcastState(this.snapshot());
@@ -353,46 +384,62 @@ export class GameRoom {
 
   private inGrace(seat: PlayerIndex): boolean {
     const g = this.grace[seat];
-    return g.since !== null && g.budgetMs > 0;
+    return g.since !== null && g.mode !== "none";
   }
 
-  private beginGrace(seat: PlayerIndex, now: number): void {
+  /** Grace the player has left for the rest of the game (live while spending it). */
+  private graceLeft(seat: PlayerIndex, now = Date.now()): number {
+    const g = this.grace[seat];
+    if (g.mode === "own" && g.since !== null) return Math.max(0, g.budgetMs - (now - g.since));
+    return g.budgetMs;
+  }
+
+  /** Offline from `at`. `outage`: the reconnect window after a restart, which
+   *  doesn't spend the player's own grace. */
+  private beginGrace(seat: PlayerIndex, at: number, outage = false): void {
     const g = this.grace[seat];
     if (g.since !== null) return;
-    g.since = now;
-    if (g.budgetMs <= 0) return; // used up this turn: the clock keeps running
+    g.since = at;
+    const elapsed = Date.now() - at;
+    let windowMs: number;
+    if (outage) {
+      g.mode = "outage";
+      windowMs = this.graceMs - elapsed;
+    } else {
+      g.mode = "own";
+      windowMs = g.budgetMs - elapsed;
+    }
+    if (windowMs <= 0) {
+      if (g.mode === "own") g.budgetMs = 0;
+      g.mode = "none"; // nothing left: normal rules, the clock runs
+      return;
+    }
     g.timer = setTimeout(() => {
-      // Grace over: normal rules resume (the clock runs; no forfeit for this alone).
+      // Grace used up: normal rules resume (the clock runs; no forfeit for this alone).
       g.timer = null;
-      g.budgetMs = 0;
+      if (g.mode === "own") g.budgetMs = 0;
+      g.mode = "none";
       if (this.disposed || this.over || this.settling) return;
       this.syncClock();
       this.hooks?.saveState(this);
       this.emitter.broadcastState(this.snapshot());
-    }, g.budgetMs);
+    }, windowMs);
   }
 
   private endGrace(seat: PlayerIndex): void {
     const g = this.grace[seat];
     if (g.since === null) return;
-    g.budgetMs = Math.max(0, g.budgetMs - (Date.now() - g.since));
+    if (g.mode === "own") g.budgetMs = 0; // back in time: the one grace per game is used
     g.since = null;
+    g.mode = "none";
     if (g.timer) clearTimeout(g.timer);
     g.timer = null;
   }
 
-  /** A new turn: a connected player's grace is full again; a player who is still
-   *  away keeps what was left, so being away for good can't pause the game
-   *  forever (with both players gone, the deadlines keep running). */
-  private refreshGraceForNewTurn(): void {
-    for (const seat of [0, 1] as const) {
-      if (this.grace[seat].since === null) this.grace[seat].budgetMs = this.graceMs;
-    }
-  }
-
   private graceExpiresAt(seat: PlayerIndex): number | null {
     const g = this.grace[seat];
-    return this.inGrace(seat) && g.since !== null ? g.since + g.budgetMs : null;
+    if (!this.inGrace(seat) || g.since === null) return null;
+    return g.since + (g.mode === "outage" ? this.graceMs : g.budgetMs);
   }
 
   snapshot(): RoomSnapshot {
@@ -404,6 +451,7 @@ export class GameRoom {
         connected: this.connected.has(address),
         username: this.nameOf(address),
         graceExpiresAt: this.graceExpiresAt(seat as PlayerIndex),
+        graceLeftMs: this.graceLeft(seat as PlayerIndex),
         missedTurns: this.missed[seat],
       })),
       stake: this.stake,
@@ -531,7 +579,7 @@ export class GameRoom {
     return { ok: true };
   }
 
-  // ── shot clock (4 minutes, enforced here, never on-chain) ──
+  // ── shot clock (30 seconds, enforced here, never on-chain) ──
 
   private remainingMs(now = Date.now()): number {
     if (this.clockRunningSince === null) return this.clockRemainingMs;
@@ -547,13 +595,12 @@ export class GameRoom {
   private newTurnClock(): void {
     this.stopClock();
     this.clockRemainingMs = this.shotClockMs;
-    this.refreshGraceForNewTurn();
     this.syncClock();
   }
 
   /** Run the clock unless the game isn't live or a player is inside the
    *  reconnect grace, in which case it's paused with the remaining time kept. */
-  private syncClock(): void {
+  private syncClock(at = Date.now()): void {
     const shouldRun =
       this.started && !this.over && !this.settling && !this.disposed && !this.inGrace(0) && !this.inGrace(1);
     if (shouldRun && this.clockRunningSince === null) {
@@ -563,7 +610,7 @@ export class GameRoom {
       this.clockTimer = setTimeout(() => this.onClockExpired(gen, turnId), this.clockRemainingMs);
       this.hooks?.saveState(this); // store the new anchor
     } else if (!shouldRun && this.clockRunningSince !== null) {
-      this.stopClock();
+      this.stopClock(at);
       if (!this.over && !this.settling && !this.disposed) this.hooks?.saveState(this); // the paused time
     }
   }
@@ -578,9 +625,11 @@ export class GameRoom {
     this.hooks?.saveState(this);
   }
 
-  /** Pause: keep the remaining time, cancel the pending expiry. */
-  private stopClock(): void {
-    this.clockRemainingMs = this.remainingMs();
+  /** Pause as of `at` (now, or when a dropped player was last heard from):
+   *  keep the remaining time, cancel the pending expiry. */
+  private stopClock(at = Date.now()): void {
+    const asOf = this.clockRunningSince === null ? at : Math.max(at, this.clockRunningSince);
+    this.clockRemainingMs = this.remainingMs(asOf);
     this.clockRunningSince = null;
     this.clockGen++;
     if (this.clockTimer) {

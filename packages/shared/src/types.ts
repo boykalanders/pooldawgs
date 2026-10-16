@@ -27,6 +27,9 @@ export interface RoomPlayer {
   username?: string | null;
   /** Disconnected and inside the reconnect grace (both clocks paused until then), epoch ms. */
   graceExpiresAt?: number | null;
+  /** Reconnect grace this player still has (ms): 60 s until their first
+   *  disconnect, then 0 for the rest of the game. */
+  graceLeftMs?: number;
   /** Consecutive shot-clock timeouts (MAX_MISSED_TURNS in a row forfeits). */
   missedTurns?: number;
 }
@@ -42,7 +45,7 @@ export interface RoomSnapshot {
   stateHash: string;
   /** Chat history for the room, so a reconnecting player sees past messages. */
   messages: ChatMessage[];
-  /** Epoch ms when the current player's 4-minute shot clock expires (while it runs). */
+  /** Epoch ms when the current player's 30-second shot clock expires (while it runs). */
   clockExpiresAt: number;
   /** The clock is paused (a player is inside the reconnect grace); it resumes
    *  with `clockRemainingMs` left. */
@@ -138,13 +141,14 @@ export interface PlayerProfile {
   wonGames: WonGame[];
 }
 
-/** 4-minute shot clock, enforced off-chain by the server (never on-chain). */
-export const SHOT_CLOCK_MS = 4 * 60 * 1000;
+/** 30-second shot clock, enforced off-chain by the server (never on-chain). */
+export const SHOT_CLOCK_MS = 30 * 1000;
 
 /** Shot-clock timeouts in a row that forfeit the game. */
 export const MAX_MISSED_TURNS = 3;
 
-/** How long a disconnected player's clock is held before normal rules resume. */
+/** Reconnect grace: 60 s per player, once per game — the first disconnect
+ *  pauses both clocks for up to 60 s; later disconnects get no grace. */
 export const RECONNECT_GRACE_MS = 60 * 1000;
 
 export const MAX_CHAT_LENGTH = 280;

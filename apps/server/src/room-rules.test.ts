@@ -157,6 +157,59 @@ describe("disconnect grace", () => {
   });
 });
 
+describe("grace is once per game, per player", () => {
+  it("the first disconnect gets 60 s; a later one gets none, however short the first was", () => {
+    const { room } = liveRoom();
+    vi.advanceTimersByTime(5_000);
+    room.disconnect(A);
+    expect(room.snapshot().clockPaused).toBe(true);
+    vi.advanceTimersByTime(3_000);
+    room.connect(A); // back after 3 s: the grace is still used
+    expect(room.snapshot().players[0].graceLeftMs).toBe(0);
+    vi.advanceTimersByTime(2_000);
+    const before = room.snapshot().clockRemainingMs!;
+    room.disconnect(A); // second drop: no pause, the counter runs as normal
+    const s = room.snapshot();
+    expect(s.clockPaused).toBe(false);
+    expect(s.players[0].graceExpiresAt).toBeNull();
+    vi.advanceTimersByTime(before);
+    expect(room.snapshot().players[0].missedTurns).toBe(1); // normal rules: a timeout
+    // The opponent still has their own grace.
+    room.disconnect(B);
+    expect(room.snapshot().clockPaused).toBe(true);
+    expect(room.snapshot().players[1].graceLeftMs).toBe(GRACE);
+  });
+
+  it("the pause starts when the player was last heard from, not when the drop was noticed", () => {
+    const { room } = liveRoom();
+    vi.advanceTimersByTime(100_000);
+    const lastSeen = Date.now();
+    vi.advanceTimersByTime(12_000); // heartbeat notices the silent drop 12 s later
+    room.disconnect(A, lastSeen);
+    const s = room.snapshot();
+    expect(s.clockRemainingMs).toBe(CLOCK - 100_000); // the 12 s are given back
+    expect(s.players[0].graceExpiresAt).toBe(lastSeen + GRACE);
+  });
+
+  it("a used grace stays used across a restart; the restart's own window costs nothing", () => {
+    const first = liveRoom();
+    first.room.disconnect(A);
+    vi.advanceTimersByTime(1_000);
+    first.room.connect(A);
+    const row = JSON.parse(JSON.stringify(first.room.serialize()));
+    first.room.dispose();
+    expect(row.graceBudgetMs).toEqual([0, GRACE]);
+    const { room } = makeRoom({
+      restore: { state: row.state, messages: [], started: true, graceBudgetMs: row.graceBudgetMs },
+    });
+    room.connect(A);
+    room.connect(B); // reconnecting after the outage spends nobody's grace
+    expect(room.snapshot().players.map((p) => p.graceLeftMs)).toEqual([0, GRACE]);
+    room.disconnect(B);
+    expect(room.snapshot().clockPaused).toBe(true);
+  });
+});
+
 describe("server outage", () => {
   /** Restore a table from its stored row, as server.ts does after a restart. */
   function restoreFrom(saved: ReturnType<GameRoom["serialize"]>, stoppedAt: number | null) {

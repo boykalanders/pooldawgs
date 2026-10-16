@@ -28,6 +28,8 @@ import { createRpcProvider, providerStatus, rpcMetrics } from "./rpc.js";
 
 interface SocketData {
   address?: Address;
+  /** Last time anything (a pong, an event) arrived from this client. */
+  lastSeen?: number;
 }
 
 type IoServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
@@ -400,6 +402,7 @@ export function createPoolDawgsServer(
           clockRemainingMs: data.clockRemainingMs,
           clockRunningSince: data.clockRunningSince ?? null,
           calledPocket: data.calledPocket ?? null,
+          graceBudgetMs: data.graceBudgetMs,
           stoppedAt,
         },
       });
@@ -533,6 +536,11 @@ export function createPoolDawgsServer(
     .catch((e) => console.error("[server] startup failed:", e));
 
   io.on("connection", (socket) => {
+    // Heard from: every packet (heartbeat pongs included). A dropped player's
+    // grace and clock pause are dated from here, not from when the drop is noticed.
+    socket.data.lastSeen = Date.now();
+    socket.conn.on("packet", () => (socket.data.lastSeen = Date.now()));
+
     socket.on("lobby:subscribe", async () => {
       await ready.catch(() => {});
       void socket.join("lobby");
@@ -596,7 +604,7 @@ export function createPoolDawgsServer(
     const leftTable = async (room: GameRoom, address: Address): Promise<void> => {
       const still = await io.in(roomChannel(room.gameId)).fetchSockets();
       if (still.some((s) => s.id !== socket.id && s.data.address === address)) return;
-      room.disconnect(address);
+      room.disconnect(address, socket.data.lastSeen);
     };
 
     socket.on("room:leave", ({ gameId }) => {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { serverNow } from "@/lib/serverClock";
 
-/** 4-minute shot clock display. The server is the enforcer; this just shows it.
+/** 30-second shot clock display. The server is the enforcer; this just shows it.
  *  Counts down against the server's clock (skew-corrected) so it matches the
  *  authoritative timeout regardless of the client's wall-clock accuracy. */
 export default function ShotClock({ expiresAt, pausedMs = null }: { expiresAt: number; pausedMs?: number | null }) {
@@ -23,9 +23,9 @@ export default function ShotClock({ expiresAt, pausedMs = null }: { expiresAt: n
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const paused = pausedMs != null;
-  const urgent = !paused && totalSeconds <= 30;
-  // Final 10 seconds: blow the clock up big and pulse it for emphasis.
-  const critical = !paused && totalSeconds <= 10 && remaining > 0;
+  const urgent = !paused && totalSeconds <= 10;
+  // Final 5 seconds: blow the clock up big and pulse it for emphasis.
+  const critical = !paused && totalSeconds <= 5 && remaining > 0;
 
   return (
     <div

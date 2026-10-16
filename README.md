@@ -77,9 +77,10 @@ Three variants share one deterministic engine (`packages/engine`), each a
 
 Real money is staked, so **the winner can never be decided by a player's
 browser**. A trusted backend simulates every shot, enforces turns and the
-**4-minute shot clock** (off-chain by design — there is no on-chain timer),
+**30-second shot clock** (off-chain by design — there is no on-chain timer),
 and is the contract `owner`: the only address allowed to call `finishGame`.
-Resign = loss. Timeout = forfeit. Win/loss only — the contract's draw
+Resign = loss. Timeout = opponent gets ball in hand; 3 timeouts in a row =
+forfeit. A disconnect pauses both clocks for up to 60 s, once per player per game. Win/loss only — the contract's draw
 functions are kept for template parity with ChessDawgs but are dormant.
 
 ## Layout

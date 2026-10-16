@@ -160,7 +160,7 @@ lets contact friction do the work.
 | Foul / scratch / pocketed detection | per-variant rules — physics only emits ordered events, the rules plug-in decides meaning | `variants/eightball.ts`, `nineball.ts`, `snooker.ts` |
 | Cue-ball start | **(413, 413)** pool; snooker 0.6 m off the baulk cushion, mid-height | `CUE_BALL_START` |
 | Pocketed-ball park | **(0, 900)** pool; (0, H+120) snooker | `POCKETED_PARK` |
-| Shot clock | **240 s**, off-chain, enforced by the server | `apps/server` |
+| Shot clock | **30 s**, off-chain, enforced by the server | `apps/server` |
 
 ## 10. Rendering & sync
 
